@@ -2242,6 +2242,7 @@ public class AnvilPlugin extends Plugin {
 			pushSoon();
 		}
 		lastWornItemIds = wornItemIds();
+		relayPmMode();
 		maybeSettleStats();
 		tickGameCounters();
 		if (movedTick >= 0 && client.getTickCount() >= movedTick) movesSettled();
@@ -7017,8 +7018,19 @@ public class AnvilPlugin extends Plugin {
 			case "gone":
 				relayHere.remove(m.get("n").getAsString());
 				return;
+			// Someone asked whether we're connected while our private chat is on Friends: yes, only to a friend.
+			case "ask":
+				var asker = m.get("n").getAsString();
+				clientThread.invoke(() -> {
+					if (client.isFriended(asker, false)) relaySend("t", "ok", "n", asker);
+				});
+				return;
 			case "hello":
 				relayHere.clear();
+				clientThread.invoke(() -> {
+					pmModeSent = "";
+					relayAsked.clear();
+				});
 				fetchChatChans(null);
 			// The Supporter list: a delta, or (on connecting: one may have been missed) a version check.
 			case "flair":
@@ -9865,15 +9877,44 @@ public class AnvilPlugin extends Plugin {
 		return p.say(gson.toJson(BingoApiClient.obj("t", "say", "c", c, "x", text, "to", to)));
 	}
 
+	/** A relay control message (not a chat line): our private chat setting, a who, a friend's yes. */
+	void relaySend(Object... kv) {
+		var p = pushSocket;
+		if (p != null && config.anvilChat() != AnvilConfig.Relay.Off) p.say(gson.toJson(BingoApiClient.obj(kv)));
+	}
+
+	/** The private chat setting last told to the relay ("" after a reconnect: tell it again). */
+	String pmModeSent = "";
+
 	/**
-	 * A PM goes out only to someone the relay says is connected, or a friend the game shows offline (it
-	 * can't reach them, Anvil might: the server answers whether they're connected). A PM to anyone else
-	 * never leaves the client. Shared channels don't come into it.
+	 * Client thread, each tick: our private chat setting, told to the relay when it changes. It decides
+	 * who past our shared channels may see us connected and PM us: On anyone, Friends our friends, Off nobody.
 	 */
-	boolean pmViaRelay(String to) {
-		if (relayConnected(to)) return true;
-		var f = client.getFriendContainer() == null ? null : client.getFriendContainer().findByName(to);
-		return f != null && f.getWorld() <= 0;
+	void relayPmMode() {
+		var f = client.getWidget(InterfaceID.Chatbox.CHAT_PRIVATE_FILTER);
+		if (f == null || pushSocket == null || !pushSocket.relayOk) return;
+		var t = Text.removeTags(f.getText());
+		var mode = t.contains("Off") ? "off" : t.contains("Friends") ? "friends" : t.contains("On") ? "on" : null;
+		if (mode == null || mode.equals(pmModeSent)) return;
+		pmModeSent = mode;
+		relaySend("t", "pm", "m", mode);
+	}
+
+	/** Names we asked the relay about, and when (ms): once a minute each at most. */
+	final Map<String, Long> relayAsked = capped(200, false);
+
+	/** Friends the game shows online but we don't know as connected: ask (their own setting decides). */
+	void relayWho(Collection<String> names) {
+		var ask = new ArrayList<String>();
+		long t = now();
+		for (var n : names) {
+			var k = Text.standardize(n);
+			var was = relayAsked.get(k);
+			if (relayConnected(n) || !friendOnline(n) || (was != null && t - was < 60_000)) continue;
+			relayAsked.put(k, t);
+			ask.add(n);
+		}
+		if (!ask.isEmpty()) relaySend("t", "who", "n", gson.toJsonTree(ask));
 	}
 
 	/** Client thread (onChatMessage): our own line goes out; someone else's is remembered for dedupe. */
@@ -9886,7 +9927,8 @@ public class AnvilPlugin extends Plugin {
 		var c = ct == CLAN_CHAT ? "clan" : ct == CLAN_GUEST_CHAT ? "guest" : ct == FRIENDSCHAT ? "fc" : ct == PRIVATECHAT || ct == PRIVATECHATOUT ? "pm" : "public";
 		// Our own line (a PM we sent names its recipient instead).
 		if (ct == PRIVATECHATOUT || Text.standardize(name).equals(Text.standardize(String.valueOf(getLocalPlayerName())))) {
-			if (ct != PRIVATECHATOUT || pmViaRelay(name)) if (relaySay(c, text, ct == PRIVATECHATOUT ? name : null)) relayMark(e.getMessageNode(), "");
+			// A PM only to someone the relay says is connected: otherwise nothing leaves the client.
+			if (ct != PRIVATECHATOUT || relayConnected(name)) if (relaySay(c, text, ct == PRIVATECHATOUT ? name : null)) relayMark(e.getMessageNode(), "");
 			return;
 		}
 		var key = c + relayKey(name, text);
@@ -10173,6 +10215,7 @@ public class AnvilPlugin extends Plugin {
 					&& (gc == null || gc.findMember(name) == null) && (fc == null || fc.findByName(name) == null)) continue;
 			names.putIfAbsent(Text.standardize(Text.removeTags(name)), Text.removeTags(name).replace('\u00a0', ' '));
 		}
+		if (show == 2) relayWho(names.values());
 		if (!names.isEmpty()) {
 			String status;
 			if (show < 2) status = "reconnecting";
