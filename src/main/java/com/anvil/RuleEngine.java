@@ -78,6 +78,8 @@ final class RuleEngine {
 		boolean coop;
 		Set<Integer> need;
 		String say;
+		/** Judged on the site only: never counted or said here (raid tiles: {@link #raid}). */
+		boolean site;
 
 		String key() {
 			return keys == null || keys.isEmpty() ? "" : keys.iterator().next();
@@ -114,6 +116,8 @@ final class RuleEngine {
 	final Map<Integer, Long> held = new HashMap<>();
 	/** This client's unconfirmed count for a tile: event rules build on it when the table is older. */
 	volatile IntToLongFunction floor = t -> 0;
+	/** A name's absolute count off the game's count line just read for it, else null. */
+	volatile Function<String, Integer> counts = n -> null;
 
 	synchronized void set(Table t) {
 		table = t;
@@ -181,6 +185,12 @@ final class RuleEngine {
 		var n = new JsonObject();
 		moved.forEach(n::addProperty);
 		f.add("n", n);
+		var c = new JsonObject();
+		moved.keySet().forEach(k -> {
+			var v = counts.apply(k);
+			if (v != null) c.addProperty(k, v);
+		});
+		if (c.size() > 0) f.add("c", c);
 		if (unverified != null && !unverified.isEmpty()) {
 			var u = new JsonArray();
 			unverified.forEach(u::add);
@@ -192,7 +202,7 @@ final class RuleEngine {
 	}
 
 	/** One loot event ({@code items} as [id, qty]); a repeat of an item within the dedup window is the same loot fired twice. */
-	synchronized Out loot(String source, String kind, List<int[]> items, Integer party, String inferred, long now) {
+	synchronized Out loot(String source, String kind, List<int[]> items, Integer party, String inferred, long now, Object... kv) {
 		var out = new Out();
 		var t = table;
 		if (t == null || items == null) return out;
@@ -232,7 +242,7 @@ final class RuleEngine {
 		f.add("items", sent);
 		if (party != null) f.addProperty("party", party);
 		if (inferred != null) f.addProperty("inf", inferred);
-		out.facts.add(f);
+		out.facts.add(put(f, kv));
 		return out;
 	}
 
@@ -278,7 +288,7 @@ final class RuleEngine {
 		var t = table;
 		if (t == null) return out;
 		for (var r : t.events) {
-			if (!on.equals(r.on) || r.of > 0 && Math.max(r.have, floor.applyAsLong(r.t)) >= r.of || !hit.test(r) || claim != null && !claim.test(r.t)) continue;
+			if (r.site || !on.equals(r.on) || r.of > 0 && Math.max(r.have, floor.applyAsLong(r.t)) >= r.of || !hit.test(r) || claim != null && !claim.test(r.t)) continue;
 			var why = r.max != null && value > r.max ? "max" : value < r.min ? "min" : r.party > 0 && party != r.party ? "party" : r.team && teamWhy != null ? "team" : null;
 			if (why == null) out.add(r);
 			else if (t.say.containsKey(on + "." + why)) no.add(fill(t, on + "." + why, r, "{x}", x, "{seen}", String.valueOf(party), "{party}", String.valueOf(r.party), "{why}", teamWhy));
@@ -343,11 +353,33 @@ final class RuleEngine {
 		return null;
 	}
 
+	/** The longest key of a raid rule this clear {@code names} (the most exact mode), or null. */
+	String raidKey(Predicate<String> names) {
+		var t = table;
+		String key = null;
+		if (t != null) for (var r : t.events) {
+			if ("raid".equals(r.on) && r.keys != null) for (var k : r.keys) if ((key == null || k.length() > key.length()) && names.test(k)) key = k;
+		}
+		return key;
+	}
+
+	/** A raid clear for the site to judge: one fact ({@code kv} in pairs) and a screenshot, nothing said or counted. */
+	static Out raid(Object... kv) {
+		var o = new Out();
+		o.shot = true;
+		o.facts.add(put(fact("raid"), kv));
+		return o;
+	}
+
 	/** A `tile` fact: the tile, the amount, and extras in pairs (a null value is left out). */
 	static JsonObject tile(int id, long n, Object... kv) {
 		var f = fact("tile");
 		f.addProperty("t", id);
 		f.addProperty("n", n);
+		return put(f, kv);
+	}
+
+	static JsonObject put(JsonObject f, Object... kv) {
 		for (int i = 0; i + 1 < kv.length; i += 2) {
 			var v = kv[i + 1];
 			if (v instanceof Number) f.addProperty((String) kv[i], (Number) v);
