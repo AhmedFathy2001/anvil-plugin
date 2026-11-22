@@ -40,6 +40,8 @@ final class RuleEngine {
 	static final class DropRule extends Rule {
 		List<String> npcs;
 		boolean simple;
+		/** An item hunt's target (`label` the item, `hunt` the hunt): a popup and a line, never a fact (the drop report carries it). */
+		String hunt;
 	}
 
 	static final class KillRule extends Rule {
@@ -105,6 +107,8 @@ final class RuleEngine {
 		final Map<Integer, Long> raised = new HashMap<>();
 		/** Drop tiles this event moved, as they stood, for the in-game "tile progress" popup. */
 		final List<Rule> toasts = new ArrayList<>();
+		/** Item hunt popups: the banner's three lines. */
+		final List<String[]> banners = new ArrayList<>();
 	}
 
 	static final long DEDUP_MS = 3_000;
@@ -218,8 +222,18 @@ final class RuleEngine {
 			var last = seenItems.get(it[0]);
 			if (!clog && last != null && now - last < DEDUP_MS) continue;
 			var any = false;
+			Boolean huntOk = null;
 			for (var r : rules) {
 				if (!sourceOk(r, source, kind) || (r.simple && r.have >= r.of)) continue;
+				if (r.hunt != null) {
+					// A pet or a new log slot reports the same item again a moment later: one popup for it.
+					if (huntOk == null) huntOk = huntFresh(it[0], now);
+					if (huntOk && said.add(r)) {
+						out.say.add(fill(t, "hunt", r, "{hunt}", r.hunt));
+						out.banners.add(new String[]{"Item hunt", r.hunt, r.label});
+					}
+					continue;
+				}
 				any = true;
 				if (r.simple) {
 					r.have = Math.min(r.of, r.have + Math.max(1, it[1]));
@@ -264,6 +278,33 @@ final class RuleEngine {
 		f.addProperty("gp", gp);
 		out.facts.add(f);
 		return out;
+	}
+
+	final Map<Integer, Long> huntSeen = new HashMap<>();
+
+	boolean huntFresh(int itemId, long now) {
+		var last = huntSeen.put(itemId, now);
+		return last == null || now - last > 10_000;
+	}
+
+	/** A pet the game announced (no loot event): the popup and line of every hunt it is a target of. */
+	synchronized Out hunted(int itemId, long now) {
+		var out = new Out();
+		var t = table;
+		var rules = t == null ? null : t.drops.get(String.valueOf(itemId));
+		if (rules == null || !huntFresh(itemId, now)) return out;
+		for (var r : rules) {
+			if (r.hunt == null) continue;
+			out.say.add(fill(t, "hunt", r, "{hunt}", r.hunt));
+			out.banners.add(new String[]{"Item hunt", r.hunt, r.label});
+		}
+		return out;
+	}
+
+	/** Does the table carry an item hunt's targets? */
+	boolean hasHunts() {
+		var t = table;
+		return t != null && t.drops.values().stream().anyMatch(rs -> rs.stream().anyMatch(r -> r.hunt != null));
 	}
 
 	/** Is any event rule of this kind open? */

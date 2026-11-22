@@ -3700,7 +3700,7 @@ public class AnvilPlugin extends Plugin {
 	 * {@link #creditGuaranteedAward}, which fires on every completion.
 	 */
 	void creditClogUnlock(String itemName) {
-		if (itemName == null || itemName.isEmpty() || trackingOff() || !rules.active()) return;
+		if (itemName == null || itemName.isEmpty() || lootOff() || !rules.active()) return;
 		// Notable clog unlocks (a ToA Cursed phalanx, a raid ornament kit) that fire ONLY the clog line and
 		// no loot event still deserve a rare-drop post. Route through maybeNotifyRareDrop — its per-item +
 		// name-keyed dedup absorbs the duplicate if a loot event fired for the same item — and do it
@@ -3927,6 +3927,10 @@ public class AnvilPlugin extends Plugin {
 		o.raised.forEach((t, have) -> raiseLocal(t, (int) Math.min(have, Integer.MAX_VALUE), now()));
 		say(o.say);
 		o.toasts.forEach(r -> showBingoToast(r.t, r.label, r.have, r.of));
+		// The same "My tile popups" switch covers an item hunt's drops.
+		o.banners.forEach(b -> {
+			if (config.selfTileBanner() && clogBanner.show(b[0], b[1], b[2])) playBannerSound();
+		});
 		for (var f : o.facts) {
 			if (o.shot && f.has("t")) noteLocalProgress(f.get("t").getAsInt()); // "Active now": this account credited this tile
 			queueFact(f, o.shot, coop);
@@ -4122,7 +4126,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	void processLoot(String source, Collection<ItemStack> items, String sourceKind) {
-		if (trackingOff() || items == null || items.isEmpty()) return;
+		if (items == null || items.isEmpty() || lootOff()) return;
 		var pairs = new ArrayList<int[]>();
 		for (var item : items) {
 			// A later clog-unlock line for an item a real loot event brought must not re-credit it.
@@ -8214,6 +8218,14 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/** True — with the reason logged, once a session — when tracking is off (see trackingGateReason). */
+	/** Loot is read with no live board too while the clan runs an item hunt (its popup and line); never on an uncounted world. */
+	boolean lootOff() {
+		var gate = trackingGateReason();
+		if (gate == null || rules.hasHunts() && !gate.equals("world not counted")) return false;
+		logTrackingSuppressed(gate);
+		return true;
+	}
+
 	boolean trackingOff() {
 		var gate = trackingGateReason();
 		if (gate != null) logTrackingSuppressed(gate);
@@ -8948,6 +8960,8 @@ public class AnvilPlugin extends Plugin {
 		synchronized (petLock) {
 			if (pendingPet == pet) pendingPet = null;
 		}
+		// An item hunt for this pet: its popup and line, whether or not the pet is posted anywhere.
+		if (pet.name != null && pet.itemId != null) emit(rules.hunted(pet.itemId, now()));
 		// The wait may have been for the site feed alone (drops channel off) — the name has been
 		// filled in by now either way, and there is nothing here to post.
 		if (!pet.announce) return;
