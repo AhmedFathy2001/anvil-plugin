@@ -262,6 +262,7 @@ public class AnvilPlugin extends Plugin {
 	final RuleEngine rules = new RuleEngine();
 	{
 		rules.floor = this::optimisticFloor; // event rules build on our own unconfirmed counts
+		rules.counts = this::countLine;
 	}
 	/** moveNotifyPrefs ran (or is running) this session. */
 	volatile boolean notifyPrefsMoved;
@@ -4130,7 +4131,9 @@ public class AnvilPlugin extends Plugin {
 			}
 			pairs.add(new int[]{item.getId(), Math.max(1, item.getQuantity())});
 		}
-		emit(rules.loot(source, sourceKind, pairs, wasInInstance ? partySize() : null, inferringFlag, now()));
+		var raid = wasInInstance && lastRaidPartySize > 0;
+		emit(rules.loot(source, sourceKind, pairs, wasInInstance ? partySize() : null, inferringFlag, now(),
+				"lvl", raid && raidLevelNow() > 0 ? raidLevelNow() : null, "deaths", raid ? instancePlayerDeaths : null));
 	}
 
 
@@ -4550,7 +4553,7 @@ public class AnvilPlugin extends Plugin {
 	void handleTimedChat(String plain) {
 		// Deathless tiles piggyback on the same correlation: a raid's completion is announced
 		// by the very duration + identity lines the timed machinery already pairs up.
-		if (!rules.has("timed") && !rules.has("deathless") || !live()) return;
+		if (!rules.has("timed") && !rules.has("deathless") && !rules.has("raid") || !live()) return;
 		var now = now();
 		var lower = plain.toLowerCase();
 
@@ -4568,6 +4571,7 @@ public class AnvilPlugin extends Plugin {
 				if (now - m.ts <= TIMED_CORRELATION_MS) {
 					submitted |= submitTimedForMessage(m.lower, seconds, now);
 					submitted |= submitDeathlessForMessage(m.lower, now);
+					submitted |= submitRaidForMessage(m.lower, seconds, now);
 				}
 			}
 			// Table-free fallback: attribute to the boss we just killed.
@@ -4581,7 +4585,7 @@ public class AnvilPlugin extends Plugin {
 			}
 		} else if (pendingTimedSeconds != null && now - pendingTimedAt <= TIMED_CORRELATION_MS) {
 			// No duration here, but a duration is waiting — does THIS line identify the activity?
-			if (submitTimedForMessage(lower, pendingTimedSeconds, now) | submitDeathlessForMessage(lower, now)) pendingTimedSeconds = null;
+			if (submitTimedForMessage(lower, pendingTimedSeconds, now) | submitDeathlessForMessage(lower, now) | submitRaidForMessage(lower, pendingTimedSeconds, now)) pendingTimedSeconds = null;
 		}
 	}
 
@@ -4608,6 +4612,46 @@ public class AnvilPlugin extends Plugin {
 					level -> emit(rules.credit(new RuleEngine.Out(), r, 1, null, "party", party, "lvl", toaLevel(r, level)), coop));
 		}
 		return !hit.isEmpty();
+	}
+
+	/**
+	 * The site's raid tiles: one fact per clear with what was seen (time, party, CoX scale, deaths,
+	 * how many inside were on our team, the count), judged there. ToA's waits for its level at the chest.
+	 */
+	boolean submitRaidForMessage(String lowerMessage, int seconds, long now) {
+		var key = rules.raidKey(k -> timedHit(lowerMessage, k));
+		if (key == null || !claim(lastTimedSubmittedAt, RAID_CLAIM, now, TIMED_DEDUP_WINDOW_MS)) return key != null;
+		var seen = new HashSet<>(instancePlayersSeen);
+		var me = client.getLocalPlayer();
+		if (me != null && me.getName() != null) seen.add(me.getName().toLowerCase());
+		var team = myTeamRoster();
+		int mates = 0, party = partySize();
+		for (var n : seen) if (team.contains(Rsn.normalize(n))) mates++;
+		var cox = key.startsWith("chambers of xeric") && client.getVarbitValue(VarbitID.RAIDS_CLIENT_INDUNGEON) == 1;
+		var scale = cox ? client.getVarbitValue(VarbitID.RAIDS_CLIENT_PARTYSIZE_SCALED) : 0;
+		Object[] kv = {"key", key, "sec", seconds, "party", party, "scale", scale > 0 ? scale : null, "deaths", instancePlayerDeaths,
+				"mates", team.isEmpty() ? null : mates, "all", !team.isEmpty() && mates == seen.size() && party <= seen.size() ? true : null, "kc", countLine(key)};
+		IntConsumer send = level -> emit(RuleEngine.raid(append(kv, "lvl", level > 0 ? level : null)));
+		if (!RaidGates.isToa(key)) send.accept(0);
+		else {
+			if (heldToaRuns.isEmpty()) heldToaRunsSince = now();
+			heldToaRuns.add(send);
+		}
+		return true;
+	}
+
+	static final int RAID_CLAIM = Integer.MIN_VALUE;
+
+	static Object[] append(Object[] a, Object... b) {
+		var out = Arrays.copyOf(a, a.length + b.length);
+		System.arraycopy(b, 0, out, a.length, b.length);
+		return out;
+	}
+
+	/** The absolute count off the count line just read for exactly this name, else null. */
+	Integer countLine(String name) {
+		return lastKcName != null && now() - lastKcAtMs <= KC_ATTRIBUTION_WINDOW_MS
+				&& normalizeBossName(name).equals(normalizeBossName(lastKcName)) ? lastKcValue : null;
 	}
 
 	/** The ToA raid level for a fact, only on a ToA tile. */

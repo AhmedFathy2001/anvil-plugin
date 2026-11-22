@@ -917,7 +917,16 @@ final class UiView extends JPanel {
 		}
 		if (spec.has("item") && items != null) {
 			int qty = num(spec, "qty", 0);
-			items.getImage(num(spec, "item", 0), max(1, qty), qty > 1).addTo(l);
+			var img = items.getImage(num(spec, "item", 0), max(1, qty), qty > 1);
+			if (!spec.has("w")) {
+				img.addTo(l);
+				return true;
+			}
+			// The size the site asked for, so items sit level with the boss pictures beside them.
+			int bh = num(spec, "h", size);
+			Runnable fit = () -> l.setIcon(new ImageIcon(fit(img, size, bh)));
+			img.onLoaded(() -> SwingUtilities.invokeLater(fit));
+			fit.run();
 			return true;
 		}
 		if (spec.has("sprite") && sprites != null) {
@@ -929,8 +938,16 @@ final class UiView extends JPanel {
 			l.setIcon(new ImageIcon(skills.getSkillImage(skill, true)));
 			return true;
 		}
-		if (spec.has("boss")) return bossIcon(l, str(spec, "boss"), min(size, l.getFontMetrics(l.getFont()).getHeight()));
+		// A boss with no size given sits in a line of text, so the text's height caps it.
+		if (spec.has("boss")) return bossIcon(l, str(spec, "boss"), spec.has("w") ? min(size, num(spec, "h", size)) : min(size, l.getFontMetrics(l.getFont()).getHeight()));
 		return false;
+	}
+
+	/** Shrunk to fit w×h, keeping its shape; a picture already inside is left as it is. */
+	static BufferedImage fit(BufferedImage img, int w, int h) {
+		if (img.getWidth() <= w && img.getHeight() <= h) return img;
+		var k = min((double) w / img.getWidth(), (double) h / img.getHeight());
+		return ImageUtil.resizeImage(img, max(1, (int) (img.getWidth() * k)), max(1, (int) (img.getHeight() * k)));
 	}
 
 	JComponent bar(JsonObject n) {
