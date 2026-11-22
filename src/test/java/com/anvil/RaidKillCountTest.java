@@ -79,6 +79,33 @@ public class RaidKillCountTest
 	}
 
 	@Test
+	public void aRaidCountNeverLeaksOntoAnotherSource()
+	{
+		AnvilPlugin p = sawLine("Tombs of Amascut: Expert Mode", 144, 5 * 60_000L);
+		p.killCounts.put("zulrah", 50);
+		// Another boss's drop answers with its own count, never the raid's.
+		assertEquals(Integer.valueOf(50), p.killCountFor("Zulrah"));
+		assertEquals(null, p.killCountFor("Vorkath"));
+		// Another raid's chest neither.
+		assertEquals(null, p.killCountFor("Chambers of Xeric"));
+		assertEquals(null, p.killCountFor("Theatre of Blood"));
+		// A clue casket or a skilling pet has no kill line of its own.
+		assertEquals(null, p.killCountFor("Clue Scroll (elite)"));
+	}
+
+	@Test
+	public void theNextKillReplacesTheRaidLine()
+	{
+		AnvilPlugin p = sawLine("Tombs of Amascut: Expert Mode", 11, 5 * 60_000L);
+		// A Zulrah kill after the raid: the old raid line no longer answers anything, even for ToA.
+		p.lastKcName = "Zulrah";
+		p.lastKcValue = 51;
+		p.lastKcAtMs = AnvilPlugin.now() - 2 * 60_000L;
+		assertFalse(p.kcLineFresh());
+		assertEquals(Integer.valueOf(144), p.killCountFor("Tombs of Amascut")); // the stored count, not the line's 11
+	}
+
+	@Test
 	public void aBossLineStillGoesStaleAfterAMinute()
 	{
 		assertTrue(sawLine("Zulrah", 50, 30_000L).kcLineFresh());
