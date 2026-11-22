@@ -66,6 +66,7 @@ public class RaidKillCountTest
 		p.lastKcName = name;
 		p.lastKcValue = kc;
 		p.lastKcAtMs = AnvilPlugin.now() - agoMs;
+		p.raidLineOpen = AnvilPlugin.isRaidLine(name);
 		p.killCounts.put("tombs of amascut", 144);
 		return p;
 	}
@@ -73,9 +74,12 @@ public class RaidKillCountTest
 	@Test
 	public void aRaidChestMinutesAfterTheLastBossKeepsItsModeCount()
 	{
-		// Wardens die, the Expert line says 11, the chest is opened three minutes later: not normal-mode 144.
-		assertEquals(Integer.valueOf(11), sawLine("Tombs of Amascut: Expert Mode", 11, 3 * 60_000L).killCountFor("Tombs of Amascut"));
-		assertEquals(Integer.valueOf(144), sawLine("Tombs of Amascut: Expert Mode", 11, 31 * 60_000L).killCountFor("Tombs of Amascut"));
+		// Wardens die, the Expert line says 11, the chest is opened minutes later, still in the raid: not normal-mode 144.
+		AnvilPlugin p = sawLine("Tombs of Amascut: Expert Mode", 11, 3 * 60_000L);
+		assertEquals(Integer.valueOf(11), p.killCountFor("Tombs of Amascut"));
+		// Out of the raid (the next tick outside an instance closes it): the line answers nothing more.
+		p.raidLineOpen = false;
+		assertEquals(Integer.valueOf(144), p.killCountFor("Tombs of Amascut"));
 	}
 
 	@Test
@@ -99,6 +103,7 @@ public class RaidKillCountTest
 		AnvilPlugin p = sawLine("Tombs of Amascut: Expert Mode", 11, 5 * 60_000L);
 		// A Zulrah kill after the raid: the old raid line no longer answers anything, even for ToA.
 		p.lastKcName = "Zulrah";
+		p.raidLineOpen = false;
 		p.lastKcValue = 51;
 		p.lastKcAtMs = AnvilPlugin.now() - 2 * 60_000L;
 		assertFalse(p.kcLineFresh());

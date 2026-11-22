@@ -380,16 +380,21 @@ public class AnvilPlugin extends Plugin {
 	long lastKcAtMs;
 	/** How recent that line has to be for an unlock to be attributed to it. */
 	static final long KC_ATTRIBUTION_WINDOW_MS = 60_000L;
-	/** A raid's count line comes at the last boss and its loot at the chest, often minutes later. */
-	static final long RAID_KC_WINDOW_MS = 30 * 60_000L;
 	static final List<String> RAIDS = List.of("chambers of xeric", "theatre of blood", "tombs of amascut");
+	/**
+	 * A raid's count line comes at the last boss and its loot at the chest, minutes later: the line
+	 * holds while we are still in that raid's instance and ends when we leave it (onGameTick).
+	 */
+	boolean raidLineOpen;
+
+	static boolean isRaidLine(String name) {
+		var n = normalizeBossName(name);
+		return RAIDS.stream().anyMatch(n::startsWith);
+	}
 
 	/** Whether the last count line is still the one a drop or unlock now belongs to. */
 	boolean kcLineFresh() {
-		if (lastKcName == null) return false;
-		var n = normalizeBossName(lastKcName);
-		var raid = RAIDS.stream().anyMatch(n::startsWith);
-		return now() - lastKcAtMs <= (raid ? RAID_KC_WINDOW_MS : KC_ATTRIBUTION_WINDOW_MS);
+		return lastKcName != null && (raidLineOpen || now() - lastKcAtMs <= KC_ATTRIBUTION_WINDOW_MS);
 	}
 	// The counter word varies by activity ("kill", "completion" for the Gauntlet, "chest" for
 	// Barrows, "success" for Zalcano, "harvest" for Herbiboar, "lap" for agility courses, and
@@ -2308,6 +2313,7 @@ public class AnvilPlugin extends Plugin {
 		// Seeded once on entry from who is already loaded; onPlayerSpawned adds the rest.
 		var topView = client.getTopLevelWorldView();
 		var inInstance = topView != null && topView.isInstance();
+		if (!inInstance) raidLineOpen = false;
 		int toaLevel = client.getVarbitValue(VarbitID.TOA_CLIENT_RAID_LEVEL);
 		if (inInstance && !wasInInstance) {
 			instancePlayerDeaths = 0;
@@ -3466,6 +3472,8 @@ public class AnvilPlugin extends Plugin {
 				lastKcName = kcName;
 				lastKcValue = kc;
 				lastKcAtMs = now();
+				var view = client.getTopLevelWorldView();
+				raidLineOpen = isRaidLine(kcName) && view != null && view.isInstance();
 				creditBossKillFromChat(kcName, firstSeen);
 				// Real-time boss-KC tiles: push the absolute count so the tile updates now instead
 				// of waiting ~1h for the hiscores cron (debounced).
@@ -3484,6 +3492,7 @@ public class AnvilPlugin extends Plugin {
 		if (delveMatcher != null) {
 			try {
 				int kc = Integer.parseInt(delveMatcher.group("count").replace(",", ""));
+				raidLineOpen = false;
 				lastKcName = DOOM_BOSS_NAME;
 				lastKcValue = kc;
 				lastKcAtMs = now();
