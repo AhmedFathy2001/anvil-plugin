@@ -8010,11 +8010,29 @@ public class AnvilPlugin extends Plugin {
 		final int pile;
 	}
 
+	/** Something of this name is within reach of us now: an attacker left behind in another room isn't. */
+	boolean nearUs(String name) {
+		var me = client.getLocalPlayer();
+		var view = client.getTopLevelWorldView();
+		if (me == null || view == null) return true;
+		var at = me.getWorldLocation();
+		for (var npc : view.npcs()) {
+			if (npc != null && Rsn.same(npc.getName(), name) && npc.getWorldLocation().distanceTo(at) <= KILLER_REACH) return true;
+		}
+		for (var p : view.players()) {
+			if (p != null && p != me && Rsn.same(p.getName(), name) && p.getWorldLocation().distanceTo(at) <= KILLER_REACH) return true;
+		}
+		return false;
+	}
+
+	/** Tiles: room enough for the farthest attacks (a big raid room), short of the room next door. */
+	static final int KILLER_REACH = 20;
+
 	/** Resolve one death once, so the Feed and Discord cannot disagree about what killed us. */
 	AttributedDeath resolveDeathSource() {
 		var now = now();
 		var fighting = lastCombatTarget != null && now - lastCombatTargetAt <= DEATH_ATTRIBUTION_MS ? lastCombatTarget : null;
-		var killer = deathAttribution.killer(fighting, now);
+		var killer = deathAttribution.killer(fighting, now, this::nearUs);
 		// Breadcrumb so client.log can explain an attribution that looks odd: how many things had us
 		// and which one we picked, next to what we were hitting.
 		log.info("Death: {} ({} attackers, fighting {})",

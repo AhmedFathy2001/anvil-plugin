@@ -1,6 +1,7 @@
 package com.anvil;
 
 import java.util.*;
+import java.util.function.Predicate;
 
 /**
  * What killed us — as opposed to what we were killing.
@@ -102,16 +103,25 @@ final class DeathAttribution {
 	 * @param weWereFighting the last thing we landed a hit on, used only to break a tie
 	 */
 	synchronized String killer(String weWereFighting, long nowMs) {
+		return killer(weWereFighting, nowMs, n -> true);
+	}
+
+	/**
+	 * ...counting only the attackers {@code near} still finds beside us. A target can outlive the room:
+	 * a CoX Jewelled Crab from the puzzle stayed "on" a player, and his death at Tekton two rooms later
+	 * read "Killed by Jewelled Crab (red)".
+	 */
+	synchronized String killer(String weWereFighting, long nowMs, Predicate<String> near) {
 		if (lastDamageAt <= 0 || nowMs - lastDamageAt > DAMAGE_WINDOW_MS || attackers.isEmpty()) return null;
 		if (weWereFighting != null && !weWereFighting.isEmpty()) {
 			for (var name : attackers.keySet()) {
-				if (Rsn.same(name, weWereFighting)) return name;
+				if (Rsn.same(name, weWereFighting) && near.test(name)) return name;
 			}
 		}
 		String newest = null;
 		var newestAt = Long.MIN_VALUE;
 		for (var entry : attackers.entrySet()) {
-			if (entry.getValue() >= newestAt) {
+			if (entry.getValue() >= newestAt && near.test(entry.getKey())) {
 				newestAt = entry.getValue();
 				newest = entry.getKey();
 			}
