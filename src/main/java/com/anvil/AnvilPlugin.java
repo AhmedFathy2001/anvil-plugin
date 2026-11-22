@@ -380,6 +380,17 @@ public class AnvilPlugin extends Plugin {
 	long lastKcAtMs;
 	/** How recent that line has to be for an unlock to be attributed to it. */
 	static final long KC_ATTRIBUTION_WINDOW_MS = 60_000L;
+	/** A raid's count line comes at the last boss and its loot at the chest, often minutes later. */
+	static final long RAID_KC_WINDOW_MS = 30 * 60_000L;
+	static final List<String> RAIDS = List.of("chambers of xeric", "theatre of blood", "tombs of amascut");
+
+	/** Whether the last count line is still the one a drop or unlock now belongs to. */
+	boolean kcLineFresh() {
+		if (lastKcName == null) return false;
+		var n = normalizeBossName(lastKcName);
+		var raid = RAIDS.stream().anyMatch(n::startsWith);
+		return now() - lastKcAtMs <= (raid ? RAID_KC_WINDOW_MS : KC_ATTRIBUTION_WINDOW_MS);
+	}
 	// The counter word varies by activity ("kill", "completion" for the Gauntlet, "chest" for
 	// Barrows, "success" for Zalcano, "harvest" for Herbiboar, "lap" for agility courses, and
 	// "Total Ticket" for the Brimhaven Agility Arena) and Wintertodt prefixes "subdued" — all must
@@ -4654,7 +4665,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** The absolute count off the count line just read for exactly this name, else null. */
 	Integer countLine(String name) {
-		return lastKcName != null && now() - lastKcAtMs <= KC_ATTRIBUTION_WINDOW_MS
+		return kcLineFresh()
 				&& normalizeBossName(name).equals(normalizeBossName(lastKcName)) ? lastKcValue : null;
 	}
 
@@ -7645,8 +7656,7 @@ public class AnvilPlugin extends Plugin {
 	 * rather than attributing itself to whatever was killed an hour ago.
 	 */
 	void pushKcForUnlock() {
-		if (!statPushAllowed() || lastKcName == null) return;
-		if (now() - lastKcAtMs > KC_ATTRIBUTION_WINDOW_MS) return;
+		if (!statPushAllowed() || !kcLineFresh()) return;
 		kcPush.queue(lastKcName, lastKcValue);
 	}
 
@@ -8787,9 +8797,7 @@ public class AnvilPlugin extends Plugin {
 	Integer killCountFor(String source) {
 		var cfg = pluginConfig;
 		if (cfg != null && !cfg.showKillCount || source == null) return null;
-		if (lastKcName != null
-				&& now() - lastKcAtMs <= KC_ATTRIBUTION_WINDOW_MS
-				&& kcLineBelongsTo(source, lastKcName)) return lastKcValue;
+		if (kcLineFresh() && kcLineBelongsTo(source, lastKcName)) return lastKcValue;
 		return killCounts.get(source.toLowerCase());
 	}
 
@@ -10600,7 +10608,7 @@ public class AnvilPlugin extends Plugin {
 	void sendClogUnlock(String item) {
 		if (!supportsProfileSync()) return;
 		// Read on the client thread, where the kill line was recorded.
-		var recentKill = lastKcName != null && now() - lastKcAtMs <= KC_ATTRIBUTION_WINDOW_MS;
+		var recentKill = kcLineFresh();
 		var kcName = recentKill ? lastKcName : null;
 		var kc = recentKill ? lastKcValue : null;
 		submit(() -> {
