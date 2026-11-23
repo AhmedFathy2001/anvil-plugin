@@ -471,6 +471,10 @@ public class AnvilPlugin extends Plugin {
 	// (chat-patterns.json "counter.sunstone_golem"). The "You have crafted X golems on Wyrmscraig."
 	// tally is deliberately NOT read, so a golem counts once.
 	static final String SUNSTONE_GOLEMS = "Sunstone golems crafted";
+	// "We've awarded you 4 Void Knight Commendation points." — a won Pest Control game, and its points
+	// (chat-patterns.json "counter.pest_control_win").
+	static final String PC_WINS = "Pest Control games won";
+	static final String PC_POINTS = "Pest Control points";
 	// No trailing "(...)" in any counter name: the kill index drops a trailing parenthetical as a wiki
 	// qualifier (DropSource.inGameNpcName).
 
@@ -3514,6 +3518,8 @@ public class AnvilPlugin extends Plugin {
 		var vale = find("counter.vale_offerings", plain);
 		if (vale != null) creditNamedCounter("five".equalsIgnoreCase(vale.group("times")) ? 5 : 1, null, VALE_RESEARCH);
 		if (find("counter.sunstone_golem", plain) != null) creditNamedCounter(SUNSTONE_GOLEMS);
+		var pc = find("counter.pest_control_win", plain);
+		if (pc != null && !trackingOff()) emit(rules.kill(Map.of(PC_WINS, 1, PC_POINTS, parseCount(pc.group("points"))), null, null));
 		var energy = find("counter.gotr_energy", plain);
 		if (energy != null) {
 			int elemental = parseCount(energy.group("elemental"));
