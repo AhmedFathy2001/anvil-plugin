@@ -9447,7 +9447,12 @@ public class AnvilPlugin extends Plugin {
 	/** A drop's facts, before its items. */
 	NotifyFacts dropPost(String source, String sourceKind, Integer kc) {
 		return facts("drop").put("source", source).put("sourceKind", sourceKind)
-				.put("kc", kc);
+				.put("kc", kc).put("kcOf", kc != null ? kcLineFor(source) : null);
+	}
+
+	/** The count line a raid drop's KC came from ("Chambers of Xeric Challenge Mode"): the site names the mode. */
+	String kcLineFor(String source) {
+		return source != null && isRaidLine(source) && kcLineFresh() && kcLineBelongsTo(source, lastKcName) ? lastKcName : null;
 	}
 
 	/** A drop post to the drops channel, with its screenshot. */

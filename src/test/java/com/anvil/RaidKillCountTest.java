@@ -111,6 +111,17 @@ public class RaidKillCountTest
 	}
 
 	@Test
+	public void aRaidDropNamesTheModeItsCountIsFrom()
+	{
+		AnvilPlugin p = sawLine("Chambers of Xeric Challenge Mode", 17, 60_000L);
+		assertEquals("Chambers of Xeric Challenge Mode", p.kcLineFor("Chambers of Xeric"));
+		assertEquals(null, p.kcLineFor("Zulrah"));
+		p.raidLineOpen = false;
+		p.lastKcAtMs = AnvilPlugin.now() - 5 * 60_000L;
+		assertEquals(null, p.kcLineFor("Chambers of Xeric"));
+	}
+
+	@Test
 	public void aBossLineStillGoesStaleAfterAMinute()
 	{
 		assertTrue(sawLine("Zulrah", 50, 30_000L).kcLineFresh());
