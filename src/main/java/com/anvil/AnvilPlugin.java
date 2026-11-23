@@ -6855,6 +6855,14 @@ public class AnvilPlugin extends Plugin {
 		unflairClanTitleWidgets();
 	}
 
+	/**
+	 * The chat input's "name:" — or "name (clan):", "name (channel):" when typing goes to a channel; the
+	 * suffix (group 2, kept as the game wrote it, tags and all) used to stop the name being painted.
+	 */
+	static Pattern inputNamePattern(String me) {
+		return Pattern.compile("^((?:<img=\\d+>)*)" + Pattern.quote(me) + "((?:<[^>]*>)*(?: ?(?:<[^>]*>)*\\((?:[^():<]|<[^>]*>)*\\))?(?:<[^>]*>)*):");
+	}
+
 	void flairChatInput() {
 		if (flairOff() || client.getLocalPlayer() == null) return;
 		var input = client.getWidget(InterfaceID.Chatbox.INPUT);
@@ -6864,7 +6872,7 @@ public class AnvilPlugin extends Plugin {
 		if (empty(text)) return;
 		if (!me.equals(inputFlairName)) {
 			inputFlairName = me;
-			inputFlairPattern = Pattern.compile("^((?:<img=\\d+>)*)" + Pattern.quote(me) + ":");
+			inputFlairPattern = inputNamePattern(me);
 		}
 		var frame = chatFlair.movingName(me) ? currentChatNameFrame() : -1;
 		var move = frame != inputNameFrame;
@@ -6881,7 +6889,7 @@ public class AnvilPlugin extends Plugin {
 		var painted = chatFlair.decorateReadable(m.group(1) + me, chatStar(), shift, opaque);
 		if (painted != null) {
 			inputPlain = text;
-			inputPainted = painted + ":" + text.substring(m.end());
+			inputPainted = painted + m.group(2) + ":" + text.substring(m.end());
 			input.setText(inputPainted);
 		}
 	}
