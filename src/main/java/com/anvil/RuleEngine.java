@@ -313,6 +313,15 @@ final class RuleEngine {
 		return t != null && t.events.stream().anyMatch(r -> on.equals(r.on));
 	}
 
+	/** The keys open {@code on} rules list beside {@code key}: on a gain tile, the item's other ids. */
+	Set<String> keysWith(String on, String key) {
+		var t = table;
+		var out = new HashSet<String>();
+		if (t != null) for (var r : t.events) if (on.equals(r.on) && r.keys != null && r.keys.contains(key)) out.addAll(r.keys);
+		out.remove(key);
+		return out;
+	}
+
 	/** Hits a rule taking any of these keys, or any key ("*", or none listed), unless it lists one as {@code no}. */
 	static Predicate<EventRule> named(String... ks) {
 		return r -> (r.no == null || Arrays.stream(ks).noneMatch(r.no::contains))

@@ -4415,8 +4415,20 @@ public class AnvilPlugin extends Plugin {
 				|| tick - lastGroundTakeTick <= 2 || tick - lastTelegrabTick <= 8 /* TELEGRAB_GUARD_TICKS */
 				|| tick - lastSuppressCloseTick <= 2 || tick - lastStorageMoveTick <= 2) return;
 
+		var lost = new HashMap<String, Integer>();
+		for (var e : previous.entrySet()) {
+			int left = e.getValue() - counts.getOrDefault(e.getKey(), 0);
+			if (left > 0) lost.put(String.valueOf(e.getKey()), left);
+		}
 		for (var e : counts.entrySet()) {
 			int delta = e.getValue() - previous.getOrDefault(e.getKey(), 0);
+			// Charging or emptying swaps one of a tile's ids for another (an uncharged scythe becomes a
+			// charged one): what left the same tick under a sibling id is no gain.
+			for (var k : delta > 0 ? rules.keysWith("gain", String.valueOf(e.getKey())) : Set.<String>of()) {
+				int n = Math.min(delta, lost.getOrDefault(k, 0));
+				delta -= n;
+				lost.merge(k, -n, Integer::sum);
+			}
 			// Every tile tracking this item credits, mirroring drops/kills; held for its tile's batch.
 			if (delta <= 0) continue;
 			var o = rules.event("gain", RuleEngine.named(String.valueOf(e.getKey())), delta, null, null);
