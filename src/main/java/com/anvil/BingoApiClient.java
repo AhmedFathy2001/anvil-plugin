@@ -86,7 +86,10 @@ public class BingoApiClient {
 			.readTimeout(90, TimeUnit.SECONDS)
 			.writeTimeout(30, TimeUnit.SECONDS)
 			.build();
-		pushClient = httpClient.newBuilder().pingInterval(30, TimeUnit.SECONDS).build();
+		// Its own pool: a reconnect never rides a pooled connection that died quietly, and a handshake that
+		// hangs gives up in 15s (the shared 90s read kept chat on "reconnecting" through each try).
+		pushClient = httpClient.newBuilder().connectionPool(new ConnectionPool(1, 1, TimeUnit.MINUTES))
+				.readTimeout(15, TimeUnit.SECONDS).pingInterval(30, TimeUnit.SECONDS).build();
 		// Reads the sidebar waits on (config, feed, board, cards) give up sooner: a panel stuck on
 		// "Loading…" for a minute and a half is worse than one that says the site is slow and keeps
 		// what it had. Uploads and submissions keep the long timeout above.
