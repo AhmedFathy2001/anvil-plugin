@@ -1155,7 +1155,13 @@ public class AnvilSidebarPanel extends PluginPanel {
 			refreshing(true);
 		}
 		interactive().execute(() -> {
-			data.refreshConfig(manual);
+			// Whatever the refetch does, the panel redraws from what it holds and the button comes back:
+			// an exception here used to skip the redraw and leave "Refreshing…" disabled for good.
+			try {
+				data.refreshConfig(manual);
+			} catch (RuntimeException e) {
+				log.warn("Sidebar refresh failed: {}", e.toString());
+			}
 			invokeLater(() -> {
 				if (manual) refreshing(false);
 				rebuildClanPicker();

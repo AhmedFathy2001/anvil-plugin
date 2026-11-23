@@ -236,9 +236,10 @@ public class AnvilSidebarDataSource {
 		withPlugin(p -> {
 			p.refreshConfigForSidebar(force);
 			if (force) {
-				p.reprobeAdminNow();
-				p.refreshLook();
-				p.refreshChatFlairNow();
+				// Each on its own: one failing must not skip the rest (or the panel redraw after them).
+				p.safely("admin probe", p::reprobeAdminNow);
+				p.safely("look", p::refreshLook);
+				p.safely("chat flair", p::refreshChatFlairNow);
 			}
 		});
 	}

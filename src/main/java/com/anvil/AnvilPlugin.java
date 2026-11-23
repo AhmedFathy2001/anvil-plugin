@@ -5882,7 +5882,14 @@ public class AnvilPlugin extends Plugin {
 		// A clicked Refresh wants the newest answer. If a fetch is already running, its answer is that —
 		// wait for it rather than sending a second one behind it.
 		var asked = now();
-		configFetchLock.lock();
+		// Bounded: a poll stuck on a slow site must not hold the button for its whole read timeout.
+		// The answer it brings lands on the next repaint anyway.
+		try {
+			if (!configFetchLock.tryLock(25, TimeUnit.SECONDS)) return;
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			return;
+		}
 		if (lastConfigAttemptAt < asked) fetchConfigAndUnlock();
 		else configFetchLock.unlock();
 	}
@@ -7350,6 +7357,9 @@ public class AnvilPlugin extends Plugin {
 			maybeNudgeStartProof();
 			maybeReprobeAdmin();
 
+		} catch (JsonParseException e) {
+			// A 200 that isn't the config (a proxy page mid-deploy): a failed refresh, keep what we have.
+			log.warn("Config refresh failed: {}", e.toString());
 		} catch (IOException e) {
 			log.warn("Config refresh failed: {}", e.getMessage());
 			// A definite refusal (no clan, bad token) is an answer too: the saved copy goes. A site
