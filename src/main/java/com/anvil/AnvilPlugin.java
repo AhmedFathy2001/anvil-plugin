@@ -3158,9 +3158,19 @@ public class AnvilPlugin extends Plugin {
 	 */
 	void processValueTiles(String source, Collection<ItemStack> items, String sourceKind) {
 		if (trackingGateReason() != null || items == null || items.isEmpty()) return;
+		// A clue casket is valued by the game's own "worth around" line (clueWorth), not live prices.
+		if (source != null && source.startsWith("Clue Scroll (")) return;
 		var gp = haulValue(items);
 		// One kill reaches us twice (ServerNpcLoot / NpcLootReceived, then LootReceived): one haul.
 		if (claim(lastSubmittedAt, "value:" + source + ":" + gp, now(), DEDUP_WINDOW_MS)) emit(rules.value(source, sourceKind, gp));
+	}
+
+	String clueTier;
+
+	/** A clue casket's value as the game states it (GE guide prices): what loot-value tiles count. */
+	void clueWorth(String source, long gp) {
+		clueTier = null;
+		if (trackingGateReason() == null && claim(lastSubmittedAt, "value:" + source + ":" + gp, now(), DEDUP_WINDOW_MS)) emit(rules.value(source, "event", gp));
 	}
 
 	/** GE value of a whole haul. Client thread only (itemManager.getItemPrice). */
@@ -3518,6 +3528,10 @@ public class AnvilPlugin extends Plugin {
 		var vale = find("counter.vale_offerings", plain);
 		if (vale != null) creditNamedCounter("five".equalsIgnoreCase(vale.group("times")) ? 5 : 1, null, VALE_RESEARCH);
 		if (find("counter.sunstone_golem", plain) != null) creditNamedCounter(SUNSTONE_GOLEMS);
+		var clueTierLine = find("clue.tier", plain);
+		if (clueTierLine != null) clueTier = clueTierLine.group("tier");
+		var worth = find("clue.worth", plain);
+		if (worth != null && clueTier != null) clueWorth(normalizeClueSource("clue scroll " + clueTier), parseCount(worth.group("gp")));
 		var pc = find("counter.pest_control_win", plain);
 		if (pc != null && !trackingOff()) emit(rules.kill(Map.of(PC_WINS, 1, PC_POINTS, parseCount(pc.group("points"))), null, null));
 		var energy = find("counter.gotr_energy", plain);
