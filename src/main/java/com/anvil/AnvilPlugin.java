@@ -6272,7 +6272,7 @@ public class AnvilPlugin extends Plugin {
 			int before = f == null ? 1 : wrapLines(o.getText(), o.getOriginalWidth(), f), after = f == null ? 1 : wrapLines(o.getText(), w, f);
 			o.setOriginalWidth(w);
 			if (after > before) {
-				pushRowsDown(lines, o, (after - before) * max(1, o.getOriginalHeight() / before));
+				growRow(lines, o, (after - before) * max(1, o.getOriginalHeight() / before));
 				chatboxGrown[j] = o.getOriginalHeight();
 				chatboxGrownText[j] = o.getText();
 			}
@@ -6285,7 +6285,7 @@ public class AnvilPlugin extends Plugin {
 	/**
 	 * A message we grew into an extra line keeps it, and the rows below stay under it, however often the
 	 * game lays the chat out again. Its text or position changing means the game rebuilt that slot plain:
-	 * it is forgotten. Otherwise its height comes back and anything that slid up under it moves down.
+	 * it is forgotten. Otherwise its height comes back and anything that slid up under it is cleared by moving it and the rows above up.
 	 */
 	void keepGrownRows(Widget[] lines) {
 		for (int j = 0; j < min(lines.length, chatboxGrown.length); j++) {
@@ -6297,13 +6297,13 @@ public class AnvilPlugin extends Plugin {
 				continue;
 			}
 			if (o.getOriginalHeight() < chatboxGrown[j]) {
-				pushRowsDown(lines, o, chatboxGrown[j] - o.getOriginalHeight());
+				growRow(lines, o, chatboxGrown[j] - o.getOriginalHeight());
 				continue;
 			}
 			int y = o.getOriginalY(), next = Integer.MAX_VALUE;
 			for (var l : lines) if (l != null && l != o && !l.isHidden() && l.getOriginalY() > y) next = min(next, l.getOriginalY());
 			int under = y + o.getOriginalHeight() - next;
-			if (next != Integer.MAX_VALUE && under > 0) pushRowsDown(lines, o, under, false);
+			if (next != Integer.MAX_VALUE && under > 0) growRow(lines, o, under, false);
 		}
 	}
 
@@ -6320,27 +6320,26 @@ public class AnvilPlugin extends Plugin {
 		return lines;
 	}
 
-	/** Grow {@code o} by {@code extra} px and move every chatbox row below it down to match, keeping the view where it was. */
-	void pushRowsDown(Widget[] lines, Widget o, int extra) {
-		pushRowsDown(lines, o, extra, true);
+	/**
+	 * Grow {@code o} by {@code extra} px: its row and every row above it move UP to make the room, the rows
+	 * below never move. The scroll is left alone: the game's mouse-over reads its own scroll, so changing
+	 * it put every row under a grown message one line below where it was drawn.
+	 */
+	void growRow(Widget[] lines, Widget o, int extra) {
+		growRow(lines, o, extra, true);
 	}
 
-	void pushRowsDown(Widget[] lines, Widget o, int extra, boolean grow) {
+	void growRow(Widget[] lines, Widget o, int extra, boolean grow) {
 		int y = o.getOriginalY();
 		if (grow) {
 			o.setOriginalHeight(o.getOriginalHeight() + extra);
 			o.revalidate();
 		}
 		for (var l : lines) {
-			if (l == null || l == o || l.getOriginalY() <= y) continue;
-			l.setOriginalY(l.getOriginalY() + extra);
+			if (l == null || l.getOriginalY() > y) continue;
+			l.setOriginalY(l.getOriginalY() - extra);
 			l.revalidate();
 		}
-		var area = o.getParent();
-		if (area == null) return;
-		area.setScrollHeight(area.getScrollHeight() + extra);
-		area.setScrollY(area.getScrollY() + extra);
-		area.revalidateScroll();
 	}
 
 	/**
