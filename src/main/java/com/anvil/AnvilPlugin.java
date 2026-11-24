@@ -1774,7 +1774,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		if ("shareSeasonal".equals(key) && sidebarPanel != null) invokeLater(sidebarPanel::seasonalChanged);
 		if ("shareItems".equals(key)) {
-			// Off: what was sent goes (shareItems, at each character's login), and nothing more is sent. On: read what's held now.
+			// Off: what was sent goes, for every character (shareItems), and nothing more is sent. On: read what's held now.
 			itemsSeen.clear();
 			itemsSent.clear();
 			cfgSet("itemsWiped", config.shareItems() ? "" : "|");
@@ -4294,22 +4294,19 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * Each tick: the pending push, or with sharing off the wipe. Turning it off sets "itemsWiped" to "|";
-	 * each character's DELETE, once answered, appends "name|", so a wipe that failed or never got to go
-	 * (client closed, another character) is sent at that character's next login.
+	 * Each tick: the pending push, or with sharing off the wipe. Turning it off sets "itemsWiped" to "|"
+	 * until one DELETE is answered (the site wipes every character of the account at once), so a wipe
+	 * that failed or never got to go (client closed) is sent at the next login.
 	 */
 	void shareItems() {
 		region = regionId();
-		var rsn = apiClient.getCurrentRsn();
-		if (rsn == null || now() < itemsNextAt) return;
+		if (apiClient.getCurrentRsn() == null || now() < itemsNextAt) return;
 		if (!config.shareItems()) {
-			var me = "|" + rsn.toLowerCase(ROOT) + "|";
-			var done = cfgGet("itemsWiped");
-			if (empty(done) || done.contains(me) || wiping) return;
+			if (empty(cfgGet("itemsWiped")) || wiping) return;
 			wiping = true;
 			submit(() -> {
 				try {
-					if (apiClient.deleteItems()) cfgSet("itemsWiped", cfgGet("itemsWiped") + me.substring(1));
+					if (apiClient.deleteItems()) cfgSet("itemsWiped", "");
 					else itemsNextAt = now() + 300_000;
 				} catch (Exception e) {
 					itemsNextAt = now() + 300_000;
@@ -10634,7 +10631,7 @@ public class AnvilPlugin extends Plugin {
 	boolean siteHas(String capability) {
 		var cfg = pluginConfig;
 		return cfg != null ? cfg.serverSupports(capability)
-				: apiClient.signedInWithoutClan() && apiClient.siteAdvertises(capability);
+				: apiClient != null && apiClient.signedInWithoutClan() && apiClient.siteAdvertises(capability);
 	}
 
 
