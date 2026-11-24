@@ -1773,7 +1773,7 @@ public class AnvilPlugin extends Plugin {
 	static final Set<String> INTERNAL_STATE_KEYS = Set.of(
 			CFG_DEFAULTS_VERSION, CFG_FIRST_RUN_NUDGES, CFG_ANNOUNCED_ACCOUNTS,
 			CFG_COUNTER_EVENT, CFG_COUNTER_DEATHS, CFG_COUNTER_LOOTGP, CFG_COUNTER_PVP,
-			CFG_COUNTER_BIGHIT, CFG_COUNTER_MINUTES, CFG_COUNTER_CATASKS, "settingsMovedNoted");
+			CFG_COUNTER_BIGHIT, CFG_COUNTER_MINUTES, CFG_COUNTER_CATASKS, "settingsMovedNoted", "itemsWiped");
 	// Per-RSN state keys are stored as "<prefix>:<rsn>".
 	static final List<String> INTERNAL_STATE_PREFIXES = List.of(
 			CFG_VESTIGE_ROLLS + ":", CFG_CLOG_STATE + ":", CFG_PB_STATE + ":",
@@ -1800,11 +1800,11 @@ public class AnvilPlugin extends Plugin {
 		}
 		if ("shareSeasonal".equals(key) && sidebarPanel != null) invokeLater(sidebarPanel::seasonalChanged);
 		if ("shareItems".equals(key)) {
-			// Off: what was sent goes (on the next tick, logged in), and nothing more is sent. On: read what's held now.
+			// Off: what was sent goes (shareItems, at each character's login), and nothing more is sent. On: read what's held now.
 			itemsSeen.clear();
 			itemsSent.clear();
-			wipeItems = !config.shareItems();
-			if (!wipeItems) clientThread.invoke(() -> SHARED.keySet().forEach(id -> seeItems(id, client.getItemContainer(id))));
+			cfgSet("itemsWiped", config.shareItems() ? "" : "|");
+			if (config.shareItems()) clientThread.invoke(() -> SHARED.keySet().forEach(id -> seeItems(id, client.getItemContainer(id))));
 		}
 		if (isInternalStateKey(key)) return;
 		configureApiClient();
@@ -4327,7 +4327,7 @@ public class AnvilPlugin extends Plugin {
 	// a few quiet ticks after a change, at most every 20s, only the containers that differ from the last push.
 	static final Map<Integer, String> SHARED = Map.of(InventoryID.BANK, "bank", InventoryID.INV, "inventory", InventoryID.WORN, "equipment", InventoryID.LOOTING_BAG, "lootingBag");
 	final Map<String, JsonArray> itemsSeen = new ConcurrentHashMap<>(), itemsSent = new ConcurrentHashMap<>();
-	volatile boolean itemsDirty, wipeItems;
+	volatile boolean itemsDirty, wiping;
 	int itemsAt;
 	volatile long itemsNextAt;
 	/** The region the player stands in, for the Guides view's "You're at …". */
@@ -4343,21 +4343,33 @@ public class AnvilPlugin extends Plugin {
 		itemsAt = client.getTickCount();
 	}
 
-	/** Each tick: the pending push, or the wipe once sharing was turned off. */
+	/**
+	 * Each tick: the pending push, or with sharing off the wipe. Turning it off sets "itemsWiped" to "|";
+	 * each character's DELETE, once answered, appends "name|", so a wipe that failed or never got to go
+	 * (client closed, another character) is sent at that character's next login.
+	 */
 	void shareItems() {
 		region = regionId();
-		if (apiClient.getCurrentRsn() == null || now() < itemsNextAt || !siteHas("guides-panel")) return;
-		if (wipeItems) {
-			wipeItems = false;
+		var rsn = apiClient.getCurrentRsn();
+		if (rsn == null || now() < itemsNextAt) return;
+		if (!config.shareItems()) {
+			var me = "|" + rsn.toLowerCase(ROOT) + "|";
+			var done = cfgGet("itemsWiped");
+			if (empty(done) || done.contains(me) || wiping) return;
+			wiping = true;
 			submit(() -> {
 				try {
-					apiClient.deleteItems();
-				} catch (IOException e) {
-					wipeItems = true;
+					if (apiClient.deleteItems()) cfgSet("itemsWiped", cfgGet("itemsWiped") + me.substring(1));
+					else itemsNextAt = now() + 300_000;
+				} catch (Exception e) {
+					itemsNextAt = now() + 300_000;
+				} finally {
+					wiping = false;
 				}
 			});
+			return;
 		}
-		if (!itemsDirty || client.getTickCount() - itemsAt < 5) return;
+		if (!itemsDirty || client.getTickCount() - itemsAt < 5 || !siteHas("guides-panel")) return;
 		itemsDirty = false;
 		var body = new JsonObject();
 		itemsSeen.forEach((k, v) -> {
@@ -4367,9 +4379,10 @@ public class AnvilPlugin extends Plugin {
 		itemsNextAt = now() + 20_000;
 		submit(() -> {
 			try {
+				if (!config.shareItems()) return; // turned off while this waited
 				apiClient.postJson("/api/plugin/items", body, "Items push failed", false);
 				body.keySet().forEach(k -> itemsSent.put(k, body.getAsJsonObject(k).getAsJsonArray("items")));
-			} catch (IOException e) {
+			} catch (Exception e) {
 				itemsDirty = true;
 				itemsNextAt = now() + 300_000;
 			}
