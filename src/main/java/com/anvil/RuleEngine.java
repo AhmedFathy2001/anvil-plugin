@@ -1,7 +1,7 @@
 package com.anvil;
 
 import static java.lang.Math.*;
-import static com.anvil.AnvilPlugin.*;
+import static com.anvil.AnvilPlugin.empty;
 import com.google.gson.*;
 import java.util.*;
 import java.util.function.*;

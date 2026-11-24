@@ -1,6 +1,6 @@
 package com.anvil;
 
-import static com.anvil.AnvilPlugin.*;
+import static com.anvil.AnvilPlugin.empty;
 import lombok.*;
 import java.net.*;
 import java.util.concurrent.*;

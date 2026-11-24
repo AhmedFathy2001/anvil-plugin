@@ -2,7 +2,7 @@ package com.anvil;
 
 import static java.lang.Math.*;
 import java.util.*;
-import java.util.regex.Pattern;
+import java.util.regex.*;
 import java.awt.Color;
 
 /**

@@ -1,17 +1,17 @@
 package com.anvil;
 
-import lombok.Setter;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-import java.util.Set;
-import java.util.function.Predicate;
+import lombok.*;
+import java.net.*;
+import java.nio.charset.*;
+import java.util.*;
+import java.util.function.*;
 import javax.inject.*;
 import net.runelite.api.*;
 import net.runelite.api.events.*;
 import net.runelite.api.gameval.InterfaceID;
-import net.runelite.api.widgets.WidgetUtil;
+import net.runelite.api.widgets.*;
 import net.runelite.client.eventbus.*;
-import net.runelite.client.menus.MenuManager;
+import net.runelite.client.menus.*;
 import net.runelite.client.util.*;
 
 /**

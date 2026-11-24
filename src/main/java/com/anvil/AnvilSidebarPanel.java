@@ -6,22 +6,22 @@ import static java.util.Collections.*;
 import static javax.swing.SwingUtilities.invokeLater;
 import static net.runelite.client.ui.ColorScheme.*;
 import com.anvil.AnvilSidebarDataSource.*;
-import lombok.Setter;
-import com.google.gson.JsonObject;
+import lombok.*;
+import com.google.gson.*;
 import java.awt.*;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.*;
 import javax.inject.*;
 import javax.swing.*;
 import javax.swing.Timer;
 import java.awt.event.*;
 import javax.swing.plaf.basic.*;
-import lombok.extern.slf4j.Slf4j;
+import lombok.extern.slf4j.*;
 import net.runelite.client.ui.*;
-import net.runelite.client.util.LinkBrowser;
-import net.runelite.client.ui.components.PluginErrorPanel;
+import net.runelite.client.util.*;
+import net.runelite.client.ui.components.*;
 import net.runelite.client.game.*;
 
 import static com.anvil.Ui.*;
@@ -31,7 +31,7 @@ import static com.anvil.AnvilSidebarPanel.Tab.*;
 import static javax.swing.JOptionPane.*;
 import static java.awt.BorderLayout.*;
 import static com.anvil.BannerSoundService.Kind.*;
-import net.runelite.client.config.ConfigManager;
+import net.runelite.client.config.*;
 import java.util.function.*;
 
 /**

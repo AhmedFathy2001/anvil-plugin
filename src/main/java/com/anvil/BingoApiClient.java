@@ -1,7 +1,7 @@
 package com.anvil;
 
 import static java.lang.Math.*;
-import static com.anvil.AnvilPlugin.*;
+import static com.anvil.AnvilPlugin.empty;
 import static java.util.Collections.*;
 import static com.anvil.NotifyOutbox.Result.*;
 import lombok.*;

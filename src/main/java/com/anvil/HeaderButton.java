@@ -1,7 +1,7 @@
 package com.anvil;
 
-import lombok.RequiredArgsConstructor;
-import java.util.function.BooleanSupplier;
+import lombok.*;
+import java.util.function.*;
 
 import net.runelite.api.*;
 import net.runelite.api.gameval.SpriteID;

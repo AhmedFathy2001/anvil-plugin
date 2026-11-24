@@ -4,7 +4,7 @@ import static javax.swing.BorderFactory.*;
 import static java.awt.BorderLayout.*;
 import static java.lang.Math.*;
 import static net.runelite.client.ui.ColorScheme.*;
-import lombok.RequiredArgsConstructor;
+import lombok.*;
 import com.google.gson.*;
 import java.awt.*;
 import java.awt.event.*;
@@ -16,12 +16,12 @@ import javax.swing.*;
 import net.runelite.api.Skill;
 import net.runelite.client.game.*;
 import net.runelite.client.hiscore.*;
-import net.runelite.client.ui.components.ProgressBar;
-import net.runelite.client.util.ImageUtil;
+import net.runelite.client.ui.components.*;
+import net.runelite.client.util.*;
 
 import static com.anvil.Ui.*;
 import static com.anvil.GlyphIcon.Shape.*;
-import java.awt.image.BufferedImage;
+import java.awt.image.*;
 import javax.swing.Timer;
 
 /**
