@@ -555,8 +555,17 @@ class UiView extends JPanel {
 				return input(n);
 			case "button":
 				var on = n.has("on") ? n.getAsJsonObject("on") : new JsonObject();
-				var button = AnvilSidebarPanel.fullWidthButton(plainText(str(n, "label")), tip(n), () -> act(on));
-				button.getComponent(0).setEnabled(!bool(n, "off"));
+				var label = plainText(str(n, "label"));
+				var button = AnvilSidebarPanel.fullWidthButton(label, tip(n), () -> act(on));
+				var b = (JButton) button.getComponent(0);
+				b.setEnabled(!bool(n, "off"));
+				// A copy answers on the button itself: "Copied ✓" for a moment, then its own label.
+				if ("copy".equals(str(on, "a"))) b.addActionListener(e -> {
+					b.setText("Copied ✓");
+					var back = new Timer(1500, x -> b.setText(label));
+					back.setRepeats(false);
+					back.start();
+				});
 				return button;
 			case "gap":
 				return (JComponent) gap(num(n, "h", 0));
