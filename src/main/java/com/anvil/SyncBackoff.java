@@ -17,7 +17,7 @@ import lombok.RequiredArgsConstructor;
  * The second is the caller's job — a permanent failure drops the batch instead of backing off.
  */
 @RequiredArgsConstructor
-final class SyncBackoff {
+class SyncBackoff {
 	static final long FIRST_MS = 30_000L;
 	static final long MAX_MS = 600_000L;
 

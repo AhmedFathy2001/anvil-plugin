@@ -39,7 +39,7 @@ import net.runelite.api.*;
  * posted, and only an error line comes back.
  */
 
-final class FeedList extends JPanel {
+class FeedList extends JPanel {
 	/** "...+02:00" at the end of a timestamp. Compiled once: it runs for every row on each paint. */
 
 	static final int FLUSH_MS = 400;
@@ -354,7 +354,7 @@ final class FeedList extends JPanel {
 	}
 
 	/** Pushes for a row whose chip this viewer just pressed. */
-	static final class Held {
+	static class Held {
 		int posts, gen;
 		final List<JsonObject> queued = new ArrayList<>();
 	}
@@ -414,7 +414,7 @@ final class FeedList extends JPanel {
 	}
 
 	/** One channel on the switch: its name, lit when open, and an unread pill when not. */
-	static final class Seg extends JComponent {
+	static class Seg extends JComponent {
 		final String label, feed;
 		final boolean on, blue;
 		int n;
@@ -675,7 +675,7 @@ final class FeedList extends JPanel {
 	}
 
 	@RequiredArgsConstructor
-	static final class MaxLength extends DocumentFilter {
+	static class MaxLength extends DocumentFilter {
 		final int max;
 
 		public void insertString(FilterBypass fb, int offset, String s, AttributeSet a) throws BadLocationException {
@@ -692,7 +692,7 @@ final class FeedList extends JPanel {
 
 	// ---- Clicks ------------------------------------------------------------------------------------
 
-	final class Clicks extends MouseAdapter {
+	class Clicks extends MouseAdapter {
 		public void mousePressed(MouseEvent e) {
 			popup(e);
 		}
@@ -766,7 +766,7 @@ final class FeedList extends JPanel {
 
 	// ---- The model: one list, changed in batches -------------------------------------------------
 
-	static final class RowModel extends AbstractListModel<JsonObject> {
+	static class RowModel extends AbstractListModel<JsonObject> {
 		final List<JsonObject> rows = new ArrayList<>();
 		final Set<String> ids = new HashSet<>();
 
@@ -913,7 +913,7 @@ final class FeedList extends JPanel {
 
 	/** A row's picture on a rounded tile of its kind's colour (purple rare, green done, coral death). */
 	@RequiredArgsConstructor
-	static final class Tinted implements Icon {
+	static class Tinted implements Icon {
 		final Icon in;
 		final Color tint;
 
@@ -934,7 +934,7 @@ final class FeedList extends JPanel {
 		}
 	}
 
-		static final class BlankIcon implements Icon {
+		static class BlankIcon implements Icon {
 		public void paintIcon(Component c, Graphics g, int x, int y) {
 		}
 
@@ -958,7 +958,7 @@ final class FeedList extends JPanel {
 	 * the wrapping is done once per row and width with plain font metrics and kept, so a flush is cheap
 	 * however long the chat is, and nothing a player typed can ever become markup.
 	 */
-	final class ChatCell extends JComponent {
+	class ChatCell extends JComponent {
 		static final int PAD_X = 8;
 		final Map<String, List<String>> wraps = new HashMap<>();
 		int wrapWidth = -1;
@@ -1107,7 +1107,7 @@ final class FeedList extends JPanel {
 	 * its text every 40ms frame, so Swing re-parsed the markup 25 times a second for each visible
 	 * moving row; drawing the same letters in the same colours costs only the drawString calls.
 	 */
-	static final class WhoLine extends JComponent {
+	static class WhoLine extends JComponent {
 		JsonObject r;
 		String who = "", tag = "";
 		Color whoInk = Color.WHITE, tagInk = MUTED;
@@ -1257,7 +1257,7 @@ JsonObject o, String k) {
 		return out;
 	}
 
-	final class RowRenderer extends JPanel implements ListCellRenderer<JsonObject> {
+	class RowRenderer extends JPanel implements ListCellRenderer<JsonObject> {
 		final JLabel icon = new ClipLabel(), line1 = new ClipLabel(), value = new ClipLabel(), gz = new ClipLabel();
 		final WhoLine line2 = new WhoLine();
 		final Chips chips = new Chips();
@@ -1419,7 +1419,7 @@ JsonObject o, String k) {
 	}
 
 	/** A row's reactions as small rounded buttons: outlined, filled when they're yours, lit on hover. */
-	static final class Chips extends JComponent {
+	static class Chips extends JComponent {
 		JsonArray chips;
 		int hover = -1;
 

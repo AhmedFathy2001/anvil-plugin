@@ -18,7 +18,7 @@ import javax.swing.Icon;
  * unless one is fixed at construction.
  */
 @RequiredArgsConstructor
-final class GlyphIcon implements Icon {
+class GlyphIcon implements Icon {
 	enum Shape {
 		CHEVRON_LEFT, CHEVRON_RIGHT, EXTERNAL, CHECK, CLOSE, ELLIPSIS, GEAR, STAR, UP, DOWN, QUILL, QUILL_STAR
 	}

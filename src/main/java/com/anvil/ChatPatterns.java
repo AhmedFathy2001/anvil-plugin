@@ -21,13 +21,13 @@ import lombok.extern.slf4j.Slf4j;
  * <p>Parsers read groups BY NAME — an override may order its groups differently.</p>
  */
 @Slf4j
-final class ChatPatterns {
-	static final class Sample {
+class ChatPatterns {
+	static class Sample {
 		String line;
 		Map<String, String> expect;
 	}
 
-	static final class Entry {
+	static class Entry {
 		String key;
 		String description;
 		List<String> types;
@@ -41,13 +41,13 @@ final class ChatPatterns {
 		List<Sample> samples;
 	}
 
-	static final class Catalog {
+	static class Catalog {
 		int version;
 		List<Entry> patterns;
 	}
 
 	/** One site override. A null regex means "use the default". */
-	static final class SiteOverride {
+	static class SiteOverride {
 		String key;
 		String regex;
 		/** Optional literal the new wording always carries — the pre-filter for this override. */
@@ -55,7 +55,7 @@ final class ChatPatterns {
 	}
 
 	/** Body of GET /api/plugin/chat-patterns. */
-	static final class OverridesResponse {
+	static class OverridesResponse {
 		int version;
 		List<SiteOverride> overrides;
 	}
@@ -73,7 +73,7 @@ final class ChatPatterns {
 	static volatile Map<String, Entry> entries = emptyMap();
 	static volatile Map<String, Pattern> defaults = emptyMap();
 	/** The accepted overrides and their hints, swapped as ONE object so a reader never pairs mismatched halves. */
-	static final class Live {
+	static class Live {
 		final Map<String, Pattern> patterns;
 		final Map<String, String> hints;
 
@@ -260,7 +260,7 @@ final class ChatPatterns {
 		return entries;
 	}
 
-	static final class BudgetExceeded extends RuntimeException {
+	static class BudgetExceeded extends RuntimeException {
 		BudgetExceeded() {
 			super(null, null, false, false);
 		}
@@ -268,7 +268,7 @@ final class ChatPatterns {
 
 	/** A CharSequence that gives up once the regex engine has read it too many times. */
 	@RequiredArgsConstructor
-	static final class Budgeted implements CharSequence {
+	static class Budgeted implements CharSequence {
 		final String s;
 		final long[] left;
 

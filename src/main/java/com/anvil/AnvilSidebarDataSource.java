@@ -287,7 +287,7 @@ public class AnvilSidebarDataSource {
 
 	/** One line about the logged-in character. */
 	@RequiredArgsConstructor
-	static final class AccountRow {
+	static class AccountRow {
 		enum State {
 			/** Linked to (or linking to) the signed-in Anvil account. Offers Not my account. */
 			TRACKING,
@@ -315,7 +315,7 @@ public class AnvilSidebarDataSource {
 	 * channel readable. A profile sync goes to the site the plugin is authenticated against.
 	 */
 	@RequiredArgsConstructor
-	static final class PanelActions {
+	static class PanelActions {
 		static final PanelActions NONE = new PanelActions(false, false, null);
 
 		/** Show "Sync clan roster": admin, at home, with a readable clan channel. */

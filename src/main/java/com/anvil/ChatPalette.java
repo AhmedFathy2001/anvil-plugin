@@ -10,7 +10,7 @@ import java.awt.Color;
  * colours apply. "Plain" means the plugin's own text colour for everything (its existing setting).
  */
 
-final class ChatPalette {
+class ChatPalette {
 	enum Tone {
 		DONE, NEAR, DROP, FEED, WARN, INFO;
 

@@ -327,7 +327,7 @@ public class AnvilPlugin extends Plugin {
 	/**
 	 * Fixed text the plugin ships with — the prestige allowlist and the quest tiers — loaded from anvil_text.json at startUp, which says what each list is for.
 	 */
-	static final class ShippedText {
+	static class ShippedText {
 
 		List<String> alwaysNotify = emptyList();
 		Map<String, String> questTiers = emptyMap();
@@ -670,7 +670,7 @@ public class AnvilPlugin extends Plugin {
 	boolean caPointsInitialized;
 
 	@RequiredArgsConstructor
-	static final class PendingCaTask {
+	static class PendingCaTask {
 
 		final CombatAchievementTier tier;
 		final String task;
@@ -978,7 +978,7 @@ public class AnvilPlugin extends Plugin {
 	// → chat-patterns.json "drop.valuable" (ChatPatterns).
 	// CHEST_LINE_SETTLE_TICKS = LOOTING_BAG_WATCH_TICKS + 2, inlined at its one use.
 	@RequiredArgsConstructor
-	static final class DropLine {
+	static class DropLine {
 		final int tick;
 		final int qty;
 		final String name;
@@ -986,7 +986,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** A held line tied to a chest open: credited at {@code dueTick} unless another path saw the item. */
 	@RequiredArgsConstructor
-	static final class ChestLineCredit {
+	static class ChestLineCredit {
 		final int dueTick;
 		final String source;
 		final DropLine line;
@@ -1358,7 +1358,7 @@ public class AnvilPlugin extends Plugin {
 			else if (caVarps != null) log.info("CA varps: read {} at {} points", caVarps.size(), caNow);
 			int caPointsNow = caNow == null ? 0 : caNow;
 
-			if (changed.isEmpty() && quests == null && (caVarps == null || caVarps.isEmpty())) return;
+			if (changed.isEmpty() && quests == null && empty(caVarps)) return;
 			submit(() -> {
 				try {
 					// One request each: the endpoint takes a category at a time, and these two move
@@ -1366,7 +1366,7 @@ public class AnvilPlugin extends Plugin {
 					apiClient.submitProgress(changed, quests != null ? "quest" : null, quests);
 					lastSentProgress.putAll(changed);
 					if (quests != null) lastSentQuestCount = questsNow;
-					if (caVarps != null && !caVarps.isEmpty()) {
+					if (!empty(caVarps)) {
 						apiClient.submitProgress(emptyMap(), null, null, caVarps, caPointsNow);
 						lastSentCaPoints = caNow;
 					}
@@ -2672,7 +2672,7 @@ public class AnvilPlugin extends Plugin {
 	 * never has a '#'; saying hello with the placeholder created statless "#PlayerNNN" join requests.
 	 */
 	static boolean placeholderName(String rsn) {
-		return rsn == null || rsn.isEmpty() || rsn.indexOf('#') >= 0;
+		return empty(rsn) || rsn.indexOf('#') >= 0;
 	}
 
 	/**
@@ -3167,7 +3167,7 @@ public class AnvilPlugin extends Plugin {
 	 * an opened loot key, otherwise an NPC/chest name; empty = any.
 	 */
 	void processValueTiles(String source, Collection<ItemStack> items, String sourceKind) {
-		if (trackingGateReason() != null || items == null || items.isEmpty()) return;
+		if (trackingGateReason() != null || empty(items)) return;
 		// A clue casket is valued by the game's own "worth around" line (clueWorth), not live prices.
 		if (source != null && source.startsWith("Clue Scroll (")) return;
 		var gp = haulValue(items);
@@ -3206,7 +3206,7 @@ public class AnvilPlugin extends Plugin {
 		var source = event.getSource();
 		if (source == null || source == client.getLocalPlayer()) return; // our own target changing is the other question entirely
 		var name = source.getName();
-		if (name == null || name.isEmpty()) return;
+		if (empty(name)) return;
 		// A follower targets its owner to follow them. That is not an attack, but without this
 		// distinction the pet can become the newest candidate and be named after unrelated damage.
 		if (source == client.getFollower()) {
@@ -3245,7 +3245,7 @@ public class AnvilPlugin extends Plugin {
 			// write per landed hit.
 			if (actor != null && actor != self) {
 				var tname = actor.getName();
-				if (tname != null && !tname.isEmpty()) {
+				if (!empty(tname)) {
 					lastCombatTarget = tname;
 					lastCombatTargetAt = now();
 				}
@@ -3262,7 +3262,7 @@ public class AnvilPlugin extends Plugin {
 		if (ourHit == null || !ourHit.isMine()) return;
 		if (!(actor instanceof Player) || actor == self) return;
 		var name = actor.getName();
-		if (name == null || name.isEmpty()) return;
+		if (empty(name)) return;
 		synchronized (lastDamagedPlayerAt) {
 			var now = now();
 			// Pruned here too: a session of hits with no kill would otherwise only ever grow it.
@@ -3383,7 +3383,7 @@ public class AnvilPlugin extends Plugin {
 	@Subscribe
 	void onChatMessage(ChatMessage event) {
 		var msg = event.getMessage();
-		if (msg == null || msg.isEmpty()) return;
+		if (empty(msg)) return;
 		maybeKeepFlairBroadcast(event);
 		relayHeard(event);
 		var ct = event.getType();
@@ -3668,7 +3668,7 @@ public class AnvilPlugin extends Plugin {
 	 * announced twice when both do.</p>
 	 */
 	void handleClogUnlock(String item) {
-		if (item == null || item.isEmpty()) return;
+		if (empty(item)) return;
 		var t = now();
 		recentClogUnlocks.values().removeIf(at -> t - at > 15_000 /* CLOG_UNLOCK_SAME_MS */);
 		if (recentClogUnlocks.putIfAbsent(item.toLowerCase(ROOT), t) != null) return; // the other line for this unlock got here first
@@ -3750,7 +3750,7 @@ public class AnvilPlugin extends Plugin {
 	 * {@link #creditGuaranteedAward}, which fires on every completion.
 	 */
 	void creditClogUnlock(String itemName) {
-		if (itemName == null || itemName.isEmpty() || lootOff() || !rules.active()) return;
+		if (empty(itemName) || lootOff() || !rules.active()) return;
 		// Notable clog unlocks (a ToA Cursed phalanx, a raid ornament kit) that fire ONLY the clog line and
 		// no loot event still deserve a rare-drop post. Route through maybeNotifyRareDrop — its per-item +
 		// name-keyed dedup absorbs the duplicate if a loot event fired for the same item — and do it
@@ -3784,7 +3784,7 @@ public class AnvilPlugin extends Plugin {
 	/** The notable-item id whose name matches {@code name} (case-insensitive), or null. Lets the clog-unlock
 	 *  path resolve an untradeable prestige item to its id for a rare-drop post without a GE search. */
 	Integer notableIdForName(String name) {
-		if (name == null || name.isEmpty()) return null;
+		if (empty(name)) return null;
 		var ids = idsNamed(notableItemIds, name);
 		return ids.isEmpty() ? null : ids.get(0);
 	}
@@ -3818,7 +3818,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	void creditDropFromChat(String recipient, String qtyText, String itemName, String source) {
 		var local = getLocalPlayerName();
-		if (local == null || recipient == null || itemName == null || itemName.isEmpty()) return;
+		if (local == null || recipient == null || empty(itemName)) return;
 		if (!Rsn.same(recipient, local) && !recipient.trim().equalsIgnoreCase("You")) return; // another player's drop
 		int qty = qtyText == null ? 1 : Math.max(1, parseCount(qtyText));
 
@@ -3899,7 +3899,7 @@ public class AnvilPlugin extends Plugin {
 		var pet = DuplicateInference.petForSource(dropFacts(), freshLootSource());
 		if (pet == null && lastXpSkill != null && now() - lastXpAt <= 10_000 /* INFER_SKILL_WINDOW_MS */) pet = DuplicateInference.petForSkill(dropFacts(), lastXpSkill);
 		// Drop facts key pets lowercased; the game writes them in sentence case ("Rock golem").
-		return pet == null || pet.isEmpty() ? null : Character.toUpperCase(pet.charAt(0)) + pet.substring(1);
+		return empty(pet) ? null : Character.toUpperCase(pet.charAt(0)) + pet.substring(1);
 	}
 
 	/**
@@ -4176,7 +4176,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	void processLoot(String source, Collection<ItemStack> items, String sourceKind) {
-		if (items == null || items.isEmpty() || lootOff()) return;
+		if (empty(items) || lootOff()) return;
 		var pairs = new ArrayList<int[]>();
 		for (var item : items) {
 			// A later clog-unlock line for an item a real loot event brought must not re-credit it.
@@ -4202,7 +4202,7 @@ public class AnvilPlugin extends Plugin {
 	 * line and a loot event is counted exactly once.
 	 */
 	void processNpcKill(String npcName) {
-		if (npcName == null || npcName.isEmpty() || trackingOff()) return;
+		if (empty(npcName) || trackingOff()) return;
 		var key = npcName.toLowerCase();
 		if (!rules.tracksKill(key)) return;
 		lastLootKillAt.put(key, now());
@@ -4218,7 +4218,7 @@ public class AnvilPlugin extends Plugin {
 	 * (Maggot King, Araxxor, …) and so may never fire NpcLootReceived.
 	 */
 	void creditBossKillFromChat(String npcName, boolean firstSeen) {
-		if (npcName == null || npcName.isEmpty() || trackingOff()) return;
+		if (empty(npcName) || trackingOff()) return;
 		var key = npcName.toLowerCase();
 		if (!rules.tracksKill(key)) return;
 		// First KC line of the session for this boss: the loot path may have already credited this
@@ -4422,7 +4422,7 @@ public class AnvilPlugin extends Plugin {
 			qty = d.group("qty");
 			name = d.group("item");
 		}
-		if (name == null || name.isEmpty()) return;
+		if (empty(name)) return;
 		int n = qty == null ? 1 : Math.max(1, parseCount(qty));
 		int tick = client.getTickCount();
 		recentDropLines.removeIf(l -> tick - l.tick > 1);
@@ -4891,7 +4891,7 @@ public class AnvilPlugin extends Plugin {
 
 			var meta = new ArrayList<String>();
 			var cfg = pluginConfig;
-			if (rsn != null && !rsn.isEmpty()) meta.add("RSN: " + rsn);
+			if (!empty(rsn)) meta.add("RSN: " + rsn);
 			if (cfg != null && cfg.team != null && cfg.team.name != null) meta.add("Team: " + cfg.team.name);
 			if (cfg != null && cfg.event != null && cfg.event.name != null) meta.add("Event: " + cfg.event.name);
 			meta.add("UTC: " + ZonedDateTime.now(ZoneOffset.UTC)
@@ -5090,7 +5090,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** Caught on a character other than the one logged in now. */
 	boolean otherCharacter(PendingSubmission p) {
-		return p.capturedRsn != null && !p.capturedRsn.isEmpty() && !Rsn.same(p.capturedRsn, apiClient.getCurrentRsn());
+		return !empty(p.capturedRsn) && !Rsn.same(p.capturedRsn, apiClient.getCurrentRsn());
 	}
 
 	/** A screenshot the site will never take now (too late, or refused): its credits were reversed. */
@@ -5516,7 +5516,7 @@ public class AnvilPlugin extends Plugin {
 	boolean isClanScrapeAvailable() {
 		if (client == null) return false;
 		var settings = client.getClanSettings();
-		return client.getClanChannel() != null && settings != null && settings.getMembers() != null && !settings.getMembers().isEmpty();
+		return client.getClanChannel() != null && settings != null && !empty(settings.getMembers());
 	}
 
 
@@ -5648,6 +5648,10 @@ public class AnvilPlugin extends Plugin {
 
 	static boolean empty(Collection<?> c) {
 		return c == null || c.isEmpty();
+	}
+
+	static boolean empty(Map<?, ?> m) {
+		return m == null || m.isEmpty();
 	}
 
 	/** Whole seconds for a wait in chat — rounded up, never "0s". */
@@ -6681,7 +6685,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** A widget's text as the game wrote it and as we painted it; for a clan title also its name, suffix and boost. */
 	@AllArgsConstructor
-	static final class Painted {
+	static class Painted {
 		String plain;
 		String painted;
 		boolean moving;
@@ -8149,7 +8153,7 @@ public class AnvilPlugin extends Plugin {
 	 * only that someone died. A death with no killer is a smaller story than one with the wrong.
 	 */
 	@RequiredArgsConstructor
-	static final class AttributedDeath {
+	static class AttributedDeath {
 		final String source;
 		final String sourceKind;
 		/** Players that had us targeted (the death post's pile-on). */
@@ -8840,7 +8844,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** An item id seen in a recent loot event, with the time it landed and what it fell out of. */
 	@RequiredArgsConstructor
-	static final class RecentItem {
+	static class RecentItem {
 
 		final int itemId;
 		final long at;
@@ -8949,7 +8953,7 @@ public class AnvilPlugin extends Plugin {
 	 * posts this code replaces, so the failure mode is the old behaviour rather than a broken one.
 	 */
 	@RequiredArgsConstructor
-	static final class PendingPet {
+	static class PendingPet {
 
 		final boolean duplicate;
 		/** When the pet line landed — the name is only looked for inside {@link #PET_NAME_WINDOW_MS}. */

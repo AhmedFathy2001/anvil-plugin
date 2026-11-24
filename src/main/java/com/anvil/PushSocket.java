@@ -18,7 +18,7 @@ import okhttp3.*;
  */
 @Slf4j
 @RequiredArgsConstructor
-final class PushSocket extends WebSocketListener {
+class PushSocket extends WebSocketListener {
 	static final long FIRST_RETRY_MS = 2_000;
 	/** Chat rides this socket, so a drop is retried within half a minute, never left for five. */
 	static final long MAX_RETRY_MS = 30_000;

@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static com.anvil.AnvilPlugin.empty;
 import lombok.RequiredArgsConstructor;
 import java.net.*;
 import java.util.concurrent.*;
@@ -22,7 +23,7 @@ import net.runelite.client.util.LinkBrowser;
  */
 @RequiredArgsConstructor
 @Slf4j
-public final class DeviceSignIn {
+public class DeviceSignIn {
 	/** Fixed path of the approval page on the home site — the only page this flow will ever open. */
 	static final String LINK_PATH = "/link-device";
 
@@ -36,7 +37,7 @@ public final class DeviceSignIn {
 
 	/** Result: outcome + the account token when {@link Outcome#SIGNED_IN}. */
 	@RequiredArgsConstructor
-	static final class Result {
+	static class Result {
 		final Outcome outcome;
 		final String token;
 	}
@@ -65,13 +66,13 @@ public final class DeviceSignIn {
 
 	void start(Consumer<String> status, Consumer<Result> done) {
 		var start = apiClient.authStart();
-		if (start == null || start.device_code == null || start.device_code.isEmpty()) {
+		if (start == null || empty(start.device_code)) {
 			fail(status, done, "Couldn't reach " + SetupNudge.SITE_HOST + " — check your connection and try again.", Outcome.UNAVAILABLE);
 			return;
 		}
 
 		var full = start.verification_url_complete;
-		var url = full != null && !full.isEmpty() ? full : start.verification_url;
+		var url = !empty(full) ? full : start.verification_url;
 		// Checked against the fixed site, not the client's address — that stays empty until there is a
 		// token (BingoApiClient.configure), which is exactly the state sign-in runs in.
 		if (!isConfiguredHomeUrl(BingoApiClient.site(), url)) {
@@ -105,7 +106,7 @@ public final class DeviceSignIn {
 			if (poll != null && poll.status != null) {
 				switch (poll.status) {
 					case "complete":
-						if (poll.token != null && !poll.token.isEmpty()) {
+						if (!empty(poll.token)) {
 							status.accept("Signed in.");
 							done.accept(new Result(Outcome.SIGNED_IN, poll.token));
 						} else done.accept(new Result(Outcome.UNAVAILABLE, null));
@@ -156,7 +157,7 @@ public final class DeviceSignIn {
 	 * HTTP is tolerated only when the home itself is HTTP (local dev builds).
 	 */
 	static boolean isConfiguredHomeUrl(String configuredApiUrl, String url) {
-		if (configuredApiUrl == null || configuredApiUrl.isEmpty() || url == null || url.isEmpty()) return false;
+		if (empty(configuredApiUrl) || empty(url)) return false;
 		try {
 			var home = new URI(configuredApiUrl);
 			var target = new URI(url);

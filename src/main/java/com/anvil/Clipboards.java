@@ -13,7 +13,7 @@ import lombok.extern.slf4j.Slf4j;
  * the plugin reaches outside its own directory.
  */
 @Slf4j
-final class Clipboards {
+class Clipboards {
 	/** True when the text made it onto the clipboard, so a caller can say so rather than assume. */
 	static boolean copy(String value) {
 		return value != null && !value.isEmpty() && set(new StringSelection(value));

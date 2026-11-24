@@ -26,7 +26,7 @@ import net.runelite.api.gameval.*;
  *
  * <p>RuneLite-free apart from the id constants, so the mapping is unit-testable without a client.
  */
-final class ActivityStats {
+class ActivityStats {
 	/** Where a counter lives — the two id spaces are separate, so the kind picks the reader. */
 	enum Kind {
 		VARBIT,
@@ -34,7 +34,7 @@ final class ActivityStats {
 	}
 
 	@RequiredArgsConstructor
-	static final class Source {
+	static class Source {
 		final Kind kind;
 		final int id;
 

@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static com.anvil.AnvilPlugin.empty;
 import static javax.swing.BorderFactory.*;
 import static java.util.Collections.*;
 import static javax.swing.SwingUtilities.invokeLater;
@@ -870,7 +871,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 					// it MUST NOT look like the sign-in itself failed. Say what happened and give them
 					// the manual route, which always works.
 					var stored = configManager.getConfiguration("osrsbingo", "playerToken");
-					if (stored == null || stored.isEmpty()) {
+					if (empty(stored)) {
 						log.warn("Token did not persist");
 						setSignInStatus("Signed in, but RuneLite didn't save the token — copy it "
 							+ "from Profile > RuneLite plugin on the site and use Paste a token below.");
@@ -1347,7 +1348,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	 * rest appear under "Also live". Choosing a clan narrows to it and moves where submissions file,
 	 * which is a bigger deal than a filter usually is; the rows say so.
 	 */
-	static final class ClanChoice {
+	static class ClanChoice {
 		/** Clan slug, or "" for Auto. */
 		final String slug;
 		final String label;
@@ -1363,14 +1364,14 @@ public class AnvilSidebarPanel extends PluginPanel {
 		/** Auto first, then the clans in the order the site sent them (newest seat first). */
 		static List<ClanChoice> of(List<PluginConfigResponse.ClanRef> clans) {
 			var out = new ArrayList<ClanChoice>();
-			if (clans == null || clans.isEmpty()) return out;
+			if (empty(clans)) return out;
 			var anySpace = false;
 			var anyClan = false;
 			for (var c : clans) {
 				if (c == null) continue;
 				anySpace |= c.space;
 				anyClan |= !c.space;
-				if (c.slug != null && !c.slug.isEmpty()) out.add(new ClanChoice(c.slug, c.name == null || c.name.isEmpty() ? c.slug : c.name, detailOf(c)));
+				if (!empty(c.slug)) out.add(new ClanChoice(c.slug, empty(c.name) ? c.slug : c.name, detailOf(c)));
 			}
 			// The Auto row, first, names what it covers: clans, spaces, or both.
 			var all = anySpace && anyClan ? "All clans & spaces" : anySpace ? "All spaces" : "All clans";
@@ -1382,7 +1383,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		static String detailOf(PluginConfigResponse.ClanRef c) {
 			// A space says so up front: in a list of clans and spaces, the name alone doesn't tell them apart.
 			var tag = c.space ? "Space \u00b7 " : "guest".equals(c.kind) ? "Guest \u00b7 " : "";
-			if (c.live == null || c.live.eventName == null || c.live.eventName.isEmpty()) return tag + (tag.isEmpty() ? "Nothing live" : "nothing live");
+			if (c.live == null || empty(c.live.eventName)) return tag + (tag.isEmpty() ? "Nothing live" : "nothing live");
 			// A competition has a leaderboard rather than a board to fill, so "0/0" would be a lie
 			// dressed as progress. The name is the whole answer there.
 			var head = c.live.isWeekly() || c.live.tilesTotal <= 0
@@ -1621,13 +1622,13 @@ public class AnvilSidebarPanel extends PluginPanel {
 			createEmptyBorder(6, 8, 8, 8)));
 		card.add(small("Starting shot needed", BRAND_ORANGE));
 
-		if (proof.location != null && !proof.location.isEmpty()) {
+		if (!empty(proof.location)) {
 			var where = small("Go to " + proof.location, WHITE);
 			where.setToolTipText(plainText(proof.location));
 			addAll(card, gap(4), where);
 		}
 
-		if (proof.keyword != null && !proof.keyword.isEmpty()) {
+		if (!empty(proof.keyword)) {
 			addAll(card, gap(2), small("Keyword: " + proof.keyword, MUTED));
 		}
 
@@ -1836,7 +1837,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	 * any: {@link #plainText} was guarding a string we were about to concatenate into HTML ourselves,
 	 * which is the one case it does not guard.
 	 */
-	static final class ClanChoiceRenderer implements ListCellRenderer<ClanChoice> {
+	static class ClanChoiceRenderer implements ListCellRenderer<ClanChoice> {
 		final JPanel row = new JPanel(new BorderLayout(0, 1));
 		final JLabel name = new ClipLabel();
 		final JLabel detail = new ClipLabel();

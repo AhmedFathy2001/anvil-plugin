@@ -11,7 +11,7 @@ import net.runelite.client.game.ItemStack;
  * when the player opens it, minutes later — far outside the 3s per-tile window — and used to credit
  * the same item a second time. Each chat credit now cancels exactly one later loot copy of the item.
  */
-final class ChatCredits {
+class ChatCredits {
 	/** Long enough to sit in the raid lobby before opening the chest. */
 	static final long WINDOW_MS = 30 * 60_000;
 

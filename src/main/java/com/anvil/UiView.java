@@ -36,7 +36,7 @@ import javax.swing.Timer;
  * Answers that arrive after a newer request for the same place are dropped.</p>
  */
 
-final class UiView extends JPanel {
+class UiView extends JPanel {
 	/** Where this view's fetches and outward clicks go: the panel. Calls arrive on the EDT. */
 	interface Host {
 		/** {@code GET /api/plugin/ui?v=view&args}; {@code done} gets the view (null on failure) on the EDT. */
@@ -136,7 +136,7 @@ final class UiView extends JPanel {
 	int requests;
 
 	@RequiredArgsConstructor
-	static final class Slot {
+	static class Slot {
 		final JPanel holder;
 		final JsonObject panes;
 		/** {@code nav}: a pane replaces the page; the panes left keep their build and the row clicked to leave. */

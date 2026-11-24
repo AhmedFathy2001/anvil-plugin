@@ -16,7 +16,7 @@ import javax.swing.text.JTextComponent;
  * The side panel's shared Swing pieces — the labels, rows, cards and click wiring every view builds
  * the same way, so the sidebar and the card views can't drift apart in how they look.
  */
-final class Ui {
+class Ui {
 	/** A copy of {@code g} that draws antialiased; the caller disposes it. */
 	static Graphics2D smooth(Graphics g) {
 		var g2 = (Graphics2D) g.create();
@@ -272,7 +272,7 @@ final class Ui {
 	}
 
 	/** JTextField has no placeholder API; paint one without putting fake text into the query. */
-	static final class SearchField extends JTextField {
+	static class SearchField extends JTextField {
 		final String placeholder;
 
 		SearchField(String placeholder, String value) {

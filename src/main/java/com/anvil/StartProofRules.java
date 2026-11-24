@@ -20,7 +20,7 @@ import lombok.RequiredArgsConstructor;
  *
  * <p>Pure and static so it unit-tests without a client: the plugin supplies the numbers.
  */
-final class StartProofRules {
+class StartProofRules {
 	/** {@code sessionLoginAtMs} when we never saw the login — a plugin enabled mid-session. */
 	static final long UNKNOWN_LOGIN = 0L;
 
@@ -89,7 +89,7 @@ final class StartProofRules {
 
 	/** One live requirement on the starting-shot card: met, not met, or not knowable yet. */
 	@RequiredArgsConstructor
-	static final class Check {
+	static class Check {
 		enum State {
 			OK, BAD, UNKNOWN
 		}

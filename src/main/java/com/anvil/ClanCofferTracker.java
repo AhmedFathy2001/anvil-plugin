@@ -10,7 +10,7 @@ import java.util.Locale;
  * the local player, but it is used only for attribution: the balance delta remains the source of
  * truth and an unconfirmed movement is still reported anonymously.</p>
  */
-final class ClanCofferTracker {
+class ClanCofferTracker {
 	static final long ACTOR_WINDOW_MS = 15_000L;
 
 	enum Kind {
@@ -20,7 +20,7 @@ final class ClanCofferTracker {
 	}
 
 	@RequiredArgsConstructor
-	static final class Observation {
+	static class Observation {
 		final Kind kind;
 		final int beforeBalance;
 		final int afterBalance;

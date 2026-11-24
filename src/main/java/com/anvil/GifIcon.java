@@ -19,7 +19,7 @@ import org.w3c.dom.*;
  * advances only while a label showing it is on screen and the client window is in front — so after
  * idling it carries on from the frame it stopped at.
  */
-final class GifIcon implements Icon {
+class GifIcon implements Icon {
 	/** Decoded canvas pixels across all frames (~24 MB of ARGB): a 220x73 banner of 60 frames is ~1M. */
 	static final long MAX_PIXELS = 6_000_000L;
 	static final int MAX_FRAMES = 300;
@@ -174,7 +174,7 @@ final class GifIcon implements Icon {
 		}
 	}
 
-	static final class Frame {
+	static class Frame {
 		int x;
 		int y;
 		int delayMs = FALLBACK_DELAY_MS;

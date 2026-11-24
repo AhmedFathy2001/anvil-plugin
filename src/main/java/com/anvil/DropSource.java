@@ -10,7 +10,7 @@ import java.util.regex.Pattern;
  *
  * <p>Pure and RuneLite-free, so it is unit-tested directly (DropSourceTest).
  */
-final class DropSource {
+class DropSource {
 	static final Pattern WIKI_QUALIFIER = Pattern.compile("\\s*\\([^)]*\\)\\s*$");
 
 	/**

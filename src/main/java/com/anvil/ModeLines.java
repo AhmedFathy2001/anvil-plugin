@@ -7,7 +7,7 @@ import java.util.*;
  * POST /api/plugin/mode-lines. The site decides which are relics, unlocks or tasks; this only keeps
  * the lines worth asking about (the game colours its announcements) and sends a few seconds at once.
  */
-final class ModeLines {
+class ModeLines {
 	static final int MAX_BATCH = 20;
 	static final long FLUSH_MS = 5_000;
 

@@ -11,7 +11,7 @@ import net.runelite.client.ui.overlay.tooltip.*;
  * Hover a Supporter's name in the chatbox: "Anvil Patron" (Champion, Supporter). Draws nothing; per
  * frame it only reads the mouse, and walks the chat lines only while the mouse is over them.
  */
-final class ChatFlairTooltip extends Overlay {
+class ChatFlairTooltip extends Overlay {
 	final Client client;
 	final TooltipManager tooltips;
 	final ChatFlair flair;

@@ -12,7 +12,7 @@ import java.util.function.LongSupplier;
  * else the whole versioned list (CDN-cached) is downloaded. Nothing about who the player sees is sent.
  */
 @RequiredArgsConstructor
-final class ChatFlairSync {
+class ChatFlairSync {
 	interface Source {
 		/** The site's version and the deltas from {@code v}; null on failure. Blocking. */
 		ChatFlair.Since since(int v);

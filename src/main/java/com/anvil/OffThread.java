@@ -14,7 +14,7 @@ import lombok.extern.slf4j.Slf4j;
  * once per kind of call, with the stack that got it there — rather than felt as a hitch.
  */
 @Slf4j
-final class OffThread {
+class OffThread {
 	static volatile BooleanSupplier onClientThread = () -> false;
 	static final Set<String> reported = ConcurrentHashMap.newKeySet();
 

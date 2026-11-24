@@ -7,7 +7,7 @@ import java.util.regex.Pattern;
  * Boss nicknames both ways, so a search finds a thing by whichever name the player knows it by:
  * "toa" finds Tombs of Amascut, and "tombs" finds a tile someone labelled "ToA uniques".
  */
-final class SearchAliases {
+class SearchAliases {
 	/** {nickname, full name} as both read once lower-cased with punctuation turned to spaces. */
 	static final String[][] PAIRS = {
 		{"toa", "tombs of amascut"}, {"tob", "theatre of blood"}, {"cox", "chambers of xeric"}, {"tfa", "fractured archive"},

@@ -37,7 +37,7 @@ import net.runelite.api.widgets.*;
  * we keep hold of what we made, notice when it is no longer attached, and build it again.
  */
 @RequiredArgsConstructor
-final class HeaderButton {
+class HeaderButton {
 	/** Matches the native header buttons: small, and tall enough to hit comfortably. */
 	static final int WIDTH = 71;
 	static final int FALLBACK_HEIGHT = 20;

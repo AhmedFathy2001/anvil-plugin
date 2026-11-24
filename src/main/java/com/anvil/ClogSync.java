@@ -17,7 +17,7 @@ import java.util.function.*;
  * <p>RuneLite-free on purpose: the flush policy is the part with edge cases, and this way it's
  * unit-testable without a client. The plugin owns the widget hook, the scheduler and the HTTP.
  */
-final class ClogSync {
+class ClogSync {
 	/** Wait this long after the last change before sending — a player paging through settles first. */
 	static final long QUIET_MS = 2_500;
 	/** Send at most this many pages per request; a full first sync becomes a handful of them. */

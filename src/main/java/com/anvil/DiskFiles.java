@@ -17,7 +17,7 @@ import net.runelite.client.util.Filepath;
  * a client killed mid-write leaves the previous copy (or nothing), never half a JSON file. Every
  * method here blocks on disk — callers run them on the plugin executor, never the client thread.
  */
-final class DiskFiles {
+class DiskFiles {
 	/** {@code dir}, created on demand; null when it can't be. */
 	static Filepath ensureDir(Filepath dir) {
 		if (dir == null) return null;

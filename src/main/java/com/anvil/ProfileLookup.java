@@ -33,7 +33,7 @@ import net.runelite.client.util.*;
  * — character pages are not clan-scoped, a character belongs to its player wherever they play.</p>
  */
 @Singleton
-final class ProfileLookup {
+class ProfileLookup {
 	static final String OPTION = "Anvil";
 
 	/** List options our entry goes AFTER (below) / BEFORE (above), matching the hiscores plugin. */

@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static com.anvil.AnvilPlugin.empty;
 import com.google.gson.*;
 import java.util.*;
 import java.util.function.*;
@@ -14,8 +15,8 @@ import java.util.function.*;
  * them with the site's answer. Every method that reads or writes a count holds the engine's lock; each
  * runs in microseconds, so the client thread never waits on anything slow.
  */
-final class RuleEngine {
-	static final class Table {
+class RuleEngine {
+	static class Table {
 		Map<String, List<DropRule>> drops = new HashMap<>();
 		Map<String, List<KillRule>> kills = new HashMap<>();
 		List<ValueRule> values = new ArrayList<>();
@@ -37,24 +38,24 @@ final class RuleEngine {
 		List<String> src;
 	}
 
-	static final class DropRule extends Rule {
+	static class DropRule extends Rule {
 		List<String> npcs;
 		boolean simple;
 		/** An item hunt's target (`label` the item, `hunt` the hunt): a popup and a line, never a fact (the drop report carries it). */
 		String hunt;
 	}
 
-	static final class KillRule extends Rule {
+	static class KillRule extends Rule {
 		String unit;
 		boolean quiet;
 		boolean coop;
 	}
 
-	static final class ValueRule extends Rule {
+	static class ValueRule extends Rule {
 		long min;
 	}
 
-	static final class StatRule extends Rule {
+	static class StatRule extends Rule {
 		String on;
 		List<String> names;
 		long step;
@@ -66,7 +67,7 @@ final class RuleEngine {
 	 * event must name one of {@code keys} ("*" or none = any), as the site expanded them; for timed and
 	 * deathless the key is the activity the clear parser matches. {@code of} 0 = never counted.
 	 */
-	static final class EventRule extends Rule {
+	static class EventRule extends Rule {
 		String on;
 		Set<String> keys;
 		/** Keys that never hit, even through a wildcard (a combat task the tile already counts). */
@@ -84,17 +85,17 @@ final class RuleEngine {
 		boolean site;
 
 		String key() {
-			return keys == null || keys.isEmpty() ? "" : keys.iterator().next();
+			return empty(keys) ? "" : keys.iterator().next();
 		}
 	}
 
-	static final class Proof {
+	static class Proof {
 		int min = 25;
 		double frac = 0.25;
 	}
 
 	/** What one event comes to: lines to print now, the fact for the site, and whether to screenshot it. */
-	static final class Out {
+	static class Out {
 		final List<String> say = new ArrayList<>();
 		final List<JsonObject> facts = new ArrayList<>();
 		boolean shot;
@@ -195,7 +196,7 @@ final class RuleEngine {
 			if (v != null) c.addProperty(k, v);
 		});
 		if (c.size() > 0) f.add("c", c);
-		if (unverified != null && !unverified.isEmpty()) {
+		if (!empty(unverified)) {
 			var u = new JsonArray();
 			unverified.forEach(u::add);
 			f.add("unv", u);
@@ -545,12 +546,12 @@ final class RuleEngine {
 	}
 
 	static boolean sourceOk(DropRule r, String source, String kind) {
-		if (r.src != null && !r.src.isEmpty() ? !r.src.contains(kind) : "pvp".equals(kind)) return false;
-		return r.npcs == null || r.npcs.isEmpty() || DropSource.sourceMatches(r.npcs, source);
+		if (!empty(r.src) ? !r.src.contains(kind) : "pvp".equals(kind)) return false;
+		return empty(r.npcs) || DropSource.sourceMatches(r.npcs, source);
 	}
 
 	static boolean valueSourceOk(List<String> sources, String source, String kind) {
-		if (sources == null || sources.isEmpty()) return true;
+		if (empty(sources)) return true;
 		for (var s : sources) {
 			if (s != null && (s.equalsIgnoreCase("PvP") ? "pvp".equals(kind) : s.equalsIgnoreCase(source))) return true;
 		}

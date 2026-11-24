@@ -18,7 +18,7 @@ import lombok.extern.slf4j.Slf4j;
  * send runs on the plugin's executor; nothing here touches the client thread.
  */
 @Slf4j
-final class CoalescedPush {
+class CoalescedPush {
 	interface Sender {
 		void send(Map<String, Integer> batch) throws IOException;
 	}

@@ -33,7 +33,7 @@ import java.util.regex.*;
  *                — no signature entry needed: both flanking lines name the trial, so the
  *                activity-name fallback matches tiles like "gwenith glide" / "tempor tantrum".
  */
-final class TimedClearParser {
+class TimedClearParser {
 	TimedClearParser() {}
 
 	static final Pattern SPACES = Pattern.compile("\\s+");

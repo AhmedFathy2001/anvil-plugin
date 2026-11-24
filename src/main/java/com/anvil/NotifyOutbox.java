@@ -31,7 +31,7 @@ import net.runelite.client.util.Filepath;
  */
 @RequiredArgsConstructor
 @Slf4j
-final class NotifyOutbox {
+class NotifyOutbox {
 	static final int MAX_ITEMS = 100;
 	static final long MAX_AGE_MS = 24L * 60 * 60 * 1000;
 	static final long MAX_BYTES = 20L * 1024 * 1024;
@@ -47,7 +47,7 @@ final class NotifyOutbox {
 	}
 
 	/** One queued notification. Serialized as-is; the PNG lives beside it. */
-	static final class Item {
+	static class Item {
 		String id;
 		String url;
 		String channel;

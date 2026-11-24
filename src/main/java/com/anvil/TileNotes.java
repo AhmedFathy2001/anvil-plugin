@@ -16,7 +16,7 @@ import java.util.*;
  *
  * <p>No RuneLite dependencies, so it is unit-testable.
  */
-final class TileNotes {
+class TileNotes {
 
 
 	/** Only real tiles can be pinned (the site serves no progress for a virtual id). */

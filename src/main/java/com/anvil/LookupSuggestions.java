@@ -17,9 +17,9 @@ import javax.swing.text.*;
  * has nothing completed, the same letters are tried again — someone who has only just walked into
  * view is picked up without typing another letter.</p>
  */
-final class LookupSuggestions extends KeyAdapter {
+class LookupSuggestions extends KeyAdapter {
 	/** The game's name lists at one moment. Each list may be empty, never null. */
-	static final class Names {
+	static class Names {
 		static final Names EMPTY = new Names(null, null, null, null);
 
 		final List<String> clanOnline;

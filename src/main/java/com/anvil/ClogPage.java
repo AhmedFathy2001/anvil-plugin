@@ -13,7 +13,7 @@ import java.util.*;
  * (src/data/clog.json), so the missing half is derivable — sending it would double every payload to
  * say "still nothing here".
  */
-final class ClogPage {
+class ClogPage {
 	/** Entry title as the log prints it — "Abyssal Sire". The site maps it to its own page id. */
 	final String name;
 	/** Obtained item ids, in the order the log lists them. Parallel to {@link #quantities}. */

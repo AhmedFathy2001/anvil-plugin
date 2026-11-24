@@ -41,7 +41,7 @@ class AnvilMoments {
 	static final long MIN_REPORTABLE_GP = 100_000L;
 
 	@RequiredArgsConstructor
-	static final class Moment {
+	static class Moment {
 		/** 'pet' | 'drop' | 'death' | 'ca' | 'level', and the chat feed's own 'clog' | 'diary'. */
 		final String kind;
 		final Integer itemId;

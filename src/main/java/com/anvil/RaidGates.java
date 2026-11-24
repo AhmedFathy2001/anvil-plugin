@@ -7,7 +7,7 @@ import java.util.*;
  * raid level the run ended at, and who was in it. Each returns null when the run passes, else the
  * reason it doesn't, worded for the player's chat box.
  */
-final class RaidGates {
+class RaidGates {
 	/** Only ToA has a raid level; a floor on any other raid's tile is ignored rather than failing it. */
 	static boolean isToa(String activity) {
 		return activity != null && activity.toLowerCase(Locale.ROOT).contains("tombs of amascut");

@@ -16,7 +16,7 @@ import javax.swing.Timer;
  * change) and each frame fills the text box through that image's pixels into a reused buffer.
  * A moving one (Patron) slides its gradient along: one shared timer repaints only those on screen.
  */
-final class GradientLabel extends JLabel {
+class GradientLabel extends JLabel {
 	/** Side-panel labels look faster at the same rate because they are compact; keep them at five seconds. */
 	static final long PANEL_CYCLE_MS = 5000;
 	/** RuneScape chat and widget names use the same calm five-second cycle as the side panel. */

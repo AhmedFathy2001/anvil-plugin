@@ -23,7 +23,7 @@ import net.runelite.client.util.Filepath;
  */
 @RequiredArgsConstructor
 @Slf4j
-final class ResponseDiskCache {
+class ResponseDiskCache {
 	static final String CONFIG = "config";
 	static final String CHAT_PATTERNS = "chat-patterns";
 	/** The Supporter name list (ChatFlair): public, the same for every account, so one shared file.
@@ -33,7 +33,7 @@ final class ResponseDiskCache {
 	static final int MAX_BODY_CHARS = 2_000_000;
 
 	/** One saved answer. */
-	static final class Entry {
+	static class Entry {
 		String url, etag, body;
 		/** The character the request was made as (X-RSN, else the launcher hint), or null. */
 		String rsn;

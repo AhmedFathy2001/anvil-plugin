@@ -19,7 +19,7 @@ import java.util.regex.*;
  * "Your X kill count is: N" line for kill crediting, so PB capture reuses that instead of running a
  * second regex over every line of chat. RuneLite-free, so the fragile part is unit-tested.
  */
-final class PersonalBestParser {
+class PersonalBestParser {
 	/** An [h:]mm:ss[.cc] token. The game never prints a bare seconds count for a PB. */
 	static final Pattern TIME = Pattern.compile("(\\d{1,3}):(\\d{2})(?::(\\d{2}))?(?:\\.(\\d{1,2}))?");
 	/** "personal best: 7:59" — the explicit form, where this run was NOT the best. */

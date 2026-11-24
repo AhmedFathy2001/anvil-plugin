@@ -10,7 +10,7 @@ import javax.swing.plaf.basic.BasicScrollBarUI;
  * the mouse, and a track the colour of the panel. The default bar is 17px of a 225px-wide panel,
  * which on a small client is a lot of width spent on chrome.
  */
-final class SlimScrollBarUI extends BasicScrollBarUI {
+class SlimScrollBarUI extends BasicScrollBarUI {
 	static final int WIDTH = 7;
 
 	static final Color THUMB = MEDIUM_GRAY_COLOR;

@@ -20,11 +20,11 @@ import net.runelite.client.util.Filepath;
  */
 @RequiredArgsConstructor
 @Slf4j
-final class PushStash {
+class PushStash {
 	static final long MAX_AGE_MS = 24L * 60 * 60 * 1000;
 
 	/** One character's waiting pushes. Plain fields only: it round-trips through Gson as-is. */
-	static final class Data {
+	static class Data {
 		long savedAt;
 		Map<String, Integer> kc = new HashMap<>();
 		Map<String, Integer> xp = new HashMap<>();
