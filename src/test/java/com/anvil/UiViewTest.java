@@ -330,6 +330,31 @@ public class UiViewTest
 		assertTrue(find(v, "Nothing").isVisible());
 	}
 
+	@Test
+	public void aFilterNamesTheMatchedPartAndBuildsSearchOnlyRowsFromATemplate()
+	{
+		UiView v = new UiView(new FakeHost(), null, null, null);
+		v.render(view("{\"t\":\"filter\",\"box\":true,\"c\":[{\"t\":\"grid\",\"cols\":1,\"c\":["
+			+ "{\"t\":\"text\",\"s\":\"Zulrah\",\"k\":\"Zulrah|Tanzanite fang\",\"av\":[\"Zulrah\"]}]}],"
+			+ "\"at\":{\"t\":\"text\",\"s\":\"{1} - matched item: {0}\"},"
+			+ "\"xh\":{\"t\":\"text\",\"s\":\"Matching items\"},"
+			+ "\"xt\":{\"t\":\"text\",\"s\":\"{0}\",\"icon\":{\"t\":\"icon\",\"item\":\"{1}\"},\"tip\":\"{2} · {3}\"},"
+			+ "\"x\":[[\"Tanzanite fang\",12922,\"Zulrah\",\"got 1\"],[\"Zul-andra teleport\",12938,\"Zulrah\",\"not yet\"]]}"));
+		assertFalse(texts(v).contains("Matching items"));
+		JTextField search = findField(v);
+		search.setText("zul");
+		List<String> shown = texts(v);
+		assertTrue(shown.contains("Zulrah"));
+		assertTrue(shown.contains("Matching items"));
+		assertTrue(shown.contains("Zul-andra teleport"));
+		assertFalse(shown.contains("Tanzanite fang"));
+		search.setText("tanz");
+		shown = texts(v);
+		assertTrue(shown.contains("Zulrah - matched item: Tanzanite fang"));
+		assertTrue(shown.contains("Tanzanite fang"));
+		assertTrue(find(v, "Tanzanite fang").getToolTipText().contains("Zulrah · got 1"));
+	}
+
 	private static JTextField findField(Component c)
 	{
 		if (c instanceof JTextField)

@@ -1194,10 +1194,32 @@ final class UiView extends JPanel {
 				box.removeAll();
 				for (int i = 0; i < rows.size(); i++) {
 					var spec = specs.get(i).getAsJsonObject();
-					if ((!bool(spec, "q") || !query[0].isEmpty()) && matches(query[0], spec.has("k") ? str(spec, "k") : words(spec)) && shown[0] < max) {
-						box.add(rows.get(i));
+					var key = spec.has("k") ? str(spec, "k") : words(spec);
+					if ((!bool(spec, "q") || !query[0].isEmpty()) && matches(query[0], key) && shown[0] < max) {
+						box.add(alt(n, spec, key, query[0], rows.get(i)));
 						shown[0]++;
 					}
+				}
+				box.revalidate();
+				box.repaint();
+			});
+			lists.add(box);
+		}
+		// Search-only rows ("x", filled into template "xt"): built when first matched, so a long list costs nothing until typed.
+		var xs = arr(n, "x");
+		var xt = obj(n, "xt");
+		if (xs != null && xt != null) {
+			var box = column();
+			box.setOpaque(false);
+			Map<Integer, JComponent> built = new HashMap<>();
+			refills.add(() -> {
+				box.removeAll();
+				for (int i = 0; i < xs.size() && shown[0] < max && !query[0].isEmpty(); i++) {
+					var v = xs.get(i).getAsJsonArray();
+					if (!matches(query[0], v.get(0).getAsString())) continue;
+					if (box.getComponentCount() == 0 && obj(n, "xh") != null) box.add(built.computeIfAbsent(-1, j -> node(obj(n, "xh"))));
+					box.add(built.computeIfAbsent(i, j -> node(fill(xt, v))));
+					shown[0]++;
 				}
 				box.revalidate();
 				box.repaint();
@@ -1230,6 +1252,33 @@ final class UiView extends JPanel {
 		wrap.add(lists);
 		wrap.add(more);
 		return wrap;
+	}
+
+	/** A row found only by a later "|" part of its key: template "at" filled with that part and the row's "av", else the row. */
+	Component alt(JsonObject n, JsonObject spec, String key, String q, Component row) {
+		var at = obj(n, "at");
+		var parts = key.split("\\|");
+		if (at == null || q.isEmpty() || parts.length < 2 || matches(q, parts[0])) return row;
+		for (var part : parts) {
+			if (!matches(q, part)) continue;
+			var v = new JsonArray();
+			v.add(part);
+			var av = arr(spec, "av");
+			if (av != null) v.addAll(av);
+			return node(fill(at, v));
+		}
+		return row;
+	}
+
+	/** Template {@code t} with each "{i}" made v[i] (a number stays a number) and {i} inside a text made its words. */
+	static JsonObject fill(JsonObject t, JsonArray v) {
+		var s = t.toString();
+		for (int i = 0; i < v.size(); i++) {
+			var e = v.get(i);
+			var q = new JsonPrimitive(e.getAsString()).toString();
+			s = s.replace("\"{" + i + "}\"", e.toString()).replace("{" + i + "}", q.substring(1, q.length() - 1));
+		}
+		return new JsonParser().parse(s).getAsJsonObject();
 	}
 
 	/**
