@@ -2871,7 +2871,7 @@ public class AnvilPlugin extends Plugin {
 
 	void checkSetup() {
 		if (setupWarned) return;
-		int shown = firstRunNudgesShown();
+		int shown = (int) max(0, cfgLong(CFG_FIRST_RUN_NUDGES));
 		var kind = SetupNudge.decide(config.playerToken(), shown);
 		if (kind == SetupNudge.Kind.NONE) return;
 		setupWarned = true;
@@ -2882,10 +2882,6 @@ public class AnvilPlugin extends Plugin {
 		if (kind == SetupNudge.Kind.FIRST_RUN) cfgSet(CFG_FIRST_RUN_NUDGES, String.valueOf(shown + 1));
 	}
 
-	/** How many first-run nudges this install has already printed. Absent/garbage reads as none. */
-	int firstRunNudgesShown() {
-		return (int) max(0, cfgLong(CFG_FIRST_RUN_NUDGES));
-	}
 
 	// Warn once per session (per event) when the logged-in RSN is a player in a live bingo that isn't
 	// linked to this account — otherwise tracking is silently off. The server flags it; reset on logout.
@@ -3917,7 +3913,7 @@ public class AnvilPlugin extends Plugin {
 		dupScrollTick = -1;
 		if (!hasEvent()) return;
 		if (scroll == null) askForManualSubmission("Duplicate Champion's scroll");
-		else creditInferredById(scroll, source, "inferred_duplicate_scroll");
+		else if (trackingGateReason() == null && rules.dropItemIds().contains(scroll)) creditInferred(singletonList(new ItemStack(scroll, 1)), source, "inferred_duplicate_scroll");
 	}
 
 	/** The site's config names an event. */
@@ -3930,9 +3926,6 @@ public class AnvilPlugin extends Plugin {
 		return itemName != null && trackingGateReason() == null && creditInferred(trackedStacks(itemName, 1), source, flag);
 	}
 
-	boolean creditInferredById(int itemId, String source, String flag) {
-		return trackingGateReason() == null && rules.dropItemIds().contains(itemId) && creditInferred(singletonList(new ItemStack(itemId, 1)), source, flag);
-	}
 
 	/** Credit through the ordinary drop path, marked so the site flags it. False when no tile tracks it. */
 	boolean creditInferred(List<ItemStack> synthetic, String source, String flag) {
@@ -4127,7 +4120,7 @@ public class AnvilPlugin extends Plugin {
 	JsonArray credit(PendingSubmission p, JsonArray facts) {
 		try {
 			if (p.clan == null) warnStartProofBeforeCredit(); // the active board's starting shot, not another board's
-			var reply = apiClient.postFacts(facts, p.proof, pendingCoop(p));
+			var reply = apiClient.postFacts(facts, p.proof, p.coopGroup == null && p.coopPartySize <= 1 ? null : new CoopFingerprint(p.coopGroup, p.coopPartySize));
 			adoptFacts(reply);
 			if (reply != null && reply.has("proofKey")) {
 				var labels = new ArrayList<String>();
@@ -4652,9 +4645,6 @@ public class AnvilPlugin extends Plugin {
 		return mine;
 	}
 
-	static CoopFingerprint pendingCoop(PendingSubmission p) {
-		return p.coopGroup == null && p.coopPartySize <= 1 ? null : new CoopFingerprint(p.coopGroup, p.coopPartySize);
-	}
 
 	/**
 	 * Does this line name the tile's activity? An Entry Mode clear never credits a base-raid tile
@@ -5737,10 +5727,6 @@ public class AnvilPlugin extends Plugin {
 		else sendChatMessage(Tone.DONE, line + (who.isEmpty() ? "" : " — by " + who) + "!");
 	}
 
-	/** A chat line Anvil wrote itself: "[Anvil] …", after any timestamp (no player can write a non-sender line). */
-	static boolean anvilLine(String raw) {
-		return ANVIL_LINE.matcher(ChatFlair.shown(raw).text).lookingAt();
-	}
 
 	static final Pattern ANVIL_LINE = Pattern.compile("^(?:\\s*\\[[^\\]]*\\])*?\\s*\\[Anvil\\] ");
 
@@ -6300,7 +6286,7 @@ public class AnvilPlugin extends Plugin {
 			}
 			// Our own lines naming someone ("Tile complete: … — by Bob!"): a player can't write a non-sender
 			// "[Anvil]" line, so its names are painted, and move, like a sender's.
-			var ours = painted == null && !sender && anvilLine(text);
+			var ours = painted == null && !sender && ANVIL_LINE.matcher(ChatFlair.shown(text).text).lookingAt(); // a line Anvil wrote itself, after any timestamp
 			if (ours) painted = chatFlair.paintNames(text, opaque, shift);
 			if (painted != null) {
 				w.setText(painted);
@@ -7211,7 +7197,7 @@ public class AnvilPlugin extends Plugin {
 		int world = config.anvilChat() != AnvilConfig.Relay.Off && loggedIn()
 				&& (cfg != null ? cfg.serverSupports("chat-relay") : apiClient.siteAdvertises("chat-relay")) ? client.getWorld() : 0;
 		var rows = eventId > 0 || feed || feedWatching || world > 0;
-		if (p != null) p.scope(rows && apiClient.isConfigured() && pushEnabled()
+		if (p != null) p.scope(rows && apiClient.isConfigured() && siteHas("push-ws")
 				? eventId + ":" + (cfg != null && cfg.team != null ? cfg.team.id : 0) + (feed ? ":f" : "") + (rows ? ":r" : "")
 				// The seat too: the ticket's clan room is read when it's issued, and the clan can arrive after log in.
 				// The name too: the site grants the relay only to a request that names the character, and a
@@ -7902,10 +7888,6 @@ public class AnvilPlugin extends Plugin {
 		scheduleCounterPush();
 	}
 
-	/** Our own death happened during an active event → bump the per-event death counter and push. */
-	void recordEventDeath() {
-		bumpEventCounter(() -> eventDeaths++);
-	}
 
 	/**
 	 * A hitsplat we landed → the per-event "hardest hit" high-water mark. Called from every one of
@@ -7942,10 +7924,6 @@ public class AnvilPlugin extends Plugin {
 		if (bankedMinute) scheduleCounterPush();
 	}
 
-	/** One attributed dangerous-PvP kill (see onActorDeath) → the per-event PKer counter. */
-	void recordEventPvpKill() {
-		bumpEventCounter(() -> eventPvpKills++);
-	}
 
 	/**
 	 * Price a whole loot haul and add its GE value to the per-event loot total. Called from the same
@@ -8426,7 +8404,7 @@ public class AnvilPlugin extends Plugin {
 		if (lmsInGame && !lmsPlacementRecorded && lmsSurvivors > 0) recordLmsPlacement(max(lmsSurvivors, 2));
 		// Recap counter — count the death for the "Wipe Magnet" superlative even if death
 		// notifications are off (still gated on an active event inside).
-		recordEventDeath();
+		bumpEventCounter(() -> eventDeaths++);
 		// Clan feed — WHAT killed us, which is the half the recap counter throws away. Dying to
 		// the boss everyone is racing that week is the story; dying in general is a number.
 		// Recorded here rather than beside the post below, so the drops channel being off can't
@@ -8487,7 +8465,7 @@ public class AnvilPlugin extends Plugin {
 				if (ours) {
 					// Recap counter first: ANY dangerous-PvP kill feeds the PKer superlative,
 					// pvp tiles on the board or not. Tile credit + notify keep their own gates.
-					if (inDangerousPvp()) recordEventPvpKill();
+					if (inDangerousPvp()) bumpEventCounter(() -> eventPvpKills++);
 					creditPvpKillTiles(vname);
 					var me = me();
 					if (me != null && me.pvp) notifyPvpKill(vname);
@@ -9523,22 +9501,6 @@ public class AnvilPlugin extends Plugin {
 		return 99 * Skill.values().length;
 	}
 
-	/**
-	 * Is this account plainly not chasing 2277?
-	 *
-	 * THERE IS NO "PURE" ACCOUNT TYPE. RuneLite's AccountType knows Normal and the Ironman variants
-	 * and nothing else, because a pure is a BUILD rather than a flag — the game does not record the
-	 * intention, only the stats it produced. So this asks the one question the stats answer without
-	 * ambiguity: Defence 1. Nobody arrives at 99 Strength with Defence 1 by accident, and a level-3
-	 * skiller is the same answer for the same reason.
-	 *
-	 * It is used only to SUPPRESS a line, never to claim anything. Telling somebody who has chosen a
-	 * build that they are "435 levels from max" measures them against a goal they rejected, and the
-	 * cost of guessing wrong is a missing line rather than a wrong one.
-	 */
-	boolean buildIsNotChasingMax() {
-		return client.getRealSkillLevel(Skill.DEFENCE) == 1;
-	}
 
 
 	void postTotalMilestone(int total, boolean maxed) {
@@ -9547,7 +9509,8 @@ public class AnvilPlugin extends Plugin {
 		// Where this leaves them — from the LIVE total, not the milestone above: somebody who crossed
 		// 1800 on a level that took them to 1803 is 474 from max, not 477. Left out on a build not
 		// chasing max (the site also drops it on a max, where "0 to go" is noise).
-		if (!maxed && !buildIsNotChasingMax()) f.put("current", client.getTotalLevel()).put("max", maxTotalLevel());
+		// Defence 1 (a pure, a skiller) isn't chasing max: "435 levels from max" would measure them against a goal they rejected.
+		if (!maxed && client.getRealSkillLevel(Skill.DEFENCE) != 1) f.put("current", client.getTotalLevel()).put("max", maxTotalLevel());
 		postAchievement(f);
 	}
 
@@ -10772,13 +10735,6 @@ public class AnvilPlugin extends Plugin {
 		return pluginConfig != null || apiClient.signedInWithoutClan();
 	}
 
-	/**
-	 * Live push is a runtime switch on the site, advertised only while it is on. In no clan the config
-	 * is a 404 and carries no capabilities; /api/version answers instead.
-	 */
-	boolean pushEnabled() {
-		return siteHas("push-ws");
-	}
 
 	boolean siteHas(String capability) {
 		var cfg = pluginConfig;

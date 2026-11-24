@@ -324,10 +324,6 @@ class FeedList extends JPanel {
 		return changed;
 	}
 
-	/** A press on this row's chip just went out: hold its pushes until it settles. */
-	void hold(String rowId) {
-		held.computeIfAbsent(rowId, k -> new Held()).posts++;
-	}
 
 	/** One of the row's posts answered: once none are out, wait {@link #SETTLE_MS} and replay what was held. */
 	void unhold(String rowId) {
@@ -710,7 +706,7 @@ class FeedList extends JPanel {
 			quietly(on);
 			return;
 		}
-		hold(rowId);
+		held.computeIfAbsent(rowId, k -> new Held()).posts++;
 		host.post(str(on, "act"), strings(on.get("args")), Collections.emptyMap(), v -> {
 			unhold(rowId);
 			showError(errorOf(v));
