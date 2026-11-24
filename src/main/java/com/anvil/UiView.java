@@ -47,6 +47,10 @@ final class UiView extends JPanel {
 
 		void site(String path);
 
+		/** Fetch a site path and put its {@code text} on the clipboard (a guide's bank tag, setup, markers). */
+		default void copy(String path) {
+		}
+
 		void lookup(String rsn);
 
 		void clan(String slug);
@@ -368,12 +372,16 @@ final class UiView extends JPanel {
 	void act(JsonObject a) {
 		var into = str(a, "into");
 		var place = into.isEmpty() ? null : into;
-		switch (str(a, "a")) {
+		var kind = str(a, "a");
+		switch (kind) {
 			case "site":
+			case "copy":
 				var path = str(a, "path");
 				// A path on the site, never a host: "//" and a backslash ("/\\evil.example") both resolve
 				// to another host.
-				if (path.startsWith("/") && !path.startsWith("//") && path.indexOf('\\') < 0) host.site(path);
+				if (!path.startsWith("/") || path.startsWith("//") || path.indexOf('\\') >= 0) break;
+				if (kind.equals("copy")) host.copy(path);
+				else host.site(path);
 				break;
 			case "lookup":
 				host.lookup(str(a, "rsn"));
@@ -912,7 +920,7 @@ final class UiView extends JPanel {
 		if (spec.has("glyph")) {
 			var shape = glyph(str(spec, "glyph"));
 			if (shape == null) return false;
-			l.setIcon(new GlyphIcon(shape, size, color(str(spec, "color"), MUTED)));
+			l.setIcon(new GlyphIcon(shape, size, color(str(spec, "color"), QUILLS.getOrDefault(str(spec, "glyph"), MUTED))));
 			return true;
 		}
 		if (spec.has("item") && items != null) {
@@ -1572,11 +1580,14 @@ final class UiView extends JPanel {
 		return g != null && g.length() == 8 && g.startsWith("tenure-") && g.charAt(7) >= '1' && g.charAt(7) <= '6' ? g.charAt(7) - '0' : 0;
 	}
 
+	/** The writer-rank quills (guide bylines), each in its own colour. */
+	static final Map<String, Color> QUILLS = Map.of("quill-bronze", new Color(0xc27c3e), "quill-silver", new Color(0xc9d1d9), "quill-gold", new Color(0xe0b453), "quill-star", new Color(0xffd35c));
+
 	static final Map<String, GlyphIcon.Shape> GLYPHS = Map.of("check", CHECK, "chevron-right", CHEVRON_RIGHT, "chevron-left", CHEVRON_LEFT,
 		"external", EXTERNAL, "close", CLOSE, "star", STAR, "up", UP, "down", DOWN);
 
 	static GlyphIcon.Shape glyph(String g) {
-		return GLYPHS.get(g);
+		return QUILLS.containsKey(g) ? g.endsWith("star") ? QUILL_STAR : QUILL : GLYPHS.get(g);
 	}
 
 	static Skill skill(String key) {

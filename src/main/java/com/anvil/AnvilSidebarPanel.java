@@ -88,10 +88,10 @@ public class AnvilSidebarPanel extends PluginPanel {
 	final Map<Tab, JLabel> tabLabels = new EnumMap<>(Tab.class);
 	final JPanel lookupPanel = column();
 	/** Lookup is for a player or a clan; this says which the search box means. */
-	boolean lookupClans;
+	boolean lookupClans, lookupGuides;
 	/** Players | Clans, redrawn when the mode changes (styleLookupModes). */
 	final JPanel lookupModes = column();
-	Boolean lookupModesShown;
+	String lookupModesShown;
 	/** The site-built views: the Clan tab, the You tab, and what Lookup found. */
 	final UiView clanView;
 	final UiView youView;
@@ -482,7 +482,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			var name = rawName == null ? "" : rawName.replace(' ', ' ').trim();
 			if (tab != LOOKUP) selectTab(LOOKUP);
 			if (name.isEmpty()) return;
-			if (lookupClans) setLookupMode(false);
+			if (lookupClans || lookupGuides) setLookupMode("Players");
 			lookupSearch.setText(name);
 			remember(name);
 			lookupView.show("player", singletonMap("rsn", name), "Looking up " + name + "…");
@@ -513,6 +513,8 @@ public class AnvilSidebarPanel extends PluginPanel {
 			public void load(String view, Map<String, String> args, Consumer<JsonObject> done) {
 				var clan = data.activeClan();
 				var sent = withPins(args);
+				// Where the player stands, for the guide search's "You're at …".
+				if ("guides".equals(view)) sent.put("region", "" + data.fromPlugin(p -> p.region, -1));
 				// The live board's id too: "event 0" (the board page's tiles, teams) means whichever board is live,
 				// so an answer kept for one board must never be drawn once another one is.
 				var key = clan + '|' + api.getCurrentRsn() + '|' + data.activeEventId() + '|' + view + '|' + new TreeMap<>(sent);
@@ -536,6 +538,11 @@ public class AnvilSidebarPanel extends PluginPanel {
 			}
 
 			public void openTab(String name, Map<String, String> args) {
+				if ("lookup".equals(name)) {
+					if (tab != LOOKUP) selectTab(LOOKUP);
+					setLookupMode("guides".equals(args.get("mode")) ? "Guides" : "Players");
+					return;
+				}
 				// Only a tab this panel is showing.
 				var feed = tabLabels.get(FEED);
 				if (!"feed".equals(name) || feed == null || !feed.isShowing()) return;
@@ -569,6 +576,13 @@ public class AnvilSidebarPanel extends PluginPanel {
 				LinkBrowser.browse(api.siteLink(path));
 			}
 
+			public void copy(String path) {
+				async(() -> api.getOrNull(api.uiRequest(api.rootUrl(path)).get(), JsonObject.class), v -> {
+					var text = v != null && v.has("text") ? v.get("text").getAsString() : null;
+					data.withPlugin(p -> p.sendChatMessage(Clipboards.copy(text) ? "Copied to your clipboard." : "Couldn't copy that — try again in a moment."));
+				});
+			}
+
 			public void image(String path, int w, int h, boolean motion, Consumer<Icon> done) {
 				// A picture already in hand lands now, not a frame later: a redraw doesn't blink it out and back.
 				api.thumb(path, w, h, motion && GradientLabel.animate, img -> {
@@ -583,7 +597,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 			public void clan(String slug) {
 				if (tab != LOOKUP) selectTab(LOOKUP);
-				setLookupMode(true);
+				setLookupMode("Clans");
 				lookupView.show("clan", singletonMap("slug", slug), "Loading the clan…");
 			}
 		};
@@ -693,10 +707,14 @@ public class AnvilSidebarPanel extends PluginPanel {
 		}
 	}
 
-	void setLookupMode(boolean clans) {
-		lookupClans = clans;
+	/** Players, Clans, or Guides (the site's guide search, which brings its own Players | Guides switch). */
+	void setLookupMode(String mode) {
+		lookupClans = "Clans".equals(mode);
+		lookupGuides = "Guides".equals(mode);
+		for (var c : new JComponent[] {lookupModes, lookupBox, lookupRecentRow}) c.setVisible(!lookupGuides);
 		styleLookupModes();
-		sayLookupHint();
+		if (lookupGuides) lookupView.show("guides", emptyMap(), "Loading guides…");
+		else sayLookupHint();
 	}
 
 	void sayLookupHint() {
@@ -704,11 +722,13 @@ public class AnvilSidebarPanel extends PluginPanel {
 	}
 
 	void styleLookupModes() {
-		if (Boolean.valueOf(lookupClans).equals(lookupModesShown)) return;
-		lookupModesShown = lookupClans;
+		var guides = data.fromPlugin(p -> p.siteHas("guides-panel"), false);
+		var shown = (lookupClans ? "Clans" : "Players") + guides;
+		if (shown.equals(lookupModesShown)) return;
+		lookupModesShown = shown;
 		lookupModes.removeAll();
-		lookupModes.add(UiView.segments(Arrays.asList("Players", "Clans"), lookupClans ? "Clans" : "Players",
-			m -> setLookupMode("Clans".equals(m))));
+		lookupModes.add(UiView.segments(guides ? List.of("Players", "Clans", "Guides") : List.of("Players", "Clans"), lookupClans ? "Clans" : "Players",
+			this::setLookupMode));
 		redraw(lookupModes);
 	}
 

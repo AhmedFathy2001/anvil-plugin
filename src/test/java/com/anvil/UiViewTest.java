@@ -20,6 +20,8 @@ public class UiViewTest
 		final List<Consumer<JsonObject>> pending = new ArrayList<>();
 		Map<String, String> postedFields;
 		String site;
+		String copied;
+		String tab;
 		String lookedUp;
 		String pinned;
 		String switched;
@@ -58,6 +60,18 @@ public class UiViewTest
 		public void site(String path)
 		{
 			site = path;
+		}
+
+		@Override
+		public void copy(String path)
+		{
+			copied = path;
+		}
+
+		@Override
+		public void openTab(String name, Map<String, String> args)
+		{
+			tab = name + args;
 		}
 
 		@Override
@@ -285,6 +299,32 @@ public class UiViewTest
 		assertEquals("clog-page{page=Zulrah}", host.loads.get(0));
 		host.pending.get(0).accept(view("{\"t\":\"text\",\"s\":\"Pet\"}"));
 		assertEquals(Arrays.asList("Head", "Pet"), texts(v));
+	}
+
+	@Test
+	public void copyFetchesASitePathOnlyAndTabCarriesItsArgs()
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		v.render(view("{\"t\":\"col\",\"c\":[{\"t\":\"text\",\"s\":\"Copy\",\"on\":{\"a\":\"copy\",\"path\":\"/api/plugin/guide-export?guide=1\"}},"
+			+ "{\"t\":\"text\",\"s\":\"Evil\",\"on\":{\"a\":\"copy\",\"path\":\"//evil.example/x\"}},"
+			+ "{\"t\":\"text\",\"s\":\"Players\",\"on\":{\"a\":\"tab\",\"tab\":\"lookup\",\"args\":{\"mode\":\"players\"}}}]}"));
+		click(v, "Evil");
+		assertNull(host.copied);
+		click(v, "Copy");
+		assertEquals("/api/plugin/guide-export?guide=1", host.copied);
+		assertNull(host.site);
+		click(v, "Players");
+		assertEquals("lookup{mode=players}", host.tab);
+	}
+
+	@Test
+	public void writerQuillsAreGlyphsInTheirRankColours()
+	{
+		assertEquals(GlyphIcon.Shape.QUILL, UiView.glyph("quill-silver"));
+		assertEquals(GlyphIcon.Shape.QUILL_STAR, UiView.glyph("quill-star"));
+		assertEquals(new Color(0xe0b453), UiView.QUILLS.get("quill-gold"));
+		assertEquals(GlyphIcon.Shape.CHECK, UiView.glyph("check"));
 	}
 
 	@Test

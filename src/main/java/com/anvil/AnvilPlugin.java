@@ -1799,6 +1799,13 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		if ("shareSeasonal".equals(key) && sidebarPanel != null) invokeLater(sidebarPanel::seasonalChanged);
+		if ("shareItems".equals(key)) {
+			// Off: what was sent goes (on the next tick, logged in), and nothing more is sent. On: read what's held now.
+			itemsSeen.clear();
+			itemsSent.clear();
+			wipeItems = !config.shareItems();
+			if (!wipeItems) clientThread.invoke(() -> SHARED.keySet().forEach(id -> seeItems(id, client.getItemContainer(id))));
+		}
 		if (isInternalStateKey(key)) return;
 		configureApiClient();
 		if ("profileLookupMenu".equals(key) || "lookupPlayers".equals(key)) profileLookup.syncPlayerItem();
@@ -2264,6 +2271,7 @@ public class AnvilPlugin extends Plugin {
 			pushSoon();
 		}
 		lastWornItemIds = wornItemIds();
+		shareItems();
 		relayHeal();
 		relayPmMode();
 		maybeSettleStats();
@@ -2527,6 +2535,8 @@ public class AnvilPlugin extends Plugin {
 			lootingBagNow = null;
 			lootingBagWatchSource = null;
 			lootingBagWatchBase = null;
+			itemsSeen.clear(); // another character may log in next
+			itemsSent.clear();
 			recentDropLines.clear();
 			chestLineCredits.clear();
 			// The destination sends a fresh table. Until its burst settles, restoring the real
@@ -4310,6 +4320,60 @@ public class AnvilPlugin extends Plugin {
 		int id = event.getContainerId();
 		if (id == InventoryID.INV || id == InventoryID.WORN) heldItemsDirty = true;
 		if (id == InventoryID.LOOTING_BAG) onLootingBagChanged(event.getItemContainer());
+		seeItems(id, event.getItemContainer());
+	}
+
+	// GUIDES (POST /api/plugin/items): the bank, inventory, worn gear and looting bag as last seen, sent
+	// a few quiet ticks after a change, at most every 20s, only the containers that differ from the last push.
+	static final Map<Integer, String> SHARED = Map.of(InventoryID.BANK, "bank", InventoryID.INV, "inventory", InventoryID.WORN, "equipment", InventoryID.LOOTING_BAG, "lootingBag");
+	final Map<String, JsonArray> itemsSeen = new ConcurrentHashMap<>(), itemsSent = new ConcurrentHashMap<>();
+	volatile boolean itemsDirty, wipeItems;
+	int itemsAt;
+	volatile long itemsNextAt;
+	/** The region the player stands in, for the Guides view's "You're at …". */
+	volatile int region = -1;
+
+	void seeItems(int id, ItemContainer c) {
+		var kind = SHARED.get(id);
+		if (kind == null || c == null || !config.shareItems()) return;
+		var m = new TreeMap<Integer, Integer>();
+		for (var it : c.getItems()) if (it.getId() > 0 && it.getQuantity() > 0) m.merge(it.getId(), it.getQuantity(), Integer::sum);
+		itemsSeen.put(kind, apiClient.pairs(m, "id", "q"));
+		itemsDirty = true;
+		itemsAt = client.getTickCount();
+	}
+
+	/** Each tick: the pending push, or the wipe once sharing was turned off. */
+	void shareItems() {
+		region = regionId();
+		if (apiClient.getCurrentRsn() == null || now() < itemsNextAt || !siteHas("guides-panel")) return;
+		if (wipeItems) {
+			wipeItems = false;
+			submit(() -> {
+				try {
+					apiClient.deleteItems();
+				} catch (IOException e) {
+					wipeItems = true;
+				}
+			});
+		}
+		if (!itemsDirty || client.getTickCount() - itemsAt < 5) return;
+		itemsDirty = false;
+		var body = new JsonObject();
+		itemsSeen.forEach((k, v) -> {
+			if (!v.equals(itemsSent.get(k))) body.add(k, BingoApiClient.obj("items", v));
+		});
+		if (body.size() == 0) return;
+		itemsNextAt = now() + 20_000;
+		submit(() -> {
+			try {
+				apiClient.postJson("/api/plugin/items", body, "Items push failed", false);
+				body.keySet().forEach(k -> itemsSent.put(k, body.getAsJsonObject(k).getAsJsonArray("items")));
+			} catch (IOException e) {
+				itemsDirty = true;
+				itemsNextAt = now() + 300_000;
+			}
+		});
 	}
 
 	void onLootingBagChanged(ItemContainer bag) {
@@ -10697,9 +10761,13 @@ public class AnvilPlugin extends Plugin {
 	 * is a 404 and carries no capabilities; /api/version answers instead.
 	 */
 	boolean pushEnabled() {
+		return siteHas("push-ws");
+	}
+
+	boolean siteHas(String capability) {
 		var cfg = pluginConfig;
-		return cfg != null ? cfg.serverSupports("push-ws")
-				: apiClient.signedInWithoutClan() && apiClient.siteAdvertises("push-ws");
+		return cfg != null ? cfg.serverSupports(capability)
+				: apiClient.signedInWithoutClan() && apiClient.siteAdvertises(capability);
 	}
 
 

@@ -20,7 +20,7 @@ import javax.swing.Icon;
 @RequiredArgsConstructor
 final class GlyphIcon implements Icon {
 	enum Shape {
-		CHEVRON_LEFT, CHEVRON_RIGHT, EXTERNAL, CHECK, CLOSE, ELLIPSIS, GEAR, STAR, UP, DOWN
+		CHEVRON_LEFT, CHEVRON_RIGHT, EXTERNAL, CHECK, CLOSE, ELLIPSIS, GEAR, STAR, UP, DOWN, QUILL, QUILL_STAR
 	}
 
 	final Shape shape;
@@ -91,6 +91,17 @@ final class GlyphIcon implements Icon {
 				case STAR:
 					// Filled five points: an Anvil Supporter, beside their name.
 					g.fill(star(p, s, 1));
+					break;
+				case QUILL_STAR:
+					// A Supporter writer: the gold star with a dark quill across it.
+					g.fill(star(new Path2D.Float(), s, 1));
+					g.setColor(new Color(0x7a4f12));
+				case QUILL:
+					// A writer's rank: a feather leaning right, its colour the rank's.
+					p.moveTo(s * .88, s * .08);
+					p.quadTo(s * .22, s * .2, s * .18, s * .92);
+					p.quadTo(s * .74, s * .62, s * .88, s * .08);
+					g.fill(p);
 					break;
 				case UP:
 				case DOWN:

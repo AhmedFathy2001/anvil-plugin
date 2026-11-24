@@ -448,4 +448,15 @@ public interface AnvilConfig extends Config {
 	default boolean shareMoments() {
 		return true;
 	}
+
+	@ConfigItem(
+		keyName = "shareItems",
+		name = "Share my bank with Anvil for guides",
+		description = "Send your bank, inventory, worn gear and looting bag to Anvil, so guides can show what you're missing and your own version of a setup. Only you see it. Turning this off deletes what was sent.",
+		position = 7,
+		section = "profileSection"
+	)
+	default boolean shareItems() {
+		return true;
+	}
 }

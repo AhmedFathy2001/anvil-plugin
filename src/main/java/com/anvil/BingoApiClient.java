@@ -1539,6 +1539,11 @@ public class BingoApiClient {
 		postJson("/api/plugin/presence", obj("guestChannel", guestChannel), "Presence push failed", false);
 	}
 
+	/** DELETE /api/plugin/items: item sharing was turned off, so what this character sent goes. */
+	void deleteItems() throws IOException {
+		execute(httpClient, authedRequest(clanUrl("/api/plugin/items")).delete(), (r, b) -> null);
+	}
+
 	/**
 	 * POST /api/plugin/clog with {@code unlocks} — one collection-log unlock, sent as its chat line
 	 * fires, with the most recent kill line when there was one. The site resolves the name against
