@@ -57,10 +57,6 @@ class GifIcon implements Icon {
 		return last = c;
 	}
 
-	int frameCount() {
-		return frames.length;
-	}
-
 	public int getIconWidth() {
 		return frames[0].getWidth();
 	}

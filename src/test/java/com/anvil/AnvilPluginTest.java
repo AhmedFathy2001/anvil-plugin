@@ -15,7 +15,7 @@ public class AnvilPluginTest
 		String dev = System.getProperty("anvil.site", System.getenv("ANVIL_SITE"));
 		if (dev != null && dev.matches("https://[a-z0-9.-]+(:\\d+)?"))
 		{
-			BingoApiClient.useDevSite(dev);
+			BingoApiClient.site = dev;
 		}
 		// The scenario lab rides along in the dev client only (::anvil help) — see resources/scenarios/README.md.
 		ExternalPluginManager.loadBuiltin(AnvilPlugin.class, AnvilScenarioPlugin.class);

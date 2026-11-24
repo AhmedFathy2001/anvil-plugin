@@ -270,10 +270,6 @@ public class BingoApiClient {
 		return site;
 	}
 
-	static void useDevSite(String url) {
-		site = url;
-	}
-
 	/**
 	 * True when there is no Account Token yet — the state the Sign-in button serves.
 	 *

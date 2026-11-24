@@ -346,14 +346,6 @@ class FeedList extends JPanel {
 		for (var update : h.queued) applyReactionToList(rowId, update);
 	}
 
-	/** For tests: every press whose post has answered settles now, without waiting out the timer. */
-	void settleNow() {
-		for (var rowId : new ArrayList<>(held.keySet())) {
-			var h = held.get(rowId);
-			if (h.posts == 0) settle(rowId, h.gen);
-		}
-	}
-
 	/** Pushes for a row whose chip this viewer just pressed. */
 	static class Held {
 		int posts, gen;
@@ -496,31 +488,6 @@ class FeedList extends JPanel {
 	void repaintRow(int i) {
 		var b = list.getCellBounds(i, i);
 		if (b != null) list.repaint(b);
-	}
-
-	// For tests: what the list holds, newest first, and its box.
-	int rowCount() {
-		return model.getSize();
-	}
-
-	String rowId(int i) {
-		return str(model.getElementAt(i), "id");
-	}
-
-	JsonObject reactionChip(int i, String kind) {
-		var row = model.getElementAt(i);
-		if (isArr(row, "reacts")) {
-			for (var e : row.getAsJsonArray("reacts")) if (kind.equals(str(e.getAsJsonObject(), "kind"))) return e.getAsJsonObject();
-		}
-		return "gz".equals(kind) && row.has("gz") ? row.getAsJsonObject("gz") : null;
-	}
-
-	JTextField box() {
-		return input;
-	}
-
-	String errorLine() {
-		return error.isVisible() ? error.getText() : null;
 	}
 
 	void schedule() {
@@ -748,12 +715,6 @@ class FeedList extends JPanel {
 			unhold(rowId);
 			showError(errorOf(v));
 		});
-	}
-
-	/** For tests: press row {@code i}'s chip of this kind, as a click on it would. */
-	void pressChip(int i, String kind) {
-		var chip = reactionChip(i, kind);
-		if (chip != null) press(i, chip);
 	}
 
 	/** A post that must not redraw the view: only an error line comes back. */
@@ -1059,20 +1020,9 @@ class FeedList extends JPanel {
 	}
 
 	/**
-	 * A moment's name line: the name in a Supporter's gradient (letter by letter; the panel's static
-	 * form of it) or in {@code whoColor}, and "· Team" after it in the team's colour. A site that only
-	 * sent the team (whoColor "muted") gets the name in the team's colour, as before.
-	 */
-	static String whoHtml(JsonObject r, String who, String tag, Color whoInk, Color tagInk) {
-		var sb = new StringBuilder("<html>");
-		whoRuns(r, who, tag, whoInk, tagInk, (text, ink) -> sb.append(font(ink, text)));
-		return sb.toString();
-	}
-
-	/**
 	 * The name line as coloured runs, in order: one per letter for a gradient (sliding like the chat
-	 * lines: the same 6s cycle, reflecting back), else the whole name; then "· Team". Shared by
-	 * {@link #whoHtml} and {@link WhoLine}, which paints the runs straight onto the row.
+	 * lines: the same 6s cycle, reflecting back), else the whole name; then "· Team". Used by
+	 * {@link WhoLine}, which paints the runs straight onto the row.
 	 */
 	static void whoRuns(JsonObject r, String who, String tag, Color whoInk, Color tagInk, BiConsumer<String, Color> out) {
 		var grad = stops(r);
@@ -1147,10 +1097,6 @@ class FeedList extends JPanel {
 				x[0] += fm.stringWidth(text);
 			});
 		}
-	}
-
-	static String font(Color c, String text) {
-		return String.format("<font color='#%06x'>%s</font>", c.getRGB() & 0xffffff, esc(text));
 	}
 
 	static Color mix(Color a, Color b, float t) {
