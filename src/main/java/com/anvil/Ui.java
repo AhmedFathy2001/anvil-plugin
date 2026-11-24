@@ -278,15 +278,12 @@ class Ui {
 		SearchField(String placeholder, String value) {
 			super(value == null ? "" : value);
 			this.placeholder = placeholder;
-			addFocusListener(new FocusAdapter() {
-				public void focusGained(FocusEvent e) { repaint(); }
-				public void focusLost(FocusEvent e) { repaint(); }
-			});
 		}
 
+		/** The hint stays until something is typed: a box that takes focus on its own showed none. */
 		protected void paintComponent(Graphics graphics) {
 			super.paintComponent(graphics);
-			if (!getText().isEmpty() || isFocusOwner()) return;
+			if (!getText().isEmpty()) return;
 			var g = (Graphics2D) graphics.create();
 			g.setColor(MUTED);
 			g.setFont(getFont());

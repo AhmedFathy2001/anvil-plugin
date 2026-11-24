@@ -1244,7 +1244,7 @@ class UiView extends JPanel {
 			styleSearch(search);
 			search.setFont(SMALL);
 			search.setBackground(DARK_GRAY_COLOR);
-			search.setBorder(createEmptyBorder(4, 6, 4, 6));
+			search.setBorder(createCompoundBorder(createLineBorder(RAISED_HOVER), createEmptyBorder(4, 6, 4, 6)));
 			onEdit(search, () -> {
 				query[0] = search.getText().trim();
 				refill.run();
