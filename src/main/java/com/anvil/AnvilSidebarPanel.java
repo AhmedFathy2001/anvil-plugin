@@ -704,11 +704,11 @@ public class AnvilSidebarPanel extends PluginPanel {
 		}
 	}
 
-	/** Players, Clans, or Guides (the site's guide search, which brings its own Players | Guides switch). */
+	/** Players, Clans, or Guides (the site's guide search); the one Players | Clans | Guides switch stays above all three. */
 	void setLookupMode(String mode) {
 		lookupClans = "Clans".equals(mode);
 		lookupGuides = "Guides".equals(mode);
-		for (var c : new JComponent[] {lookupModes, lookupBox, lookupRecentRow}) c.setVisible(!lookupGuides);
+		for (var c : new JComponent[] {lookupBox, lookupRecentRow}) c.setVisible(!lookupGuides);
 		styleLookupModes();
 		if (lookupGuides) lookupView.show("guides", emptyMap(), "Loading guides…");
 		else sayLookupHint();
@@ -720,11 +720,12 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	void styleLookupModes() {
 		var guides = data.fromPlugin(p -> p.siteHas("guides-panel"), false);
-		var shown = (lookupClans ? "Clans" : "Players") + guides;
+		var mode = lookupClans ? "Clans" : lookupGuides ? "Guides" : "Players";
+		var shown = mode + guides;
 		if (shown.equals(lookupModesShown)) return;
 		lookupModesShown = shown;
 		lookupModes.removeAll();
-		lookupModes.add(UiView.segments(guides ? List.of("Players", "Clans", "Guides") : List.of("Players", "Clans"), lookupClans ? "Clans" : "Players",
+		lookupModes.add(UiView.segments(guides ? List.of("Players", "Clans", "Guides") : List.of("Players", "Clans"), mode,
 			this::setLookupMode));
 		redraw(lookupModes);
 	}
