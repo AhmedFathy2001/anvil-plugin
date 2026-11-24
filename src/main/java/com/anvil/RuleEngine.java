@@ -113,7 +113,6 @@ class RuleEngine {
 		final List<String[]> banners = new ArrayList<>();
 	}
 
-	static final long DEDUP_MS = 3_000;
 
 	volatile Table table;
 	final Map<Integer, Long> seenItems = new HashMap<>();
@@ -222,7 +221,7 @@ class RuleEngine {
 			// source-limited tile refused under the line; the other 449 of a 450 stack).
 			var clog = "clog".equals(kind);
 			var last = seenItems.get(it[0]);
-			if (!clog && last != null && now - last < DEDUP_MS) continue;
+			if (!clog && last != null && now - last < 3_000 /* DEDUP_MS */) continue;
 			var any = false;
 			Boolean huntOk = null;
 			for (var r : rules) {

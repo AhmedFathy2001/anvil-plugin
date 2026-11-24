@@ -44,10 +44,6 @@ class FeedList extends JPanel {
 	/** "...+02:00" at the end of a timestamp. Compiled once: it runs for every row on each paint. */
 
 	static final int FLUSH_MS = 400;
-	/** How long after our own press's post answers before held reaction pushes are laid over it. */
-	static final int SETTLE_MS = 1500;
-	/** Reaction pushes held per pressed row, at most (the newest kept). */
-	static final int HELD_CAP = 16;
 	static final int ICON_W = 24, ICON_H = 21;
 	static final Color GOLD = new Color(0xFF_D3_5C), MINE_BG = new Color(0x2E_2A_22), CORAL = new Color(0xFF_7A_6B),
 		SEG_BG = new Color(0x1E_1E_1E), SEG_ON = new Color(0x3A_3A_3A);
@@ -270,7 +266,7 @@ class FeedList extends JPanel {
 		if (rowId.isEmpty()) return;
 		var h = held.get(rowId);
 		if (h != null) {
-			if (h.queued.size() >= HELD_CAP) h.queued.remove(0);
+			if (h.queued.size() >= 16 /* HELD_CAP */) h.queued.remove(0);
 			h.queued.add(update);
 			return;
 		}
@@ -332,7 +328,7 @@ class FeedList extends JPanel {
 		h.posts = max(0, h.posts - 1);
 		if (h.posts > 0) return;
 		int gen = ++h.gen;
-		UiView.once(SETTLE_MS, e -> settle(rowId, gen));
+		UiView.once(1500 /* SETTLE_MS */, e -> settle(rowId, gen));
 	}
 
 	void settle(String rowId, int gen) {
@@ -1405,15 +1401,13 @@ JsonObject o, String k) {
 		}
 	}
 
-	/** A line joins the one before it (no name or time of its own) only from the same person within this. */
-	static final long RUN_GAP_MS = 5 * 60_000L;
 
 	/** Same person, same team tag, and close in time: a run shows its name and time once. */
 	static boolean sameRun(JsonObject prev, JsonObject row) {
 		if (!str(row, "who").equals(str(prev, "who")) || !str(row, "tag").equals(str(prev, "tag"))) return false;
 		var a = millis(str(prev, "at"));
 		var b = millis(str(row, "at"));
-		return a > 0 && b > 0 && abs(a - b) <= RUN_GAP_MS;
+		return a > 0 && b > 0 && abs(a - b) <= (5 * 60_000L) /* RUN_GAP_MS */;
 	}
 
 	static long millis(String at) {

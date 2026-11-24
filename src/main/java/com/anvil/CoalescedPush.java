@@ -42,7 +42,6 @@ class CoalescedPush {
 	 * so without a cap a non-stop skilling session (an XP drop every few seconds) never paused long
 	 * enough to push at all: the site, the tracker and teammates saw nothing until the member stopped.
 	 */
-	static final long MAX_HOLD_MS = 60_000L;
 	/** Longest wait between retries while the site keeps failing. */
 	static final long RETRY_CAP_MS = 300_000L;
 
@@ -131,7 +130,7 @@ class CoalescedPush {
 
 	/** The settle delay, cut short so nothing waits past {@link #MAX_HOLD_MS} from {@code holdingSince}. */
 	static long settleWait(long now, long holdingSince, long delayMs) {
-		return Math.max(0, Math.min(delayMs, holdingSince + MAX_HOLD_MS - now));
+		return Math.max(0, Math.min(delayMs, holdingSince + 60_000L /* MAX_HOLD_MS */ - now));
 	}
 
 	/** The wait before the next retry after {@code failures} straight failures. First retry = the settle delay. */

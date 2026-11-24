@@ -37,8 +37,6 @@ class AnvilMoments {
 	/** How many go in one request — matches the site's own cap. */
 	static final int BATCH = 25;
 
-	/** Below this a drop isn't worth reporting on price alone. The site's floors are stricter. */
-	static final long MIN_REPORTABLE_GP = 100_000L;
 
 	@RequiredArgsConstructor
 	static class Moment {

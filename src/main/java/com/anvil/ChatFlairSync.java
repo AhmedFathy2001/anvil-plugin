@@ -26,7 +26,6 @@ class ChatFlairSync {
 		void schedule(Runnable r, long ms);
 	}
 
-	static final long JITTER_MS = 20_000;
 
 	final ChatFlair flair;
 	final Source source;

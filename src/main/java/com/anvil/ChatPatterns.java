@@ -61,13 +61,10 @@ class ChatPatterns {
 	}
 
 	static final int MAX_LENGTH = 500;
-	/** charAt calls one test input may cost; a backtracking bomb blows through this in microseconds. */
-	static final long STEP_BUDGET = 2_000_000L;
 	/**
 	 * charAt calls an OVERRIDE may spend on one real chat line. Vetting can't foresee every line, and
 	 * these run on the client thread — an override that overspends is dropped for the session.
 	 */
-	static final long LINE_BUDGET = 100_000L;
 	static final Pattern NEVER = Pattern.compile("(?!)");
 
 	static volatile Map<String, Entry> entries = emptyMap();
@@ -128,7 +125,7 @@ class ChatPatterns {
 			var hint = l.hints.get(key);
 			if (hint != null && !text.contains(hint)) return null;
 			try {
-				return hit(o.matcher(new Budgeted(text, LINE_BUDGET)), whole);
+				return hit(o.matcher(new Budgeted(text, 100_000L /* LINE_BUDGET */)), whole);
 			} catch (BudgetExceeded ex) {
 				drop(key, o);
 				// fall through to the default — this line still deserves a reading
@@ -273,7 +270,7 @@ class ChatPatterns {
 		final long[] left;
 
 		Budgeted(String s) {
-			this(s, STEP_BUDGET);
+			this(s, 2_000_000L /* STEP_BUDGET */);
 		}
 
 		Budgeted(String s, long budget) {

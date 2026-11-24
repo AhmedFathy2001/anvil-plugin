@@ -26,7 +26,6 @@ class ChatPalette {
 	}
 
 	static final Pattern HEX = Pattern.compile("[0-9a-fA-F]{6}");
-	static final String HEX_DIGITS = "0123456789abcdef";
 
 	static final ChatPalette ANVIL = anvil();
 
@@ -155,13 +154,9 @@ class ChatPalette {
 
 	/** Six lower-case hex digits without the allocation-heavy Formatter used by the static path. */
 	static void appendHex(StringBuilder out, int rgb) {
-		for (int shift = 20; shift >= 0; shift -= 4) out.append(HEX_DIGITS.charAt(rgb >> shift & 0xf));
+		for (int shift = 20; shift >= 0; shift -= 4) out.append("0123456789abcdef" /* HEX_DIGITS */.charAt(rgb >> shift & 0xf));
 	}
 
-	// What the chatbox's text sits on: the opaque box's parchment, and a dark game scene behind the
-	// transparent one (the worst case: night, a cave, the Wilderness). Approximations, not exact pixels.
-	static final int OPAQUE_BG = 0xC4B48C;
-	static final int TRANSPARENT_BG = 0x262626;
 	/** WCAG's floor for large or bold text; chat text is small but heavy and shadowed on the dark box. */
 	static final double MIN_CONTRAST = 3.0;
 	static final Pattern COL = Pattern.compile("<col=([0-9a-fA-F]{6})>");
@@ -192,7 +187,7 @@ class ChatPalette {
 
 	static String readableHex(String hex, boolean opaque) {
 		int source = Integer.parseInt(hex, 16);
-		int bg = opaque ? OPAQUE_BG : TRANSPARENT_BG;
+		int bg = opaque ? 0xC4B48C /* OPAQUE_BG */ : 0x262626 /* TRANSPARENT_BG */;
 		int toward = opaque ? 0x000000 : 0xFFFFFF;
 		if (contrast(source, bg) >= MIN_CONTRAST) return hex.toLowerCase(Locale.ROOT);
 		// The old 10% staircase made a moving gradient visibly snap whenever a glyph crossed into the

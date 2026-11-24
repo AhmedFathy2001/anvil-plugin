@@ -321,7 +321,6 @@ public class AnvilPlugin extends Plugin {
 	// Aggregate-loot dedup keyed by source name (same NPC kill fires NpcLootReceived + LootReceived).
 	final Map<String, Long> lastAggregateNotifyAt = new HashMap<>();
 	static final long RARE_DEDUP_WINDOW_MS = 5_000;
-	static final String DROP_SHOT = "anvil-drop.png";
 
 	/**
 	 * Fixed text the plugin ships with — the prestige allowlist and the quest tiers — loaded from anvil_text.json at startUp, which says what each list is for.
@@ -377,8 +376,6 @@ public class AnvilPlugin extends Plugin {
 	String lastKcName;
 	int lastKcValue;
 	long lastKcAtMs;
-	/** How recent that line has to be for an unlock to be attributed to it. */
-	static final long KC_ATTRIBUTION_WINDOW_MS = 60_000L;
 	static final List<String> RAIDS = List.of("chambers of xeric", "theatre of blood", "tombs of amascut");
 	/**
 	 * A raid's count line comes at the last boss and its loot at the chest, minutes later: the line
@@ -393,7 +390,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** Whether the last count line is still the one a drop or unlock now belongs to. */
 	boolean kcLineFresh() {
-		return lastKcName != null && (raidLineOpen || now() - lastKcAtMs <= KC_ATTRIBUTION_WINDOW_MS);
+		return lastKcName != null && (raidLineOpen || now() - lastKcAtMs <= 60_000L /* KC_ATTRIBUTION_WINDOW_MS */);
 	}
 	// The counter word varies by activity ("kill", "completion" for the Gauntlet, "chest" for
 	// Barrows, "success" for Zalcano, "harvest" for Herbiboar, "lap" for agility courses, and
@@ -470,10 +467,6 @@ public class AnvilPlugin extends Plugin {
 	// (chat-patterns.json "counter.sunstone_golem"). The "You have crafted X golems on Wyrmscraig."
 	// tally is deliberately NOT read, so a golem counts once.
 	static final String SUNSTONE_GOLEMS = "Sunstone golems crafted";
-	// "We've awarded you 4 Void Knight Commendation points." — a won Pest Control game, and its points
-	// (chat-patterns.json "counter.pest_control_win").
-	static final String PC_WINS = "Pest Control games won";
-	static final String PC_POINTS = "Pest Control points";
 	// No trailing "(...)" in any counter name: the kill index drops a trailing parenthetical as a wiki
 	// qualifier (DropSource.inGameNpcName).
 
@@ -768,7 +761,6 @@ public class AnvilPlugin extends Plugin {
 	// Baby mole an NPC one, and asking the wrong service returns nothing rather than a wrong number.
 	String lastLootSourceKind;
 	long lastLootSourceAt;
-	static final long COUNTER_PUSH_COALESCE_MS = 15_000;
 	// ── Highlight feed (AnvilMoments). Pets, uniques, big hauls and deaths, queued as they happen and
 	// pushed in small batches; the SITE decides which competition week or board each one belongs to
 	// and throws away the rest. Cosmetic only — never scoring. Recorded at the event and never inside
@@ -785,11 +777,6 @@ public class AnvilPlugin extends Plugin {
 	 * <p>Generous enough to cover a death you spent a few seconds losing, tight enough that the boss
 	 * you killed a minute ago doesn't get the credit for a Wilderness PKer.
 	 */
-	static final long DEATH_ATTRIBUTION_MS = 30_000;
-	/** Game ticks in a minute (600ms each). */
-	static final int TICKS_PER_MINUTE = 100;
-	/** Play time pushes on a slow cadence — the number only ever climbs by one. */
-	static final int MINUTES_PER_PLAYTIME_PUSH = 10;
 	// Bumped whenever a shipped default changes in a way existing installs should adopt. RuneLite
 	// persists every setting the moment a plugin first runs, so a new default alone reaches nobody
 	// who has already used the plugin — the migration below is what actually moves them.
@@ -835,10 +822,6 @@ public class AnvilPlugin extends Plugin {
 	/** Fingerprint of the last whole log we pushed, per RSN — so a relog doesn't re-send 1,700 items. */
 	static final String CFG_CLOG_FINGERPRINT = "clogFingerprint";
 	static final String CFG_PB_IMPORTED = "pbImportedFromRuneLite";
-	/** RuneLite's own chat-commands store, read once to seed a profile (see importRuneLitePersonalBests). */
-	static final String RUNELITE_PB_GROUP = "personalbest";
-	/** Exact team sizes RuneLite files raids under ("chambers of xeric 3 players"). */
-	static final int MAX_PB_TEAM_SIZE = 24;
 	/** Large teams are recorded as a RANGE, not a count — the buckets the raid chat itself prints. */
 	static final String[] PB_TEAM_BUCKETS = {
 		"5+ players", "10+ players", "11-15 players", "16-23 players", "24+ players",
@@ -866,7 +849,6 @@ public class AnvilPlugin extends Plugin {
 	 */
 	volatile boolean autoRosterReportedThisLogin;
 	volatile boolean autoClogReportedThisLogin;
-	static final long AUTO_ROSTER_MIN_GAP_MS = 30 * 60 * 1000;
 	/**
 	 * When another roster push is allowed.
 	 *
@@ -876,11 +858,8 @@ public class AnvilPlugin extends Plugin {
 	 * this cooldown since the site started refusing them; the roster deserves the same manners.
 	 */
 	volatile long rosterPushAllowedAt;
-	static final long ROSTER_PUSH_COOLDOWN_MS = 60_000L;
 	/** Doubling wait after a push that failed for a reason that might clear (site down, no network). */
 	final SyncBackoff rosterBackoff = new SyncBackoff();
-	/** The clan list lands a moment after the channel does; give it time rather than racing it. */
-	static final long AUTO_ROSTER_DELAY_MS = 5_000;
 	final ClogSync clogSync = new ClogSync();
 	/** Whole-log sync: the accumulator for a server transmit (see ClogFullSync). */
 	final ClogFullSync clogFullSync = new ClogFullSync();
@@ -908,8 +887,6 @@ public class AnvilPlugin extends Plugin {
 	 * so we hold the number it gives us and wait instead of guessing.
 	 */
 	volatile long clogPushAllowedAt;
-	/** The site's limit, used to hold off BEFORE a request rather than after a refusal. */
-	static final long SERVER_CLOG_COOLDOWN_MS = 60_000L;
 	/** How long a pressed sync may take before we admit it didn't work. */
 	// MANUAL_SYNC_TIMEOUT_MS = 15_000L, inlined at its one use.
 	final SyncBackoff pbBackoff = new SyncBackoff();
@@ -1093,8 +1070,6 @@ public class AnvilPlugin extends Plugin {
 	volatile String adminAnswerFor = "";
 	/** When the last probe ran, so a failed one can be retried instead of costing the whole session. */
 	volatile long lastAdminProbeAt;
-	/** How often to re-ask while the answer is still "no". Cheap request, rare enough to be invisible. */
-	static final long ADMIN_REPROBE_MS = 5 * 60_000L;
 	// Last clan-sync result summary, surfaced in chat after a sync.
 	volatile String lastSyncSummary;
 
@@ -1932,8 +1907,6 @@ public class AnvilPlugin extends Plugin {
 	// COLLECTION_DELAYED_TRANSMIT = 4100, inlined at its one use.
 	/** Re-initialises the log's own view, which closes the search we opened to trigger the transmit. */
 	// COLLECTION_INIT = 2240, inlined at its one use.
-	/** Hold the guard at least this long: the re-fire of the setup script arrives a tick or two later. */
-	static final int CLOG_TRANSMIT_MIN_TICKS = 4;
 	/** And no longer than this, so a transmit that yields nothing can't wedge the guard on. */
 	// CLOG_TRANSMIT_MAX_TICKS = 50, inlined at its one use.
 	/** Hard floor between two transmit requests, whatever the guard believes. */
@@ -2074,7 +2047,7 @@ public class AnvilPlugin extends Plugin {
 	void tickClogTransmitGuard() {
 		if (!clogTransmitInFlight) return;
 		int elapsed = client.getTickCount() - clogTransmitTick;
-		if (elapsed < CLOG_TRANSMIT_MIN_TICKS) return;
+		if (elapsed < 4 /* CLOG_TRANSMIT_MIN_TICKS */) return;
 		if (elapsed >= 50 /* CLOG_TRANSMIT_MAX_TICKS */ || clogFullSync.isDue(now())) clogTransmitInFlight = false;
 	}
 
@@ -2157,7 +2130,6 @@ public class AnvilPlugin extends Plugin {
 	// event a moment later, so a short window is enough to pair them without threading it through.
 	volatile String lastVestigeLine;
 	volatile long lastVestigeLineAt;
-	static final long VESTIGE_LINE_WINDOW_MS = 5000;
 
 	// Captured on the client thread (onGameTick) so the party-size tile gates — which can run off the
 	// client thread — read it safely. 0 = not in a recognised raid (gates then fall back to the scene
@@ -2342,7 +2314,7 @@ public class AnvilPlugin extends Plugin {
 		// only ever read one raid's varbits at a time (you can't be in two raids at once).
 		int raidParty = 0;
 		// Left the raid without looting (or never did): judge on the last level it showed.
-		if (!heldToaRuns.isEmpty() && (toaLevel == 0 || now() - heldToaRunsSince > HELD_RUN_MAX_MS)) judgeHeldToaRuns(toaLevel > 0 ? toaLevel : lastToaRaidLevel);
+		if (!heldToaRuns.isEmpty() && (toaLevel == 0 || now() - heldToaRunsSince > (15 * 60_000) /* HELD_RUN_MAX_MS */)) judgeHeldToaRuns(toaLevel > 0 ? toaLevel : lastToaRaidLevel);
 		if (toaLevel > 0) {
 			// ToA: scoped by a non-zero raid level. Count occupied party slots.
 			lastToaRaidLevel = toaLevel;
@@ -3538,7 +3510,7 @@ public class AnvilPlugin extends Plugin {
 		var worth = find("clue.worth", plain);
 		if (worth != null && clueTier != null) clueWorth(normalizeClueSource("clue scroll " + clueTier), parseCount(worth.group("gp")));
 		var pc = find("counter.pest_control_win", plain);
-		if (pc != null && !trackingOff()) emit(rules.kill(Map.of(PC_WINS, 1, PC_POINTS, parseCount(pc.group("points"))), null, null));
+		if (pc != null && !trackingOff()) emit(rules.kill(Map.of("Pest Control games won" /* PC_WINS */, 1, "Pest Control points" /* PC_POINTS */, parseCount(pc.group("points"))), null, null));
 		var energy = find("counter.gotr_energy", plain);
 		if (energy != null) {
 			int elemental = parseCount(energy.group("elemental"));
@@ -4742,7 +4714,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	boolean submitRaidForMessage(String lowerMessage, int seconds, long now) {
 		var key = rules.raidKey(k -> timedHit(lowerMessage, k));
-		if (key == null || !claim(lastTimedSubmittedAt, RAID_CLAIM, now, TIMED_DEDUP_WINDOW_MS)) return key != null;
+		if (key == null || !claim(lastTimedSubmittedAt, Integer.MIN_VALUE /* RAID_CLAIM */, now, TIMED_DEDUP_WINDOW_MS)) return key != null;
 		var seen = new HashSet<>(instancePlayersSeen);
 		var me = client.getLocalPlayer();
 		if (me != null && me.getName() != null) seen.add(me.getName().toLowerCase());
@@ -4762,7 +4734,6 @@ public class AnvilPlugin extends Plugin {
 		return true;
 	}
 
-	static final int RAID_CLAIM = Integer.MIN_VALUE;
 
 	static Object[] append(Object[] a, Object... b) {
 		var out = Arrays.copyOf(a, a.length + b.length);
@@ -4794,8 +4765,6 @@ public class AnvilPlugin extends Plugin {
 	// its cut once the party reaches the chest room — judged at the completion line, a 500 that
 	// missed its timer would still read 500. So a ToA tile with a level floor holds the run and
 	// judges it when the chest is looted, or on leaving the raid, or after HELD_RUN_MAX_MS, each
-	// with the level read then. Client thread only.
-	static final long HELD_RUN_MAX_MS = 15 * 60_000;
 	final List<IntConsumer> heldToaRuns = new ArrayList<>();
 	long heldToaRunsSince;
 
@@ -5580,7 +5549,7 @@ public class AnvilPlugin extends Plugin {
 				try {
 					var r = apiClient.syncClan(config.playerToken(), clanName, members);
 					rosterBackoff.onSuccess();
-					rosterPushAllowedAt = now() + ROSTER_PUSH_COOLDOWN_MS;
+					rosterPushAllowedAt = now() + 60_000L /* ROSTER_PUSH_COOLDOWN_MS */;
 					lastSyncSummary = "+" + r.added + " added · " + r.updated + " updated · " + r.markedLeft + " left";
 					// A sync nobody asked for reports itself only when the roster actually MOVED.
 					// Silence on the login where nothing changed; one line when somebody joined or
@@ -6014,11 +5983,9 @@ public class AnvilPlugin extends Plugin {
 	boolean chatPatternsSeeded;
 	long chatPatternsFetchedAt;
 	ChatPatterns.OverridesResponse chatPatternsApplied;
-	static final long CHAT_PATTERNS_EVERY_MS = 30 * 60_000L;
 
 	final ChatFlair chatFlair = new ChatFlair();
 	long chatFlairFetchedAt;
-	static final long CHAT_FLAIR_EVERY_MS = 10 * 60_000L;
 	/** Socket deltas and jittered catch-ups (ChatFlairSync); HTTP on OkHttp's pool, never the client thread. */
 	final ChatFlairSync chatFlairSync = new ChatFlairSync(chatFlair, new ChatFlairSync.Source() {
 		public ChatFlair.Since since(int v) {
@@ -6031,7 +5998,7 @@ public class AnvilPlugin extends Plugin {
 	}, (r, ms) -> {
 		var ex = executor;
 		if (ex != null) ex.schedule(() -> apiClient.interactiveExecutor().execute(() -> safely("chat flair", r)), ms, TimeUnit.MILLISECONDS);
-	}, () -> ThreadLocalRandom.current().nextLong(ChatFlairSync.JITTER_MS), this::chatFlairChanged);
+	}, () -> ThreadLocalRandom.current().nextLong(20_000 /* JITTER_MS */), this::chatFlairChanged);
 	volatile boolean chatFlairSeeded;
 	ScheduledFuture<?> chatFlairSave;
 	// Broadcasts whose text starts with a player's name ("Nisbro HCM has completed a quest: …").
@@ -6068,7 +6035,7 @@ public class AnvilPlugin extends Plugin {
 			if (chatFlair.adopt(rc.loadShared(ResponseDiskCache.CHAT_FLAIR, ChatFlair.Wire.class))) repaintFlair();
 		}
 		var at = now();
-		if (at - chatFlairFetchedAt < CHAT_FLAIR_EVERY_MS) return;
+		if (at - chatFlairFetchedAt < (10 * 60_000L) /* CHAT_FLAIR_EVERY_MS */) return;
 		chatFlairFetchedAt = at;
 		chatFlairSync.sync();
 	}
@@ -6195,7 +6162,7 @@ public class AnvilPlugin extends Plugin {
 	}
 	/** "Still colours": the gradient frozen at its start. */
 	double chatNameShift(long frame) {
-		return config.chatNames() == AnvilConfig.Names.Animated ? nameShift(frame, GradientLabel.GAME_CYCLE_MS) : 0;
+		return config.chatNames() == AnvilConfig.Names.Animated ? nameShift(frame, 5000 /* GAME_CYCLE_MS */) : 0;
 	}
 	double interfaceNameShift(long frame) {
 		return config.menuNames() == AnvilConfig.Names.Animated ? nameShift(frame, GradientLabel.PANEL_CYCLE_MS) : 0;
@@ -7123,7 +7090,7 @@ public class AnvilPlugin extends Plugin {
 					ChatPatterns.OverridesResponse.class));
 		}
 		var at = now();
-		if (at - chatPatternsFetchedAt < CHAT_PATTERNS_EVERY_MS) return;
+		if (at - chatPatternsFetchedAt < (30 * 60_000L) /* CHAT_PATTERNS_EVERY_MS */) return;
 		chatPatternsFetchedAt = at;
 		adoptChatPatterns(apiClient.fetchChatPatterns());
 	}
@@ -7532,7 +7499,7 @@ public class AnvilPlugin extends Plugin {
 	void maybeReprobeAdmin() {
 		if (isAdmin || !apiClient.isConfigured()) return;
 		var now = now();
-		if (now - lastAdminProbeAt < ADMIN_REPROBE_MS) return;
+		if (now - lastAdminProbeAt < (5 * 60_000L) /* ADMIN_REPROBE_MS */) return;
 		lastAdminProbeAt = now;
 		if (apiClient.fetchIsAdmin(config.playerToken())) {
 			isAdmin = true;
@@ -7914,12 +7881,12 @@ public class AnvilPlugin extends Plugin {
 				eventTickAccumulator = 0;
 				return;
 			}
-			if (++eventTickAccumulator < TICKS_PER_MINUTE) return;
+			if (++eventTickAccumulator < 100 /* TICKS_PER_MINUTE */) return;
 			eventTickAccumulator = 0;
 			eventMinutes++;
 			persistCounters();
 			// Push on a slow cadence: a minute ticking over isn't worth a request every time.
-			bankedMinute = eventMinutes % MINUTES_PER_PLAYTIME_PUSH == 0;
+			bankedMinute = eventMinutes % 10 /* MINUTES_PER_PLAYTIME_PUSH */ == 0;
 		}
 		if (bankedMinute) scheduleCounterPush();
 	}
@@ -7960,7 +7927,7 @@ public class AnvilPlugin extends Plugin {
 	/** Debounce a counter push onto the executor — a burst of loot/deaths collapses to one absolute push. */
 	void scheduleCounterPush() {
 		synchronized (counterLock) {
-			counterPushTask = reschedule(counterPushTask, this::flushCounterPush, COUNTER_PUSH_COALESCE_MS);
+			counterPushTask = reschedule(counterPushTask, this::flushCounterPush, 15_000 /* COUNTER_PUSH_COALESCE_MS */);
 		}
 	}
 
@@ -8045,7 +8012,7 @@ public class AnvilPlugin extends Plugin {
 			var value = (long) max(0, itemManager.getItemPrice(itemId)) * quantity;
 			// A luck item goes up whatever it sells for: an untradeable vestige is worth 0 here.
 			var wanted = boardItems.contains(itemId) || luckItems.contains(itemId);
-			if (!wanted && value < AnvilMoments.MIN_REPORTABLE_GP) continue;
+			if (!wanted && value < 100_000L /* MIN_REPORTABLE_GP */) continue;
 			candidates.add(new int[]{itemId, quantity, (int) min(Integer.MAX_VALUE, value)});
 		}
 		// Luck items first, then by value: the three-per-kill cap must never cut the vestige for a
@@ -8158,7 +8125,7 @@ public class AnvilPlugin extends Plugin {
 	/** Resolve one death once, so the Feed and Discord cannot disagree about what killed us. */
 	AttributedDeath resolveDeathSource() {
 		var now = now();
-		var fighting = lastCombatTarget != null && now - lastCombatTargetAt <= DEATH_ATTRIBUTION_MS ? lastCombatTarget : null;
+		var fighting = lastCombatTarget != null && now - lastCombatTargetAt <= 30_000 /* DEATH_ATTRIBUTION_MS */ ? lastCombatTarget : null;
 		var killer = deathAttribution.killer(fighting, now, this::nearUs);
 		// Breadcrumb so client.log can explain an attribution that looks odd: how many things had us
 		// and which one we picked, next to what we were hitting.
@@ -8185,7 +8152,7 @@ public class AnvilPlugin extends Plugin {
 		var now = now();
 		moments.record(new Moment("death", null, null, 1, null, death.source, death.sourceKind,
 				killCountFor(death.source), now, AnvilMoments.keyFor("death", death.source, null, now)));
-		scheduleMomentPush(DEATH_PUSH_DELAY_MS);
+		scheduleMomentPush(1_000 /* DEATH_PUSH_DELAY_MS */);
 	}
 
 	/**
@@ -8225,7 +8192,6 @@ public class AnvilPlugin extends Plugin {
 	 * bit), so it goes out after a beat instead of the full coalescing window: the feed shows it while
 	 * the player is still looking at the death screen.
 	 */
-	static final long DEATH_PUSH_DELAY_MS = 1_000;
 
 	void scheduleMomentPush(long delayMs) {
 		synchronized (moments) {
@@ -8643,7 +8609,7 @@ public class AnvilPlugin extends Plugin {
 		// Where this leaves their vestige rotation, when the drop was a roll of one (set moments ago by
 		// trackVestigeRolls off the same loot event). The site keeps it on a single-item post.
 		var rollLine = lastVestigeLine;
-		if (rollLine != null && now - lastVestigeLineAt < VESTIGE_LINE_WINDOW_MS) {
+		if (rollLine != null && now - lastVestigeLineAt < 5000 /* VESTIGE_LINE_WINDOW_MS */) {
 			f.put("note", rollLine);
 			lastVestigeLine = null;
 		}
@@ -8972,8 +8938,6 @@ public class AnvilPlugin extends Plugin {
 	 * the pet had already posted as just "pet" and the name went out as a separate unlock.
 	 */
 	static final long PET_NAME_WINDOW_MS = 6_000;
-	/** How long a named pet still claims a line repeating its name (see claimPetName). */
-	static final long PET_RECLAIM_MS = 60_000;
 	PendingPet lastNamedPet;
 
 	// ---- Naming a pet with no chat line to say which ------------------------------------------
@@ -9037,7 +9001,7 @@ public class AnvilPlugin extends Plugin {
 			// to post again (the "Pet drop!" + separate "Dom" pair this used to produce).
 			var named = pendingPet != null && pendingPet.name != null ? pendingPet : lastNamedPet;
 			if (named != null && itemName.equalsIgnoreCase(named.name)
-					&& now() - named.at <= PET_RECLAIM_MS) return named;
+					&& now() - named.at <= 60_000 /* PET_RECLAIM_MS */) return named;
 			if (pendingPet == null || pendingPet.name != null) return null;
 			pendingPet.name = itemName;
 			pet = pendingPet;
@@ -9532,7 +9496,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** A drop post to the drops channel, with its screenshot. */
 	void postDrop(NotifyFacts f) {
-		postWithScreenshot("rareDrops", f, DROP_SHOT);
+		postWithScreenshot("rareDrops", f, "anvil-drop.png" /* DROP_SHOT */);
 	}
 
 	/**
@@ -9651,8 +9615,6 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	// A stalled capture must not stall the notification: frames normally arrive within ~50ms,
-	// so a few seconds of grace is already generous before posting without the screenshot.
-	static final long FRAME_CAPTURE_TIMEOUT_MS = 4000;
 
 	/**
 	 * Captures the next rendered frame and hands the PNG bytes to
@@ -9682,7 +9644,7 @@ public class AnvilPlugin extends Plugin {
 				log.info("No frame; posting without a screenshot");
 				consumer.accept(null);
 			}
-		}, FRAME_CAPTURE_TIMEOUT_MS);
+		}, 4000 /* FRAME_CAPTURE_TIMEOUT_MS */);
 	}
 
 	/**
@@ -9787,13 +9749,11 @@ public class AnvilPlugin extends Plugin {
 		});
 	}
 
-	/** Wider than this (a big or HiDPI window), a proof is scaled down: the stamp and the detail read the same. */
-	static final int PROOF_MAX_WIDTH = 1920;
 
 	/** A proof frame as a JPEG (no alpha: JPEG has none), at most {@link #PROOF_MAX_WIDTH} wide. */
 	static byte[] jpeg(BufferedImage img) throws IOException {
 		var rgb = img;
-		int w = min(img.getWidth(), PROOF_MAX_WIDTH);
+		int w = min(img.getWidth(), 1920 /* PROOF_MAX_WIDTH */);
 		int h = (int) round(img.getHeight() * (w / (double) img.getWidth()));
 		if (img.getType() != BufferedImage.TYPE_INT_RGB || w != img.getWidth()) rgb = scaled(img, w, h, RenderingHints.VALUE_INTERPOLATION_BILINEAR, BufferedImage.TYPE_INT_RGB);
 		var writer = ImageIO.getImageWritersByFormatName("jpg").next();
@@ -9844,11 +9804,9 @@ public class AnvilPlugin extends Plugin {
 		// Scheduled, never slept: a sleep here would park a shared RuneLite worker for a second and a
 		// half, and the hub rejects Thread.sleep on sight. Without a usable executor -- shutting down
 		// mid-level-up -- we capture now, because a slightly emptier screenshot beats none.
-		if (later(capture, ACHIEVEMENT_SHOT_DELAY_MS) == null) capture.run();
+		if (later(capture, 1500 /* ACHIEVEMENT_SHOT_DELAY_MS */) == null) capture.run();
 	}
 
-	/** Pause between the achievement and its screenshot, long enough for clanmates' replies. */
-	static final long ACHIEVEMENT_SHOT_DELAY_MS = 1500;
 
 	/**
 	 * Capture, then post to {@code channel}; a failed capture posts without the image (the site only
@@ -10034,8 +9992,6 @@ public class AnvilPlugin extends Plugin {
 		if (b.lines != null) for (var l : b.lines) if (l != null && l.text != null) sendChatMessage(Tone.of(l.tone), l.text);
 	}
 
-	/** At most this many chat-feed lines a minute; the rest are counted and summed up in one line. */
-	static final int FEED_PER_MINUTE = 6;
 	final ArrayDeque<Long> feedShownAt = new ArrayDeque<>();
 	int feedHeld;
 	ScheduledFuture<?> feedHeldFlush;
@@ -10551,7 +10507,7 @@ public class AnvilPlugin extends Plugin {
 		var text = m.has("text") ? m.get("text").getAsString() : "";
 		var now = now();
 		while (!feedShownAt.isEmpty() && now - feedShownAt.peekFirst() >= 60_000L) feedShownAt.pollFirst();
-		if (feedShownAt.size() >= FEED_PER_MINUTE) {
+		if (feedShownAt.size() >= 6 /* FEED_PER_MINUTE */) {
 			feedHeld++;
 			if (feedHeldFlush == null) feedHeldFlush = later(this::flushFeedHeld, max(1_000L, 60_000L - (now - feedShownAt.peekFirst())));
 			return;
@@ -10809,7 +10765,7 @@ public class AnvilPlugin extends Plugin {
 			// "1 players" — and a big team is a bucket rather than an exact count. Probing only
 			// "N players" therefore missed every solo raid time anyone had.
 			probeRuneLitePb(base + " solo", imported);
-			for (int size = 1; size <= MAX_PB_TEAM_SIZE; size++) probeRuneLitePb(base + " " + size + " players", imported);
+			for (int size = 1; size <= 24 /* MAX_PB_TEAM_SIZE */; size++) probeRuneLitePb(base + " " + size + " players", imported);
 			for (var bucket : PB_TEAM_BUCKETS) probeRuneLitePb(base + " " + bucket, imported);
 		}
 
@@ -10835,7 +10791,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** Read one stored best, if RuneLite has it for this account. Times are seconds; ours centis. */
 	void probeRuneLitePb(String activity, Map<String, Integer> into) {
-		var raw = configManager.getRSProfileConfiguration(RUNELITE_PB_GROUP, activity);
+		var raw = configManager.getRSProfileConfiguration("personalbest" /* RUNELITE_PB_GROUP */, activity);
 		if (raw == null || raw.trim().isEmpty()) return;
 		try {
 			int centis = (int) round(Double.parseDouble(raw.trim()) * 100.0);
@@ -10936,7 +10892,7 @@ public class AnvilPlugin extends Plugin {
 				});
 		manualSyncStartedAt = 0; // landed or given up on — nothing for the watchdog to complain about
 		if (result == null) return;
-		clogPushAllowedAt = now + SERVER_CLOG_COOLDOWN_MS;
+		clogPushAllowedAt = now + 60_000L /* SERVER_CLOG_COOLDOWN_MS */;
 		lastClogFingerprint = fingerprint;
 		if (profileSyncRsn != null) cfgSet(accountKey(CFG_CLOG_FINGERPRINT, profileSyncRsn),
 				"" + fingerprint);
@@ -10989,8 +10945,6 @@ public class AnvilPlugin extends Plugin {
 	/** The guest channel last reported for the chat feed's guest bridge, and when. */
 	volatile String lastGuestChannel;
 	volatile long lastGuestChannelAt;
-	/** Under the site's presence TTL (10 minutes), so sitting in a channel never lapses. */
-	static final long GUEST_PRESENCE_REFRESH_MS = 4 * 60_000L;
 
 	/**
 	 * The clan whose guest channel this character sits in → the site, for the chat feed's guest bridge.
@@ -11005,7 +10959,7 @@ public class AnvilPlugin extends Plugin {
 		clientThread.invoke(() -> {
 			var guest = client.getGuestClanChannel();
 			var name = guest != null ? guest.getName() : null;
-			if (!Objects.equals(name, lastGuestChannel) || name != null && now() - lastGuestChannelAt >= GUEST_PRESENCE_REFRESH_MS) sendGuestChannel(name);
+			if (!Objects.equals(name, lastGuestChannel) || name != null && now() - lastGuestChannelAt >= (4 * 60_000L) /* GUEST_PRESENCE_REFRESH_MS */) sendGuestChannel(name);
 		});
 	}
 
@@ -11026,7 +10980,7 @@ public class AnvilPlugin extends Plugin {
 		// Joined or left a guest channel: tell the guest bridge now rather than on the next tick.
 		if (event.isGuest()) submit(() -> safely("pushGuestChannel", this::pushGuestChannel));
 		// The member list arrives just after the channel; a delay is cheaper than polling for it.
-		if (!event.isGuest() && config.autoSyncClanRoster()) later(() -> safely("autoRosterSync", this::autoSyncClanRoster), AUTO_ROSTER_DELAY_MS);
+		if (!event.isGuest() && config.autoSyncClanRoster()) later(() -> safely("autoRosterSync", this::autoSyncClanRoster), 5_000 /* AUTO_ROSTER_DELAY_MS */);
 	}
 
 	/**
@@ -11039,7 +10993,7 @@ public class AnvilPlugin extends Plugin {
 		var token = config.playerToken();
 		if (empty(token) || !apiClient.isConfigured()) return;
 		var now = now();
-		if (lastAutoRosterSyncAt != 0 && now - lastAutoRosterSyncAt < AUTO_ROSTER_MIN_GAP_MS) return;
+		if (lastAutoRosterSyncAt != 0 && now - lastAutoRosterSyncAt < (30 * 60 * 1000) /* AUTO_ROSTER_MIN_GAP_MS */) return;
 		autoRosterSyncRunning = true;
 		lastAutoRosterSyncAt = now;
 		autoRosterAnnounce = true;

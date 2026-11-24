@@ -641,8 +641,6 @@ public class BingoApiClient {
 
 	// What the site can do, for someone the config can't tell: a person in no clan gets a 404 config
 	// and so no `server.capabilities`. /api/version is public and tiny; read at most every 10 minutes,
-	// only on that path, from the config poll (already off the EDT).
-	static final long VERSION_CAPS_TTL_MS = 10 * 60_000L;
 	volatile Set<String> versionCaps = emptySet();
 	volatile long versionCapsAt;
 
@@ -653,7 +651,7 @@ public class BingoApiClient {
 
 	void refreshVersionCaps() {
 		var now = System.currentTimeMillis();
-		if (now - versionCapsAt < VERSION_CAPS_TTL_MS) return;
+		if (now - versionCapsAt < (10 * 60_000L) /* VERSION_CAPS_TTL_MS */) return;
 		versionCapsAt = now;
 		var info = getOrNull(plainRequest(site() + "/api/version").get(), VersionInfo.class);
 		if (info != null) versionCaps = info.capabilities == null ? emptySet() : new HashSet<>(info.capabilities);
@@ -953,8 +951,6 @@ public class BingoApiClient {
 	}
 
 	/** {@code src} scaled to fit inside w x h (never up). */
-	/** Larger than this many pixels is refused unread: a few compressed KB can claim gigabytes decoded. */
-	static final long THUMB_MAX_PIXELS = 4096L * 4096L;
 
 	/**
 	 * Decode an image no bigger than it needs to be: its size is read from the header first (refused
@@ -971,7 +967,7 @@ public class BingoApiClient {
 				reader.setInput(in, true, true);
 				int sw = reader.getWidth(0);
 				int sh = reader.getHeight(0);
-				if (sw <= 0 || sh <= 0 || (long) sw * sh > THUMB_MAX_PIXELS) return null;
+				if (sw <= 0 || sh <= 0 || (long) sw * sh > (4096L * 4096L) /* THUMB_MAX_PIXELS */) return null;
 				var param = reader.getDefaultReadParam();
 				int step = max(1, min(sw / max(1, w), sh / max(1, h)));
 				param.setSourceSubsampling(step, step, 0, 0);
@@ -1211,7 +1207,6 @@ public class BingoApiClient {
 	 * screenshot is outstanding is the worst possible outcome — so it stays in the pending store and
 	 * goes up on a later retry, once they've taken their shot.
 	 */
-	static final String START_PROOF_REQUIRED = "start_proof_required";
 
 	/**
 	 * A server that told us to wait, and for how long.
@@ -1264,7 +1259,7 @@ public class BingoApiClient {
 
 	/** Permanent (a 4xx other than 401/408/429 — RetryPolicy) unless it's waiting on a starting shot. */
 	static HttpStatusException classified(String message, int code, String body) {
-		return (RetryPolicy.isPermanent(code) && !(body != null && body.contains(START_PROOF_REQUIRED))
+		return (RetryPolicy.isPermanent(code) && !(body != null && body.contains("start_proof_required" /* START_PROOF_REQUIRED */))
 			? new PermanentSubmissionException(message, code)
 			: new HttpStatusException(message, code)).withPlayerMessage(friendlyError(code, body));
 	}

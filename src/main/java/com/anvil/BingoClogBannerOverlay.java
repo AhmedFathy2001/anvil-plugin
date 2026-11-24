@@ -26,29 +26,14 @@ public class BingoClogBannerOverlay extends Overlay {
 	static final int BASE_W = 178;
 	static final int BASE_H = 100;
 
-	// Text tops (design px) + size. Tuned for even vertical rhythm on the small panel: the header sits
-	// just under the top of the frame (11), the "Tile complete!/Progress:" line clears the divider (36),
-	// and the label sits close under it (52) so the middle→label gap matches the ~15px gap between the
-	// two wrapped label lines — otherwise the body reads as two disconnected zones.
-	static final int TOP_Y = 11;
-	static final int MID_Y = 36;
-	static final int BOTTOM_Y = 52;
-	static final float FONT_PX = 16f;
 	// The bottom label wraps onto a second line at full size when it's too wide — the RS font is a
-	// bitmap face that pixelates when scaled, so we never shrink glyphs. WRAP_LINE_H is the vertical
-	// advance (design px) between the two lines, kept tight so both clear the 100px panel.
-	static final int WRAP_LINE_H = 15;
-	static final int BOTTOM_MAX_LINES = 2;
 
 	// Horizontal padding (design px) kept clear inside the panel; text wider than the inner width wraps
-	// onto up to BOTTOM_MAX_LINES lines (bottom label) and is ellipsised only if it overflows the last.
-	static final int TEXT_MARGIN_X = 12;
 
 	// Animation (matches the reference gif): a thin line grows to full WIDTH, then the whole
 	// background unsquishes to full HEIGHT; close reverses it. Linear motion, no fade.
 	static final long H_EXPAND_MS = 800;    // line grows to full width
 	static final long V_EXPAND_MS = 800;    // unsquish to full height
-	static final long HOLD_MS = 2500;
 	static final long V_COLLAPSE_MS = 650;  // squish back down to the line
 	static final long H_COLLAPSE_MS = 650;  // line shrinks to nothing
 	static final int LINE_H = 1;            // design-px height of the thin opening line
@@ -75,7 +60,7 @@ public class BingoClogBannerOverlay extends Overlay {
 		setPriority(OverlayPriority.HIGHEST);
 		setLayer(OverlayLayer.ABOVE_WIDGETS);
 		background = loadBackground();
-		headerFont = FontManager.getRunescapeBoldFont().deriveFont(FONT_PX);
+		headerFont = FontManager.getRunescapeBoldFont().deriveFont(16f /* FONT_PX */);
 		// Detail lines use the natively-smaller RS bitmap (the XP-counter/minimap face) at its own
 		// crisp size — the standard chat font read too large on the small panel. No deriveFont: scaling
 		// a bitmap font off its native grid pixelates (see the wrap-not-shrink note above).
@@ -117,7 +102,7 @@ public class BingoClogBannerOverlay extends Overlay {
 		var now = System.currentTimeMillis();
 		var hEnd = H_EXPAND_MS;
 		var vEnd = hEnd + V_EXPAND_MS;
-		var holdEnd = vEnd + HOLD_MS;
+		var holdEnd = vEnd + 2500 /* HOLD_MS */;
 		var vCollapseEnd = holdEnd + V_COLLAPSE_MS;
 		var total = vCollapseEnd + H_COLLAPSE_MS;
 
@@ -187,15 +172,15 @@ public class BingoClogBannerOverlay extends Overlay {
 			if (e < holdEnd) {
 				g2.clipRect(x, y, iw, ih);
 				if (wrapped == null) {
-					int maxTextW = BASE_W - 2 * TEXT_MARGIN_X;
+					int maxTextW = BASE_W - 2 * 12 /* TEXT_MARGIN_X */;
 					wrapped = Arrays.asList(
 						wrap(active[0], g2.getFontMetrics(headerFont), maxTextW, 1),
 						wrap(active[1], g2.getFontMetrics(bodyFont), maxTextW, 1),
-						wrap(active[2], g2.getFontMetrics(bodyFont), maxTextW, BOTTOM_MAX_LINES));
+						wrap(active[2], g2.getFontMetrics(bodyFont), maxTextW, 2 /* BOTTOM_MAX_LINES */));
 				}
-				drawLines(g2, wrapped.get(0), headerFont, ORANGE, TOP_Y);
-				drawLines(g2, wrapped.get(1), bodyFont, ORANGE, MID_Y);
-				drawLines(g2, wrapped.get(2), bodyFont, Color.WHITE, BOTTOM_Y);
+				drawLines(g2, wrapped.get(0), headerFont, ORANGE, 11 /* TOP_Y */);
+				drawLines(g2, wrapped.get(1), bodyFont, ORANGE, 36 /* MID_Y */);
+				drawLines(g2, wrapped.get(2), bodyFont, Color.WHITE, 52 /* BOTTOM_Y */);
 			}
 		}
 
@@ -228,7 +213,7 @@ public class BingoClogBannerOverlay extends Overlay {
 			g.setFont(Ui.fit(font, shown));
 			var fm = g.getFontMetrics();
 			int x = (BASE_W - fm.stringWidth(shown)) / 2;
-			int baseline = topY + i * WRAP_LINE_H + fm.getAscent();
+			int baseline = topY + i * 15 /* WRAP_LINE_H */ + fm.getAscent();
 			g.setColor(Color.BLACK);
 			g.drawString(shown, x + 1, baseline + 1);
 			g.setColor(color);

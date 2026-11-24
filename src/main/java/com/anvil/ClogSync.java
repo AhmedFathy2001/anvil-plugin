@@ -22,8 +22,6 @@ class ClogSync {
 	static final long QUIET_MS = 2_500;
 	/** Send at most this many pages per request; a full first sync becomes a handful of them. */
 	static final int BATCH_PAGES = 25;
-	/** Queue this many and go early — a bulk sync shouldn't sit waiting on the quiet timer. */
-	static final int EAGER_AT = BATCH_PAGES;
 
 	/** Last hash we successfully sent, per page name. The persisted half of the state. */
 	final Map<String, Long> sent = new HashMap<>();
@@ -51,7 +49,7 @@ class ClogSync {
 
 	/** Whether a flush should run now: the queue has settled, or it's big enough to go early. */
 	boolean isDue(long now) {
-		return !pending.isEmpty() && (pending.size() >= EAGER_AT || now - lastChangeAt >= QUIET_MS);
+		return !pending.isEmpty() && (pending.size() >= BATCH_PAGES /* EAGER_AT */ || now - lastChangeAt >= QUIET_MS);
 	}
 
 	/** Pages to send in the next request, oldest first. Does NOT clear them — see {@link #onSent}. */

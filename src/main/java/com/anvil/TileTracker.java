@@ -32,7 +32,6 @@ public class TileTracker {
 	static final int MAX_PINS = 3;
 	static final String CFG_PINS = "trackedTiles", G = "osrsbingo";
 	static final Color GOLD = new Color(255, 215, 0);
-	static final int OTHER_TEAMS_SHOWN = 4;
 	/** The blank line between pins in the shared panel; one instance serves every gap. */
 	static final LineComponent GAP = LineComponent.builder().build();
 	/** How long a just-finished pin keeps showing "Done" before it unpins (hidden on the next fetch after). */
@@ -611,7 +610,7 @@ public class TileTracker {
 			for (var t : p.teams) {
 				if (t.mine) {
 					buildOwnTeam(p, t, compact);
-				} else if (!compact && others++ < OTHER_TEAMS_SHOWN) {
+				} else if (!compact && others++ < 4 /* OTHER_TEAMS_SHOWN */) {
 					lines.add(LineComponent.builder()
 						.left(t.name)
 						.leftColor(Ui.teamColor(t.color, Color.WHITE))

@@ -35,7 +35,6 @@ import net.runelite.client.util.*;
 class NotifyOutbox {
 	static final int MAX_ITEMS = 100;
 	static final long MAX_AGE_MS = 24L * 60 * 60 * 1000;
-	static final long MAX_BYTES = 20L * 1024 * 1024;
 	static final long FIRST_RETRY_MS = 15_000L;
 	static final long MAX_RETRY_MS = 300_000L;
 
@@ -196,7 +195,7 @@ class NotifyOutbox {
 
 	/** Call with the monitor held. */
 	void prune(long now) {
-		var evict = overflow(items, now, MAX_ITEMS, MAX_AGE_MS, MAX_BYTES);
+		var evict = overflow(items, now, MAX_ITEMS, MAX_AGE_MS, (20L * 1024 * 1024) /* MAX_BYTES */);
 		if (evict.isEmpty()) return;
 		items.removeAll(evict);
 		log.info("Dropped {} stale notification(s)", evict.size());

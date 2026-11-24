@@ -40,7 +40,6 @@ import net.runelite.api.widgets.*;
 class HeaderButton {
 	/** Matches the native header buttons: small, and tall enough to hit comfortably. */
 	static final int WIDTH = 71;
-	static final int FALLBACK_HEIGHT = 20;
 	/** The dimensions the nine-slice sprites are cut at. Stretching a corner is what looks wrong. */
 	static final int CORNER = 9;
 	static final int EDGE = 4;
@@ -76,7 +75,6 @@ class HeaderButton {
 	static final int TEXT = 9;
 
 	static final int TEXT_IDLE = 0xd6d6d6;
-	static final int TEXT_HOVERED = 0xffffff;
 
 	/**
 	 * The menu TARGET. The game builds an entry as "&lt;action&gt; &lt;name&gt;", which is why the
@@ -151,7 +149,7 @@ class HeaderButton {
 			hideParts();
 		}
 
-		int h = anchor.getOriginalHeight() > 0 ? anchor.getOriginalHeight() : FALLBACK_HEIGHT;
+		int h = anchor.getOriginalHeight() > 0 ? anchor.getOriginalHeight() : 20 /* FALLBACK_HEIGHT */;
 		int y = anchor.getOriginalY();
 		int yMode = anchor.getYPositionMode();
 		int span = WIDTH - (CORNER * 2);
@@ -180,7 +178,7 @@ class HeaderButton {
 		text.setHasListener(true);
 		text.setAction(0, action);
 		text.setOnOpListener((JavaScriptCallback) e -> onClick.run());
-		text.setOnMouseOverListener((JavaScriptCallback) e -> paint(made, SPRITES_HOVERED, TEXT_HOVERED));
+		text.setOnMouseOverListener((JavaScriptCallback) e -> paint(made, SPRITES_HOVERED, 0xffffff /* TEXT_HOVERED */));
 		text.setOnMouseLeaveListener((JavaScriptCallback) e -> paint(made, SPRITES_IDLE, TEXT_IDLE));
 		text.revalidate();
 		made[TEXT] = text;

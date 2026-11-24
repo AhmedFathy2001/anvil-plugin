@@ -46,10 +46,6 @@ import java.util.function.*;
 @Slf4j
 @Singleton
 public class AnvilSidebarPanel extends PluginPanel {
-	/** Auto-refresh cadence while the panel is open. Mirrors the plugin's other polls. */
-	static final int POLL_INTERVAL_MS = 15_000;
-	/** While the live push is up, one poll per this many ticks (5 minutes). */
-	static final int PUSH_SAFETY_TICKS = 20;
 	/** Client property on the start-proof checks panel: what it shows now (renderStartProofChecks). */
 	static final String START_PROOF_SHOWN = "anvil.startProofShown";
 
@@ -212,10 +208,10 @@ public class AnvilSidebarPanel extends PluginPanel {
 		tabBody.add(content, NORTH);
 		add(tabBody, CENTER);
 
-		autoRefresh = new Timer(POLL_INTERVAL_MS, e -> {
+		autoRefresh = new Timer(15_000 /* POLL_INTERVAL_MS */, e -> {
 			// With the live push up, a push asks for the board when it moves (boardChanged) and "2m ago"
 			// times tick locally (UiView), so the timer is only a safety net: every 5 minutes.
-			if (!typingInSearch() && (!pushLive.getAsBoolean() || ++quietTicks % PUSH_SAFETY_TICKS == 0)) refresh(); // the view redraws only if the site's answer changed
+			if (!typingInSearch() && (!pushLive.getAsBoolean() || ++quietTicks % 20 /* PUSH_SAFETY_TICKS */ == 0)) refresh(); // the view redraws only if the site's answer changed
 		});
 		autoRefresh.setCoalesce(true);
 
@@ -1086,8 +1082,6 @@ public class AnvilSidebarPanel extends PluginPanel {
 		return own ? teamColor("#" + ChatPalette.nameColor(c), WHITE) : ChatPalette.readableColor(c, false, WHITE);
 	}
 
-	/** Room the label leaves for the link (and ⋯) to its right. */
-	static final int ACCOUNT_LINK_ROOM_PX = 72;
 
 	/**
 	 * The everyday "Tracking X" stays one quiet line (a long name is clipped; the tooltip has it all).
@@ -1099,7 +1093,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			accountName = null;
 		}
 		accountLabel.setText(wrap
-			? wrapHtml(html, STATUS_WRAP_PX - ACCOUNT_LINK_ROOM_PX)
+			? wrapHtml(html, STATUS_WRAP_PX - 72 /* ACCOUNT_LINK_ROOM_PX */)
 			: "<html><nobr>" + html + "</nobr></html>");
 		accountLabel.setToolTipText(tooltip);
 	}
@@ -1228,14 +1222,12 @@ public class AnvilSidebarPanel extends PluginPanel {
 			clanAskedAt = now;
 			setContent(clanView);
 			clanView.show("home", emptyMap(), "Loading progress…");
-		} else if (manual || now - clanAskedAt >= MIN_ASK_GAP_MS && !typingInSearch()) {
+		} else if (manual || now - clanAskedAt >= 5_000L /* MIN_ASK_GAP_MS */ && !typingInSearch()) {
 			clanAskedAt = now;
 			clanView.refresh();
 		}
 	}
 
-	/** The least time between the Clan tab's own asks, Refresh aside. */
-	static final long MIN_ASK_GAP_MS = 5_000L;
 
 	/** Somebody is in the tiles or Teams search: don't ask again under their caret. */
 	boolean typingInSearch() {
@@ -1275,9 +1267,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	}
 
 	final AtomicBoolean liveQueued = new AtomicBoolean();
-	/** After counts alone moved, the rest of the view (who's on what, the feed) is asked for this much later. */
-	static final int COUNTS_CATCH_UP_MS = 15_000;
-	final Timer countsCatchUp = new Timer(COUNTS_CATCH_UP_MS, e -> boardChanged());
+	final Timer countsCatchUp = new Timer(15_000 /* COUNTS_CATCH_UP_MS */, e -> boardChanged());
 
 	/** Counts moved here (own progress, the push): the Clan tab's live ones redraw, at most once per frame. Any thread. */
 	void liveCountsMoved() {

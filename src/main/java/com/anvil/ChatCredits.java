@@ -18,14 +18,12 @@ class ChatCredits {
 	/** itemId → {quantity still owed, when it was credited}. */
 	final Map<Integer, long[]> owed = new HashMap<>();
 
-	/** Lines naming the same item this close together (drop line + clog line) are one acquisition. */
-	static final long SAME_DROP_MS = 10_000;
 
 	synchronized void note(Collection<ItemStack> credited, long now) {
 		for (var s : credited) {
 			var o = owed.get(s.getId());
 			var qty = o == null || now - o[1] > WINDOW_MS ? s.getQuantity()
-				: now - o[1] <= SAME_DROP_MS ? Math.max(o[0], s.getQuantity())
+				: now - o[1] <= 10_000 /* SAME_DROP_MS */ ? Math.max(o[0], s.getQuantity())
 				: o[0] + s.getQuantity();
 			owed.put(s.getId(), new long[]{qty, now});
 		}

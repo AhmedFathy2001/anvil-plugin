@@ -11,8 +11,6 @@ import net.runelite.client.ui.overlay.components.*;
  * its toggle with the arrow to the spot (config startSpotGuide).
  */
 class StartProofOverlay extends OverlayPanel {
-	/** How long "you're tracked" stays up once the shot is filed. */
-	static final long DONE_SHOWN_MS = 10_000;
 	static final Color ORANGE = new Color(255, 152, 31);
 
 	final AnvilPlugin plugin;
@@ -48,7 +46,7 @@ class StartProofOverlay extends OverlayPanel {
 			return super.render(graphics);
 		}
 		var filedAt = plugin.startProofFiledAt();
-		if (filedAt > 0 && System.currentTimeMillis() - filedAt < DONE_SHOWN_MS) {
+		if (filedAt > 0 && System.currentTimeMillis() - filedAt < 10_000 /* DONE_SHOWN_MS */) {
 			title("You're tracked", Color.GREEN);
 			line("Starting shot filed — drops and tiles count now", "", Color.WHITE);
 			return super.render(graphics);

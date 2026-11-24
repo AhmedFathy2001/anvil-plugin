@@ -24,12 +24,7 @@ import net.runelite.client.util.*;
 @RequiredArgsConstructor
 @Slf4j
 public class DeviceSignIn {
-	/** Fixed path of the approval page on the home site — the only page this flow will ever open. */
-	static final String LINK_PATH = "/link-device";
 
-	/** Fallback pacing/deadline when the server response omits them. */
-	static final int DEFAULT_INTERVAL_S = 5;
-	static final int DEFAULT_EXPIRES_S = 600;
 
 	enum Outcome {
 		SIGNED_IN, DENIED, EXPIRED, UNAVAILABLE
@@ -87,9 +82,9 @@ public class DeviceSignIn {
 		browserOpener.accept(url);
 		status.accept("Approve code " + start.user_code + " in your browser. If it didn't open: " + url);
 
-		var intervalMs = Math.max(1, start.interval > 0 ? start.interval : DEFAULT_INTERVAL_S) * 1000L;
+		var intervalMs = Math.max(1, start.interval > 0 ? start.interval : 5 /* DEFAULT_INTERVAL_S */) * 1000L;
 		var deadline = System.currentTimeMillis()
-			+ (start.expires_in > 0 ? start.expires_in : DEFAULT_EXPIRES_S) * 1000L;
+			+ (start.expires_in > 0 ? start.expires_in : 600 /* DEFAULT_EXPIRES_S */) * 1000L;
 		poll(status, done, start.device_code, intervalMs, deadline);
 	}
 
@@ -164,7 +159,7 @@ public class DeviceSignIn {
 			return target.getScheme() != null && target.getHost() != null && target.getUserInfo() == null
 				&& target.getScheme().equalsIgnoreCase(home.getScheme())
 				&& target.getHost().equalsIgnoreCase(home.getHost()) && target.getPort() == home.getPort()
-				&& target.getPath() != null && target.getPath().startsWith(LINK_PATH);
+				&& target.getPath() != null && target.getPath().startsWith("/link-device" /* LINK_PATH */);
 		} catch (URISyntaxException e) {
 			return false;
 		}

@@ -22,8 +22,6 @@ class PushSocket extends WebSocketListener {
 	static final long FIRST_RETRY_MS = 2_000;
 	/** Chat rides this socket, so a drop is retried within half a minute, never left for five. */
 	static final long MAX_RETRY_MS = 30_000;
-	/** Close code for "ticket expired": reconnect at once with a fresh one. */
-	static final int TICKET_EXPIRED = 4001;
 
 	final BingoApiClient api;
 	final ScheduledExecutorService executor;
@@ -142,7 +140,7 @@ class PushSocket extends WebSocketListener {
 
 	public void onClosing(WebSocket ws, int code, String reason) {
 		ws.close(1000, null);
-		dropped(ws, code == TICKET_EXPIRED);
+		dropped(ws, code == 4001 /* TICKET_EXPIRED */);
 	}
 
 	public void onFailure(WebSocket ws, Throwable t, Response response) {

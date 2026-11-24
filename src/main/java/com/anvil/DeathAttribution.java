@@ -33,8 +33,6 @@ class DeathAttribution {
 	 */
 	static final long DAMAGE_WINDOW_MS = 15_000;
 
-	/** Nothing sane has this many things attacking it; the cap is against a leak, not a crowd. */
-	static final int MAX_ATTACKERS = 24;
 
 	/** Who has us targeted, and when they acquired us. Insertion-ordered so "most recent" is cheap. */
 	final Map<String, Long> attackers = new LinkedHashMap<>();
@@ -58,7 +56,7 @@ class DeathAttribution {
 		if (player) {
 			players.add(name);
 		} else players.remove(name);
-		while (attackers.size() > MAX_ATTACKERS) stoppedTargetingUs(attackers.keySet().iterator().next());
+		while (attackers.size() > 24 /* MAX_ATTACKERS */) stoppedTargetingUs(attackers.keySet().iterator().next());
 	}
 
 	/** Something stopped targeting us — it is no longer a candidate for killing us. */

@@ -20,8 +20,6 @@ import javax.swing.Timer;
 class GradientLabel extends JLabel {
 	/** Side-panel labels look faster at the same rate because they are compact; keep them at five seconds. */
 	static final long PANEL_CYCLE_MS = 5000;
-	/** RuneScape chat and widget names use the same calm five-second cycle as the side panel. */
-	static final long GAME_CYCLE_MS = 5000;
 	static final Set<GradientLabel> MOVING = Collections.newSetFromMap(new WeakHashMap<>());
 	/** The player's "Animated names" setting: off, a moving gradient holds still. */
 	@Setter static volatile boolean animate = true;

@@ -111,8 +111,6 @@ class UiView extends JPanel {
 	static final long CLICK_SETTLE_MS = 400;
 	boolean pressing;
 	long pressedAt;
-	static final long PRESS_STALE_MS = 2_000;
-	static final long WARM_EVERY_MS = 60_000;
 
 	/** What each place last drew, so an unchanged answer leaves it alone (its scroll, its open folds). */
 	final Map<String, JsonElement> drawn = new HashMap<>();
@@ -318,7 +316,7 @@ class UiView extends JPanel {
 		// A press older than PRESS_STALE_MS is over: a redraw under it can swallow its release, and the
 		// flag would otherwise hold every later background refresh off for good.
 		var sincePress = System.currentTimeMillis() - pressedAt;
-		if (background && ((pressing && sincePress < PRESS_STALE_MS) || sincePress < CLICK_SETTLE_MS)) {
+		if (background && ((pressing && sincePress < 2_000 /* PRESS_STALE_MS */) || sincePress < CLICK_SETTLE_MS)) {
 			// Redrawing now would swap the row out from under the press, and the click would be lost.
 			once((int) CLICK_SETTLE_MS, e -> land(into, n, answer, true));
 			return;
@@ -1367,7 +1365,7 @@ class UiView extends JPanel {
 		var key = str(on, "v") + on.get("args");
 		var now = System.currentTimeMillis();
 		var last = warmed.get(key);
-		if (last == null || now - last >= WARM_EVERY_MS) {
+		if (last == null || now - last >= 60_000 /* WARM_EVERY_MS */) {
 			warmed.put(key, now);
 			host.load(str(on, "v"), strings(on.get("args")), v -> { });
 		}
