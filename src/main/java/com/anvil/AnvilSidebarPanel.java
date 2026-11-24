@@ -1421,6 +1421,10 @@ public class AnvilSidebarPanel extends PluginPanel {
 		var stack = new JPanel();
 		stack.setLayout(new BoxLayout(stack, BoxLayout.Y_AXIS));
 		stack.setOpaque(false);
+		// One alignment for both: the error panel centres itself (0.5) and the cards sit left (0), and a
+		// column of mixed alignments pushed the cards half off the right edge.
+		empty.setAlignmentX(0f);
+		settingsPanel.setAlignmentX(0f);
 		addAll(stack, empty, settingsPanel);
 		setContent(stack);
 	}
