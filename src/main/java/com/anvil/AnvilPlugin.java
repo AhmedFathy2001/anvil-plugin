@@ -4329,6 +4329,7 @@ public class AnvilPlugin extends Plugin {
 				if (!config.shareItems()) return; // turned off while this waited
 				apiClient.postJson("/api/plugin/items", body, "Items push failed", false);
 				body.keySet().forEach(k -> itemsSent.put(k, body.getAsJsonObject(k).getAsJsonArray("items")));
+				if (body.has("equipment") && sidebarPanel != null) sidebarPanel.wornGearSent();
 			} catch (Exception e) {
 				itemsDirty = true;
 				itemsNextAt = now() + 300_000;

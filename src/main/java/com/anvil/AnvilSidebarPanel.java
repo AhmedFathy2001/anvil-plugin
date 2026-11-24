@@ -1139,6 +1139,16 @@ public class AnvilSidebarPanel extends PluginPanel {
 		renderLoading();
 	}
 
+	/** Worn gear reached the site: a guide open in Lookup asks again a few seconds on, for its "Your gear now" card. */
+	void wornGearSent() {
+		var t = new Timer(3000, e -> {
+			var l = lookupView.lastLoads.get("null");
+			if (onScreen && tab == LOOKUP && l != null && "guide".equals(l[0])) lookupView.refresh(true);
+		});
+		t.setRepeats(false);
+		t.start();
+	}
+
 	/** Ask again: the clan picker and sign-in state from the config the plugin holds, the tab from the site. */
 	void refresh() {
 		refresh(false);
