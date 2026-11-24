@@ -24,7 +24,7 @@ class DiskFiles {
 		try {
 			if (!dir.exists()) dir.createDirectories();
 			return dir;
-		} catch (IOException | RuntimeException e) {
+		} catch (Exception e) {
 			return null;
 		}
 	}
@@ -50,7 +50,7 @@ class DiskFiles {
 		if (file == null || !file.isFile()) return null;
 		try (var in = file.openInputStream()) {
 			return in.readAllBytes();
-		} catch (IOException | RuntimeException e) {
+		} catch (Exception e) {
 			return null;
 		}
 	}
@@ -75,7 +75,7 @@ class DiskFiles {
 		if (dir == null) return new ArrayList<>();
 		try (var walk = dir.walk(1)) {
 			return walk.filter(f -> f.isFile() && name.test(f.getFileName())).collect(Collectors.toList());
-		} catch (IOException | RuntimeException e) {
+		} catch (Exception e) {
 			return new ArrayList<>();
 		}
 	}

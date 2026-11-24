@@ -172,7 +172,7 @@ public class PendingSubmissionStore {
 		// file cannot walk anywhere with "../" in it.
 		try (InputStream in = dir.joinSegment(sub.screenshotFile).openInputStream()) {
 			return in.readAllBytes();
-		} catch (IOException | RuntimeException e) {
+		} catch (Exception e) {
 			log.error("Unreadable proof {}: {}", sub.screenshotFile, e.getMessage());
 			return null;
 		}
@@ -186,7 +186,7 @@ public class PendingSubmissionStore {
 			dir.joinSegment(sub.screenshotFile).deleteIfExists();
 			dir.joinSegment(baseName + ".json").deleteIfExists();
 			log.info("Removed proof {}", baseName);
-		} catch (IOException | RuntimeException e) {
+		} catch (Exception e) {
 			log.warn("Can't remove proof {}: {}", baseName, e.getMessage());
 		}
 	}

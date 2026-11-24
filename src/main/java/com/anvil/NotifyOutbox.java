@@ -152,7 +152,7 @@ class NotifyOutbox {
 			try {
 				if (png != null && png.length > 0) DiskFiles.writeAtomic(d.joinSegment(item.id + ".png"), png);
 				DiskFiles.writeAtomic(d.joinSegment(item.id + ".json"), gson.toJson(item));
-			} catch (IOException | RuntimeException e) {
+			} catch (Exception e) {
 				item.png = png; // keep it for this session at least
 			}
 		}
@@ -281,7 +281,7 @@ class NotifyOutbox {
 		if (d == null) return;
 		try {
 			DiskFiles.writeAtomic(d.joinSegment(it.id + ".json"), gson.toJson(it));
-		} catch (IOException | RuntimeException e) {
+		} catch (Exception e) {
 		}
 	}
 

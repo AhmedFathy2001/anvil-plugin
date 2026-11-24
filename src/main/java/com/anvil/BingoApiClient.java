@@ -622,7 +622,7 @@ public class BingoApiClient {
 				}
 				return RetryPolicy.isPermanent(r.code()) ? PERMANENT : RETRY;
 			});
-		} catch (IOException | RuntimeException e) {
+		} catch (Exception e) {
 			return RETRY;
 		}
 	}
@@ -926,7 +926,7 @@ public class BingoApiClient {
 							img = still == null ? null : new ImageIcon(still);
 						}
 					}
-				} catch (IOException | RuntimeException e) {
+				} catch (Exception e) {
 				}
 				if (img != null) {
 					synchronized (thumbs) {

@@ -1125,13 +1125,13 @@ public class AnvilPlugin extends Plugin {
 			rc.setDir(pluginDir.join("cache"));
 			responseCache = rc;
 			apiClient.setDiskCache(rc);
-		} catch (IOException | RuntimeException e) {
+		} catch (Exception e) {
 			log.warn("No plugin directory", e);
 		}
 		try (var r = new InputStreamReader(getClass().getResourceAsStream("/anvil_text.json"),
 				java.nio.charset.StandardCharsets.UTF_8)) {
 			text = gson.fromJson(r, ShippedText.class);
-		} catch (IOException | RuntimeException e) {
+		} catch (Exception e) {
 			log.warn("No anvil_text.json", e);
 		}
 

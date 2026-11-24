@@ -113,7 +113,7 @@ class PushStash {
 		var old = DiskFiles.readJson(gson, f, Data.class);
 		try {
 			DiskFiles.writeAtomic(f, gson.toJson(merge(old == null ? new Data() : old, data)));
-		} catch (IOException | RuntimeException e) {
+		} catch (Exception e) {
 		}
 	}
 
