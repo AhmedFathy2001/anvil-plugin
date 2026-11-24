@@ -73,6 +73,9 @@ public class PanelShot
 						}
 					}, null, null, null);
 					v.render(view);
+					// PANELSHOT_QUERY: typed into every search box, to see a filtered list.
+					var q = System.getenv("PANELSHOT_QUERY");
+					if (q != null) type(v, q);
 					int w = 205;
 					v.setSize(new Dimension(w, 10));
 					v.doLayout();
@@ -92,6 +95,21 @@ public class PanelShot
 					throw new RuntimeException(e);
 				}
 			});
+		}
+	}
+
+	static void type(java.awt.Component c, String q)
+	{
+		if (c instanceof javax.swing.text.JTextComponent)
+		{
+			((javax.swing.text.JTextComponent) c).setText(q);
+		}
+		if (c instanceof java.awt.Container)
+		{
+			for (var k : ((java.awt.Container) c).getComponents())
+			{
+				type(k, q);
+			}
 		}
 	}
 
