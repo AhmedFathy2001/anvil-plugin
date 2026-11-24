@@ -1139,9 +1139,9 @@ public class AnvilSidebarPanel extends PluginPanel {
 		renderLoading();
 	}
 
-	/** Worn gear reached the site: a guide open in Lookup asks again a few seconds on, for its "Your gear now" card. */
+	/** Worn gear reached the site: a guide open in Lookup asks again a second on, for its "Your gear now" card. */
 	void wornGearSent() {
-		var t = new Timer(3000, e -> {
+		var t = new Timer(1000, e -> {
 			var l = lookupView.lastLoads.get("null");
 			if (onScreen && tab == LOOKUP && l != null && "guide".equals(l[0])) lookupView.refresh(true);
 		});

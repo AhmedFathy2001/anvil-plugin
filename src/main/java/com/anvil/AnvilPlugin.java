@@ -4275,12 +4275,13 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	// GUIDES (POST /api/plugin/items): the bank, inventory, worn gear and looting bag as last seen, sent
-	// a few quiet ticks after a change, at most every 20s, only the containers that differ from the last push.
+	// 5 quiet ticks after a change, at most every 20s, only the containers that differ from the last push.
+	// Worn gear alone goes sooner (2 quiet ticks, at most every 4s) for the guide's "Your gear now".
 	static final Map<Integer, String> SHARED = Map.of(InventoryID.BANK, "bank", InventoryID.INV, "inventory", InventoryID.WORN, "equipment", InventoryID.LOOTING_BAG, "lootingBag");
 	final Map<String, JsonArray> itemsSeen = new ConcurrentHashMap<>(), itemsSent = new ConcurrentHashMap<>();
-	volatile boolean itemsDirty, wiping;
+	volatile boolean itemsDirty, wornDirty, wiping;
 	int itemsAt;
-	volatile long itemsNextAt;
+	volatile long itemsNextAt, wornNextAt;
 	/** The region the player stands in, for the Guides view's "You're at …". */
 	volatile int region = -1;
 
@@ -4291,6 +4292,7 @@ public class AnvilPlugin extends Plugin {
 		for (var it : c.getItems()) if (it.getId() > 0 && it.getQuantity() > 0) m.merge(it.getId(), it.getQuantity(), Integer::sum);
 		itemsSeen.put(kind, apiClient.pairs(m, "id", "q"));
 		itemsDirty = true;
+		wornDirty |= id == InventoryID.WORN;
 		itemsAt = client.getTickCount();
 	}
 
@@ -4301,9 +4303,9 @@ public class AnvilPlugin extends Plugin {
 	 */
 	void shareItems() {
 		region = regionId();
-		if (apiClient.getCurrentRsn() == null || now() < itemsNextAt) return;
+		if (apiClient.getCurrentRsn() == null) return;
 		if (!config.shareItems()) {
-			if (empty(cfgGet("itemsWiped")) || wiping) return;
+			if (empty(cfgGet("itemsWiped")) || wiping || now() < itemsNextAt) return;
 			wiping = true;
 			submit(() -> {
 				try {
@@ -4317,14 +4319,19 @@ public class AnvilPlugin extends Plugin {
 			});
 			return;
 		}
-		if (!itemsDirty || client.getTickCount() - itemsAt < 5 || !siteHas("guides-panel")) return;
-		itemsDirty = false;
+		int quiet = client.getTickCount() - itemsAt;
+		if (!itemsDirty || quiet < 2 || !siteHas("guides-panel")) return;
+		boolean all = quiet >= 5 && now() >= itemsNextAt;
+		if (!all && (!wornDirty || now() < wornNextAt)) return;
+		wornDirty = false;
+		itemsDirty = !all;
 		var body = new JsonObject();
 		itemsSeen.forEach((k, v) -> {
-			if (!v.equals(itemsSent.get(k))) body.add(k, BingoApiClient.obj("items", v));
+			if ((all || "equipment".equals(k)) && !v.equals(itemsSent.get(k))) body.add(k, BingoApiClient.obj("items", v));
 		});
 		if (body.size() == 0) return;
-		itemsNextAt = now() + 20_000;
+		wornNextAt = now() + 4_000;
+		if (all) itemsNextAt = now() + 20_000;
 		submit(() -> {
 			try {
 				if (!config.shareItems()) return; // turned off while this waited
@@ -4333,7 +4340,7 @@ public class AnvilPlugin extends Plugin {
 				if (body.has("equipment") && sidebarPanel != null) sidebarPanel.wornGearSent();
 			} catch (Exception e) {
 				itemsDirty = true;
-				itemsNextAt = now() + 300_000;
+				wornNextAt = itemsNextAt = now() + 300_000;
 			}
 		});
 	}
