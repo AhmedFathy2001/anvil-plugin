@@ -1,5 +1,7 @@
 package com.anvil;
 
+import static java.lang.Math.*;
+
 /**
  * The two questions every retry path asks, answered once: is this refusal worth trying again, and how
  * long to wait before doing so.

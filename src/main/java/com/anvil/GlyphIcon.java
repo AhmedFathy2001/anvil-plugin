@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static java.lang.Math.*;
 import lombok.RequiredArgsConstructor;
 import java.awt.*;
 import java.awt.geom.*;
@@ -48,7 +49,7 @@ class GlyphIcon implements Icon {
 			if (c != null && !c.isEnabled()) ink = ink.darker();
 			g.setColor(ink);
 			float s = size;
-			g.setStroke(new BasicStroke(Math.max(1.4f, s / 7f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+			g.setStroke(new BasicStroke(max(1.4f, s / 7f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
 			g.translate(x, y);
 			var p = new Path2D.Float();
 			switch (shape) {
@@ -70,7 +71,7 @@ class GlyphIcon implements Icon {
 					g.draw(stroke(p, s, 0.72, 0.28, 0.28, 0.72));
 					break;
 				case ELLIPSIS:
-					var d = Math.max(2f, s / 6f);
+					var d = max(2f, s / 6f);
 					for (int i = 0; i < 3; i++) {
 						var cx = s * (0.25f + 0.25f * i);
 						g.fill(new Ellipse2D.Float(cx - d / 2, s * 0.5f - d / 2, d, d));
@@ -82,9 +83,9 @@ class GlyphIcon implements Icon {
 					var r = s * 0.24f;
 					g.draw(new Ellipse2D.Float(cx - r, cx - r, r * 2, r * 2));
 					for (int i = 0; i < 8; i++) {
-						var a = Math.PI / 4 * i;
-						p.moveTo(cx + Math.cos(a) * s * 0.33, cx + Math.sin(a) * s * 0.33);
-						p.lineTo(cx + Math.cos(a) * s * 0.44, cx + Math.sin(a) * s * 0.44);
+						var a = PI / 4 * i;
+						p.moveTo(cx + cos(a) * s * 0.33, cx + sin(a) * s * 0.33);
+						p.lineTo(cx + cos(a) * s * 0.44, cx + sin(a) * s * 0.44);
 					}
 					g.draw(p);
 					break;
@@ -119,10 +120,10 @@ class GlyphIcon implements Icon {
 	/** A five-point star {@code k} of the icon's size, centred. */
 	static Path2D star(Path2D p, float s, double k) {
 		for (int i = 0; i < 10; i++) {
-			var ang = -Math.PI / 2 + Math.PI / 5 * i;
+			var ang = -PI / 2 + PI / 5 * i;
 			var rad = s * k * (i % 2 == 0 ? 0.5 : 0.21);
-			var px = s / 2.0 + Math.cos(ang) * rad;
-			var py = s * (0.5 + 0.03 * k) + Math.sin(ang) * rad;
+			var px = s / 2.0 + cos(ang) * rad;
+			var py = s * (0.5 + 0.03 * k) + sin(ang) * rad;
 			if (i == 0) p.moveTo(px, py);
 			else p.lineTo(px, py);
 		}

@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static java.lang.Math.*;
 import static java.awt.BorderLayout.*;
 import static javax.swing.SwingUtilities.invokeLater;
 import static net.runelite.client.ui.ColorScheme.*;
@@ -123,8 +124,8 @@ class FeedList extends JPanel {
 		this.sprites = sprites;
 		this.skills = skills;
 		this.act = act;
-		cap = Math.max(20, intOr(n, "cap", 200));
-		int h = Math.max(120, intOr(n, "h", 420));
+		cap = max(20, intOr(n, "cap", 200));
+		int h = max(120, intOr(n, "h", 420));
 		flush.setRepeats(false);
 		setOpaque(false);
 		chat = isObj(n, "send");
@@ -295,7 +296,7 @@ class FeedList extends JPanel {
 		if (kind.isEmpty()) return false;
 		var changed = false;
 		if (update.has(kind) && update.get(kind).isJsonPrimitive()) {
-			int n = Math.max(0, update.get(kind).getAsInt());
+			int n = max(0, update.get(kind).getAsInt());
 			if (!chip.has("n") || chip.get("n").getAsInt() != n) {
 				chip.addProperty("n", n);
 				changed = true;
@@ -332,7 +333,7 @@ class FeedList extends JPanel {
 	void unhold(String rowId) {
 		var h = held.get(rowId);
 		if (h == null) return;
-		h.posts = Math.max(0, h.posts - 1);
+		h.posts = max(0, h.posts - 1);
 		if (h.posts > 0) return;
 		int gen = ++h.gen;
 		UiView.once(SETTLE_MS, e -> settle(rowId, gen));
@@ -445,10 +446,10 @@ class FeedList extends JPanel {
 			var fm = g.getFontMetrics();
 			var pill
  = !on && n > 0 ? (n > 99 ? "99+" : String.valueOf(n)) : null;
-			int pw = pill == null ? 0 : Math.max(14, fm.stringWidth(pill) + 8);
+			int pw = pill == null ? 0 : max(14, fm.stringWidth(pill) + 8);
 			var text = label;
 			while (text.length() > 1 && fm.stringWidth(text) + pw + (pw > 0 ? 3 : 0) > w - 4) text = text.substring(0, text.length() - 1);
-			if (!text.equals(label)) text = text.substring(0, Math.max(1, text.length() - 1)) + "\u2026";
+			if (!text.equals(label)) text = text.substring(0, max(1, text.length() - 1)) + "\u2026";
 			int tw = fm.stringWidth(text) + (pw > 0 ? pw + 3 : 0);
 			int x = (w - tw) / 2, base = (h + fm.getAscent() - fm.getDescent()) / 2;
 			g.setColor(on ? Color.WHITE : MUTED);
@@ -487,7 +488,7 @@ class FeedList extends JPanel {
 
 	void slideVisible() {
 		if (!list.isShowing() || !GradientLabel.animate || !GradientLabel.clientActive()) return;
-		for (int i = Math.max(0, list.getFirstVisibleIndex()), last = list.getLastVisibleIndex(); i >= 0 && i <= last && i < model.getSize(); i++) {
+		for (int i = max(0, list.getFirstVisibleIndex()), last = list.getLastVisibleIndex(); i >= 0 && i <= last && i < model.getSize(); i++) {
 			if (moves(model.getElementAt(i))) repaintRow(i);
 		}
 	}
@@ -733,7 +734,7 @@ class FeedList extends JPanel {
 	void press(int i, JsonObject chip) {
 		var mine = flag(chip, "mine");
 		chip.addProperty("mine", !mine);
-		chip.addProperty("n", Math.max(0, intOr(chip, "n", 0) + (mine ? -1 : 1)));
+		chip.addProperty("n", max(0, intOr(chip, "n", 0) + (mine ? -1 : 1)));
 		model.changed(i);
 		if (!isObj(chip, "on")) return;
 		var on = chip.getAsJsonObject("on");
@@ -977,10 +978,10 @@ class FeedList extends JPanel {
 			this.mine = mine;
 			grouped = index > 0 && sameRun(model.getElementAt(index - 1), row);
 			// A few px spare: lines are measured off-screen and painted on it, and the two can round apart.
-			int w = Math.max(80, width - PAD_X * 2 - 6);
+			int w = max(80, width - PAD_X * 2 - 6);
 			// Rows trimmed off the list leave their wrapping behind: start over once it holds well more
 			// than the list does (the rows on screen re-wrap as they paint).
-			if (w != wrapWidth || wraps.size() > 2 * Math.max(model.getSize(), 100)) {
+			if (w != wrapWidth || wraps.size() > 2 * max(model.getSize(), 100)) {
 				wraps.clear();
 				wrapWidth = w;
 			}
@@ -1033,8 +1034,8 @@ class FeedList extends JPanel {
 					for (int i = 0; i < grad.length; i++) at[i] = (float) i / (grad.length - 1);
 					// A Patron's gradient slides along (reflecting back), like everywhere else, unless the
 					// player turned "Animated names" off.
-					var shift = phase(r) * Math.max(1, nameW);
-					g.setPaint(new LinearGradientPaint(x - shift, 0, x - shift + Math.max(1, nameW), 0, at, grad, MultipleGradientPaint.CycleMethod.REFLECT));
+					var shift = phase(r) * max(1, nameW);
+					g.setPaint(new LinearGradientPaint(x - shift, 0, x - shift + max(1, nameW), 0, at, grad, MultipleGradientPaint.CycleMethod.REFLECT));
 				} else g.setColor(supporter || !team ? color(whoColor, Color.WHITE) : color(str(r, "tagColor"), Color.WHITE));
 				g.drawString(who, x, y + fm.getAscent());
 				x += nameW + 6;
@@ -1082,7 +1083,7 @@ class FeedList extends JPanel {
 			var phase = phase(r);
 			for (int i = 0; i < name.length(); i++) {
 				var t = reflect((float) i / (name.length() - 1) + phase) * (grad.length - 1);
-				int k = Math.min((int) t, grad.length - 2);
+				int k = min((int) t, grad.length - 2);
 				out.accept(String.valueOf(name.charAt(i)), mix(grad[k], grad[k + 1], t - k));
 			}
 		} else out.accept(name, nameInk);
@@ -1098,7 +1099,7 @@ class FeedList extends JPanel {
 	static int badge(Graphics2D g, Font f, int step, Color[] grad, Color ink, int x, int y) {
 		var b = AnvilPlugin.tenureSprite(step, (grad != null ? grad[0] : ink).getRGB() & 0xffffff, -1, AnvilPlugin.TENURE_PX);
 		var cap = f.createGlyphVector(g.getFontRenderContext(), "H").getVisualBounds().getHeight();
-		g.drawImage(b, x, y - (int) Math.round(cap / 2 + b.getHeight() / 2.0), null);
+		g.drawImage(b, x, y - (int) round(cap / 2 + b.getHeight() / 2.0), null);
 		return b.getWidth();
 	}
 
@@ -1124,7 +1125,7 @@ class FeedList extends JPanel {
 		public Dimension getPreferredSize() {
 			var fm = getFontMetrics(SMALL);
 			// Tall enough for a tenure badge beside the name.
-			return new Dimension(0, Math.max(fm.getHeight(), tenureStep(r == null ? null : str(r, "whoGlyph")) > 0 ? AnvilPlugin.TENURE_PX : 0));
+			return new Dimension(0, max(fm.getHeight(), tenureStep(r == null ? null : str(r, "whoGlyph")) > 0 ? AnvilPlugin.TENURE_PX : 0));
 		}
 
 		protected void paintComponent(Graphics g0) {
@@ -1153,9 +1154,9 @@ class FeedList extends JPanel {
 	}
 
 	static Color mix(Color a, Color b, float t) {
-		return new Color(Math.round(a.getRed() + (b.getRed() - a.getRed()) * t),
-				Math.round(a.getGreen() + (b.getGreen() - a.getGreen()) * t),
-				Math.round(a.getBlue() + (b.getBlue() - a.getBlue()) * t));
+		return new Color(round(a.getRed() + (b.getRed() - a.getRed()) * t),
+				round(a.getGreen() + (b.getGreen() - a.getGreen()) * t),
+				round(a.getBlue() + (b.getBlue() - a.getBlue()) * t));
 	}
 
 	/** A Supporter's name gradient ({@code grad}: 2+ "#rrggbb"), or null. */
@@ -1470,7 +1471,7 @@ JsonObject o, String k) {
 		if (!str(row, "who").equals(str(prev, "who")) || !str(row, "tag").equals(str(prev, "tag"))) return false;
 		var a = millis(str(prev, "at"));
 		var b = millis(str(row, "at"));
-		return a > 0 && b > 0 && Math.abs(a - b) <= RUN_GAP_MS;
+		return a > 0 && b > 0 && abs(a - b) <= RUN_GAP_MS;
 	}
 
 	static long millis(String at) {

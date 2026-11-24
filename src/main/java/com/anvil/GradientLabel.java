@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static java.lang.Math.*;
 import lombok.Setter;
 import java.awt.*;
 import java.awt.event.*;
@@ -74,7 +75,7 @@ class GradientLabel extends JLabel {
 		var dt = now - lastWallMs;
 		lastWallMs = now;
 		// Clamped: a long gap between frames (a stall, a hidden panel) never fast-forwards.
-		if (dt > 0 && clientActive()) playedMs += Math.min(dt, 250);
+		if (dt > 0 && clientActive()) playedMs += min(dt, 250);
 		return playedMs;
 	}
 
@@ -133,10 +134,10 @@ class GradientLabel extends JLabel {
 		}
 		var g2d = (Graphics2D) g;
 		var at = g2d.getTransform();
-		var sx = Math.max(1, at.getScaleX());
-		var sy = Math.max(1, at.getScaleY());
-		int iw = (int) Math.ceil(w * sx);
-		int ih = (int) Math.ceil(h * sy);
+		var sx = max(1, at.getScaleX());
+		var sy = max(1, at.getScaleY());
+		int iw = (int) ceil(w * sx);
+		int ih = (int) ceil(h * sy);
 
 		var key = w + "x" + h + "@" + sx + "," + sy + "|" + getText() + "|" + getFont() + "|" + getForeground()
 			+ "|" + System.identityHashCode(getIcon()) + "|" + getInsets();

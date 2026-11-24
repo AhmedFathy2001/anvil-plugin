@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static java.lang.Math.*;
 import net.runelite.api.Client;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.client.ui.FontManager;
@@ -150,8 +151,8 @@ public class BingoClogBannerOverlay extends Overlay {
 			w = BASE_W * (1f - (e - vCollapseEnd) / (float) H_COLLAPSE_MS);
 		}
 
-		int iw = Math.max(1, Math.round(w));
-		int ih = Math.max(1, Math.round(h));
+		int iw = max(1, round(w));
+		int ih = max(1, round(h));
 		int x = (BASE_W - iw) / 2; // centre the (partly-open) panel within the reserved area
 		int y = (BASE_H - ih) / 2;
 
@@ -162,12 +163,12 @@ public class BingoClogBannerOverlay extends Overlay {
 		float tx = off == null ? 0 : off.x, ty = off == null ? 0 : off.y;
 		if (e < 50 || lastFrame == 0) { ox = tx; oy = ty; }
 		else {
-			float k = 1f - (float) Math.exp(-(now - lastFrame) / 70.0);
+			float k = 1f - (float) exp(-(now - lastFrame) / 70.0);
 			ox += (tx - ox) * k;
 			oy += (ty - oy) * k;
 		}
 		lastFrame = now;
-		g2.translate(Math.round(ox), Math.round(oy));
+		g2.translate(round(ox), round(oy));
 		g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
 		g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_OFF);
 		g2.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_OFF);

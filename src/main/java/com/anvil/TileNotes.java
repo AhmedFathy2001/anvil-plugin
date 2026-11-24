@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static java.lang.Math.*;
 import com.anvil.PluginConfigResponse.*;
 import java.util.*;
 
@@ -27,7 +28,7 @@ class TileNotes {
 	/** "3/5 runs" for a tile needing several qualifying runs; null for a plain one-clear timed tile. */
 	static String runs(long done, int required) {
 		if (required <= 1) return null;
-		return fmt(Math.max(0, Math.min(done, required))) + "/" + fmt(required) + " runs";
+		return fmt(max(0, min(done, required))) + "/" + fmt(required) + " runs";
 	}
 
 
@@ -52,11 +53,11 @@ class TileNotes {
 	 */
 	static List<String> comboLines(TrackedCombo combo, Map<Integer, long[]> counts) {
 		List<String> out = new ArrayList<>();
-		int needed = Math.max(1, combo.needed);
+		int needed = max(1, combo.needed);
 		// A "mix" combo is weighted shares, so it reads as the server's percentage instead.
 		out.add("mix".equals(combo.rule)
-			? Math.max(0, Math.min(100, combo.percent)) + "%"
-			: fmt(Math.min(combo.done, needed)) + " of " + fmt(needed) + " done");
+			? max(0, min(100, combo.percent)) + "%"
+			: fmt(min(combo.done, needed)) + " of " + fmt(needed) + " done");
 		if (combo.parts != null) {
 			for (var p : combo.parts) {
 				if (p == null) continue;
@@ -65,7 +66,7 @@ class TileNotes {
 				if (p.completed) {
 					out.add(label + "  done");
 				} else if (c != null && c[1] > 1) {
-					out.add(label + "  " + fmt(Math.max(0, Math.min(c[0], c[1]))) + "/" + fmt(c[1]));
+					out.add(label + "  " + fmt(max(0, min(c[0], c[1]))) + "/" + fmt(c[1]));
 				} else out.add(label);
 			}
 		}

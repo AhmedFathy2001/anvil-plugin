@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static java.lang.Math.*;
 import static com.anvil.AnvilPlugin.empty;
 import static java.util.Collections.*;
 import static com.anvil.NotifyOutbox.Result.*;
@@ -976,7 +977,7 @@ public class BingoApiClient {
 				int sh = reader.getHeight(0);
 				if (sw <= 0 || sh <= 0 || (long) sw * sh > THUMB_MAX_PIXELS) return null;
 				var param = reader.getDefaultReadParam();
-				int step = Math.max(1, Math.min(sw / Math.max(1, w), sh / Math.max(1, h)));
+				int step = max(1, min(sw / max(1, w), sh / max(1, h)));
 				param.setSourceSubsampling(step, step, 0, 0);
 				return reader.read(0, param);
 			} finally {
@@ -989,9 +990,9 @@ public class BingoApiClient {
 
 	static BufferedImage fit(BufferedImage src, int w, int h) {
 		if (src == null) return null;
-		var k = Math.min(1, Math.min(w / (double) src.getWidth(), h / (double) src.getHeight()));
-		int tw = Math.max(1, (int) Math.round(src.getWidth() * k));
-		int th = Math.max(1, (int) Math.round(src.getHeight() * k));
+		var k = min(1, min(w / (double) src.getWidth(), h / (double) src.getHeight()));
+		int tw = max(1, (int) round(src.getWidth() * k));
+		int th = max(1, (int) round(src.getHeight() * k));
 		var out = new BufferedImage(tw, th, BufferedImage.TYPE_INT_RGB);
 		var g = out.createGraphics();
 		g.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
@@ -1254,7 +1255,7 @@ public class BingoApiClient {
 	static long retryAfterFrom(String body) {
 		// No hint; the caller falls back to its own backoff.
 		try {
-			return Math.max(0, jsonObject(body).get("retryAfterMs").getAsLong());
+			return max(0, jsonObject(body).get("retryAfterMs").getAsLong());
 		} catch (RuntimeException e) {
 			return 0;
 		}
@@ -1621,7 +1622,7 @@ public class BingoApiClient {
 		var out = new JsonArray();
 		for (var m : batch) {
 			if (m == null || m.kind == null || m.key == null) continue;
-			var o = obj("kind", m.kind, "key", m.key, "at", java.time.Instant.ofEpochMilli(m.at).toString(), "quantity", Math.max(1, m.quantity));
+			var o = obj("kind", m.kind, "key", m.key, "at", java.time.Instant.ofEpochMilli(m.at).toString(), "quantity", max(1, m.quantity));
 			// Everything below is best-effort — a skilling pet has no source, no KC and no price, and
 			// inventing any of them would be worse than a shorter line on the feed.
 			if (m.itemId != null) o.addProperty("itemId", m.itemId);

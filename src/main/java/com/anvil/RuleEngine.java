@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static java.lang.Math.*;
 import static com.anvil.AnvilPlugin.empty;
 import com.google.gson.*;
 import java.util.*;
@@ -178,7 +179,7 @@ class RuleEngine {
 			var r = e.getKey();
 			if (r.have >= r.of) continue;
 			any = true;
-			var n = Math.min(e.getValue(), r.of - r.have);
+			var n = min(e.getValue(), r.of - r.have);
 			r.have += n;
 			out.raised.put(r.t, r.have);
 			out.coop |= r.coop;
@@ -237,7 +238,7 @@ class RuleEngine {
 				}
 				any = true;
 				if (r.simple) {
-					r.have = Math.min(r.of, r.have + Math.max(1, it[1]));
+					r.have = min(r.of, r.have + max(1, it[1]));
 					out.raised.put(r.t, r.have);
 				} else if (!said.add(r)) continue;
 				out.say.add(fill(t, r.simple ? "drop" : "dropPlain", r));
@@ -269,7 +270,7 @@ class RuleEngine {
 		for (var r : t.values) {
 			var total = r.min <= 0;
 			if ((total ? r.have >= r.of : gp < r.min) || !valueSourceOk(r.src, source, kind)) continue;
-			r.have = total ? Math.min(r.of, r.have + gp) : r.of;
+			r.have = total ? min(r.of, r.have + gp) : r.of;
 			out.raised.put(r.t, r.have);
 			out.say.add(fill(t, "value", r, "{gp}", gp(gp)));
 		}
@@ -339,7 +340,7 @@ class RuleEngine {
 		var t = table;
 		if (t == null) return out;
 		for (var r : t.events) {
-			if (r.site || !on.equals(r.on) || r.of > 0 && Math.max(r.have, floor.applyAsLong(r.t)) >= r.of || !hit.test(r) || claim != null && !claim.test(r.t)) continue;
+			if (r.site || !on.equals(r.on) || r.of > 0 && max(r.have, floor.applyAsLong(r.t)) >= r.of || !hit.test(r) || claim != null && !claim.test(r.t)) continue;
 			var why = r.max != null && value > r.max ? "max" : value < r.min ? "min" : r.party > 0 && party != r.party ? "party" : r.team && teamWhy != null ? "team" : null;
 			if (why == null) out.add(r);
 			else if (t.say.containsKey(on + "." + why)) no.add(fill(t, on + "." + why, r, "{x}", x, "{seen}", String.valueOf(party), "{party}", String.valueOf(r.party), "{why}", teamWhy));
@@ -355,9 +356,9 @@ class RuleEngine {
 		var t = table;
 		if (t == null) return o;
 		if (r.of > 0) {
-			r.have = Math.max(r.have, floor.applyAsLong(r.t));
+			r.have = max(r.have, floor.applyAsLong(r.t));
 			if (r.have >= r.of) return o;
-			n = Math.min(n, r.of - r.have);
+			n = min(n, r.of - r.have);
 			r.have += n;
 			o.raised.put(r.t, r.have);
 		}
@@ -467,7 +468,7 @@ class RuleEngine {
 		for (var r : t.stats) {
 			if (!on.equals(r.on) || r.names == null || !r.names.contains(key) || r.have >= r.of) continue;
 			var before = r.have;
-			r.have = Math.min(r.of, r.have + gained);
+			r.have = min(r.of, r.have + gained);
 			out.raised.put(r.t, r.have);
 			if (r.have >= r.of) {
 				out.done = true;
@@ -516,7 +517,7 @@ class RuleEngine {
 		rules.addAll(t.stats);
 		for (var r : rules) {
 			var n = have.get(r.t);
-			if (n != null && r.of > 0) r.have = Math.max(r.have, n);
+			if (n != null && r.of > 0) r.have = max(r.have, n);
 		}
 	}
 
@@ -541,8 +542,8 @@ class RuleEngine {
 	/** A grindy kill tile screenshots only on proof steps (and completion); a small one on every credit. */
 	static boolean milestone(long added, long current, long required, Proof p) {
 		if (required < p.min) return true;
-		var step = Math.max(1.0, required * p.frac);
-		return Math.floor(current / step) > Math.floor((current - added) / step);
+		var step = max(1.0, required * p.frac);
+		return floor(current / step) > floor((current - added) / step);
 	}
 
 	static boolean sourceOk(DropRule r, String source, String kind) {

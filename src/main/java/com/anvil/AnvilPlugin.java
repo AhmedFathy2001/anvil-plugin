@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static java.lang.Math.*;
 import static com.anvil.ChatPalette.Tone.WARN;
 import static java.util.Locale.ROOT;
 import static com.anvil.ChatPatterns.find;
@@ -2246,7 +2247,7 @@ public class AnvilPlugin extends Plugin {
 		var root = client.getWidget(InterfaceID.ClansStorageMain.ITEMS);
 		if (root == null || root.isHidden()) return null;
 		long[] total = {0};
-		walk(root, w -> total[0] += w.getItemId() == ItemID.COINS ? Math.max(0, w.getItemQuantity()) : 0);
+		walk(root, w -> total[0] += w.getItemId() == ItemID.COINS ? max(0, w.getItemQuantity()) : 0);
 		return total[0] > Integer.MAX_VALUE ? null : (int) total[0];
 	}
 
@@ -2885,7 +2886,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** How many first-run nudges this install has already printed. Absent/garbage reads as none. */
 	int firstRunNudgesShown() {
-		return (int) Math.max(0, cfgLong(CFG_FIRST_RUN_NUDGES));
+		return (int) max(0, cfgLong(CFG_FIRST_RUN_NUDGES));
 	}
 
 	// Warn once per session (per event) when the logged-in RSN is a player in a live bingo that isn't
@@ -3187,7 +3188,7 @@ public class AnvilPlugin extends Plugin {
 	long haulValue(Collection<ItemStack> items) {
 		long haulGp = 0;
 		for (var it : items) {
-			if (it != null && it.getId() > 0) haulGp += (long) Math.max(0, itemManager.getItemPrice(it.getId())) * Math.max(1, it.getQuantity());
+			if (it != null && it.getId() > 0) haulGp += (long) max(0, itemManager.getItemPrice(it.getId())) * max(1, it.getQuantity());
 		}
 		return haulGp;
 	}
@@ -3820,7 +3821,7 @@ public class AnvilPlugin extends Plugin {
 		var local = getLocalPlayerName();
 		if (local == null || recipient == null || empty(itemName)) return;
 		if (!Rsn.same(recipient, local) && !recipient.trim().equalsIgnoreCase("You")) return; // another player's drop
-		int qty = qtyText == null ? 1 : Math.max(1, parseCount(qtyText));
+		int qty = qtyText == null ? 1 : max(1, parseCount(qtyText));
 
 		// Bingo tiles: synthesize loot for every tracked item id whose name matches, exactly
 		// like creditClogUnlock (item names are unique per family, ids aren't). Sourced as
@@ -3974,7 +3975,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** ...with who was there, read when it happened ({@code coop}). */
 	void emit(RuleEngine.Out o, CoopFingerprint coop) {
-		o.raised.forEach((t, have) -> raiseLocal(t, (int) Math.min(have, Integer.MAX_VALUE), now()));
+		o.raised.forEach((t, have) -> raiseLocal(t, (int) min(have, Integer.MAX_VALUE), now()));
 		say(o.say);
 		o.toasts.forEach(r -> showBingoToast(r.t, r.label, r.have, r.of));
 		// The same "My tile popups" switch covers an item hunt's drops.
@@ -4183,7 +4184,7 @@ public class AnvilPlugin extends Plugin {
 			if (!"clog".equals(sourceKind)) synchronized (recentLootItemIds) {
 				recentLootItemIds.put(item.getId(), now());
 			}
-			pairs.add(new int[]{item.getId(), Math.max(1, item.getQuantity())});
+			pairs.add(new int[]{item.getId(), max(1, item.getQuantity())});
 		}
 		var raid = wasInInstance && lastRaidPartySize > 0;
 		emit(rules.loot(source, sourceKind, pairs, wasInInstance ? partySize() : null, inferringFlag, now(),
@@ -4423,7 +4424,7 @@ public class AnvilPlugin extends Plugin {
 			name = d.group("item");
 		}
 		if (empty(name)) return;
-		int n = qty == null ? 1 : Math.max(1, parseCount(qty));
+		int n = qty == null ? 1 : max(1, parseCount(qty));
 		int tick = client.getTickCount();
 		recentDropLines.removeIf(l -> tick - l.tick > 1);
 		recentDropLines.add(new DropLine(tick, n, name.trim()));
@@ -4522,7 +4523,7 @@ public class AnvilPlugin extends Plugin {
 			// Charging or emptying swaps one of a tile's ids for another (an uncharged scythe becomes a
 			// charged one): what left the same tick under a sibling id is no gain.
 			for (var k : delta > 0 ? rules.keysWith("gain", String.valueOf(e.getKey())) : Set.<String>of()) {
-				int n = Math.min(delta, lost.getOrDefault(k, 0));
+				int n = min(delta, lost.getOrDefault(k, 0));
 				delta -= n;
 				lost.merge(k, -n, Integer::sum);
 			}
@@ -4576,7 +4577,7 @@ public class AnvilPlugin extends Plugin {
 	void addContainerCounts(Map<Integer, Integer> counts, int containerId) {
 		var c = client.getItemContainer(containerId);
 		if (c == null) return;
-		for (var item : c.getItems()) if (item != null && item.getId() > 0) counts.merge(item.getId(), Math.max(1, item.getQuantity()), Integer::sum);
+		for (var item : c.getItems()) if (item != null && item.getId() > 0) counts.merge(item.getId(), max(1, item.getQuantity()), Integer::sum);
 	}
 
 	/**
@@ -4853,7 +4854,7 @@ public class AnvilPlugin extends Plugin {
 	BufferedImage composeDualProof(BufferedImage triggerFrame, BufferedImage flushFrame) {
 		if (triggerFrame == null) return flushFrame;
 		int divider = 4;
-		int w = Math.max(triggerFrame.getWidth(), flushFrame.getWidth());
+		int w = max(triggerFrame.getWidth(), flushFrame.getWidth());
 		int h = triggerFrame.getHeight() + divider + flushFrame.getHeight();
 		var out = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
 		var g = out.createGraphics();
@@ -4904,8 +4905,8 @@ public class AnvilPlugin extends Plugin {
 			var dfm = g.getFontMetrics(detailFont);
 			var mfm = g.getFontMetrics(metaFont);
 
-			int textW = Math.max(dfm.stringWidth(detail), tfm.stringWidth(title));
-			for (var s : meta) textW = Math.max(textW, mfm.stringWidth(s));
+			int textW = max(dfm.stringWidth(detail), tfm.stringWidth(title));
+			for (var s : meta) textW = max(textW, mfm.stringWidth(s));
 
 			int padX = 14, padY = 10;
 			int boxW = textW + padX * 2;
@@ -5614,7 +5615,7 @@ public class AnvilPlugin extends Plugin {
 					syncFailed(cb, true, null, "Clan name doesn't match site config (" + Objects.toString(e.serverClanName, "(not set)") + ").");
 				} catch (RateLimitedException e) {
 					// The site said when. Hold exactly that long rather than guessing at it.
-					rosterPushAllowedAt = now() + Math.max(e.retryAfterMs, 1_000L);
+					rosterPushAllowedAt = now() + max(e.retryAfterMs, 1_000L);
 					syncFailed(cb, !automatic, "The site is limiting roster syncs — try again in "
 							+ secs(e.retryAfterMs) + "s.", "Rate limited by the site.");
 				} catch (IOException e) {
@@ -5656,7 +5657,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** Whole seconds for a wait in chat — rounded up, never "0s". */
 	static long secs(long ms) {
-		return Math.max(1, (ms + 999) / 1000);
+		return max(1, (ms + 999) / 1000);
 	}
 
 	// Team-level tile completions (drops, stats, manual — any tile type, completed by any member) on
@@ -6338,14 +6339,14 @@ public class AnvilPlugin extends Plugin {
 					|| o.getOriginalX() <= s.getOriginalX() || ChatFlair.alreadyRoomed(o.getOriginalX(), chatboxRoom[j], plain, chatboxRoomFor[j])) continue;
 			int by = ChatFlair.shift(d, need, o.getOriginalX() - s.getOriginalX());
 			o.setOriginalX(o.getOriginalX() + by);
-			int w = Math.max(1, o.getOriginalWidth() - by);
+			int w = max(1, o.getOriginalWidth() - by);
 			// Narrower can wrap onto an extra line, but the game laid the rows out for its own wrap: grow
 			// this one and push the rows below down by the same, or the extra line covers the next message.
 			var f = o.getFont();
 			int before = f == null ? 1 : wrapLines(o.getText(), o.getOriginalWidth(), f), after = f == null ? 1 : wrapLines(o.getText(), w, f);
 			o.setOriginalWidth(w);
 			if (after > before) {
-				pushRowsDown(lines, o, (after - before) * Math.max(1, o.getOriginalHeight() / before));
+				pushRowsDown(lines, o, (after - before) * max(1, o.getOriginalHeight() / before));
 				chatboxGrown[j] = o.getOriginalHeight();
 				chatboxGrownText[j] = o.getText();
 			}
@@ -6361,7 +6362,7 @@ public class AnvilPlugin extends Plugin {
 	 * it is forgotten. Otherwise its height comes back and anything that slid up under it moves down.
 	 */
 	void keepGrownRows(Widget[] lines) {
-		for (int j = 0; j < Math.min(lines.length, chatboxGrown.length); j++) {
+		for (int j = 0; j < min(lines.length, chatboxGrown.length); j++) {
 			if (chatboxGrown[j] <= 0) continue;
 			var o = lines[j];
 			if (o == null || o.isHidden() || o.getText() != chatboxGrownText[j] || o.getOriginalX() != chatboxRoom[j]) {
@@ -6374,7 +6375,7 @@ public class AnvilPlugin extends Plugin {
 				continue;
 			}
 			int y = o.getOriginalY(), next = Integer.MAX_VALUE;
-			for (var l : lines) if (l != null && l != o && !l.isHidden() && l.getOriginalY() > y) next = Math.min(next, l.getOriginalY());
+			for (var l : lines) if (l != null && l != o && !l.isHidden() && l.getOriginalY() > y) next = min(next, l.getOriginalY());
 			int under = y + o.getOriginalHeight() - next;
 			if (next != Integer.MAX_VALUE && under > 0) pushRowsDown(lines, o, under, false);
 		}
@@ -7117,7 +7118,7 @@ public class AnvilPlugin extends Plugin {
 		// A live socket the site gave no relay: the same scope won't ask again, so start it afresh.
 		if (!p.live() || p.relayOk || now() - relayRetried < relayRenewMs) return;
 		relayRetried = now();
-		relayRenewMs = Math.min(relayRenewMs * 2, 300_000);
+		relayRenewMs = min(relayRenewMs * 2, 300_000);
 		log.debug("relay renew: a socket without the relay");
 		p.renew();
 	}
@@ -7697,7 +7698,7 @@ public class AnvilPlugin extends Plugin {
 		if (r != null && r.set) return -1;
 		if (r != null) optimistic.seen(tileId, r.have);
 		var floor = optimistic.floor(tileId, now());
-		return r == null ? (floor > 0 ? floor : -1) : Math.max(r.have, floor);
+		return r == null ? (floor > 0 ? floor : -1) : max(r.have, floor);
 	}
 
 	/** Counts moved here (own progress, a pushed or fetched config): the panel redraws its live ones. */
@@ -7917,7 +7918,7 @@ public class AnvilPlugin extends Plugin {
 		synchronized (counterLock) {
 			if (damage <= eventBiggestHit) return;
 		}
-		bumpEventCounter(() -> eventBiggestHit = Math.max(eventBiggestHit, damage));
+		bumpEventCounter(() -> eventBiggestHit = max(eventBiggestHit, damage));
 	}
 
 	/**
@@ -8059,17 +8060,17 @@ public class AnvilPlugin extends Plugin {
 		Map<Integer, Integer> merged = new LinkedHashMap<>();
 		for (var item : items) {
 			if (item == null || item.getId() <= 0) continue;
-			merged.merge(item.getId(), Math.max(1, item.getQuantity()), Integer::sum);
+			merged.merge(item.getId(), max(1, item.getQuantity()), Integer::sum);
 		}
 
 		List<int[]> candidates = new ArrayList<>(); // {itemId, quantity, value}
 		for (var entry : merged.entrySet()) {
 			int itemId = entry.getKey(), quantity = entry.getValue();
-			var value = (long) Math.max(0, itemManager.getItemPrice(itemId)) * quantity;
+			var value = (long) max(0, itemManager.getItemPrice(itemId)) * quantity;
 			// A luck item goes up whatever it sells for: an untradeable vestige is worth 0 here.
 			var wanted = boardItems.contains(itemId) || luckItems.contains(itemId);
 			if (!wanted && value < AnvilMoments.MIN_REPORTABLE_GP) continue;
-			candidates.add(new int[]{itemId, quantity, (int) Math.min(Integer.MAX_VALUE, value)});
+			candidates.add(new int[]{itemId, quantity, (int) min(Integer.MAX_VALUE, value)});
 		}
 		// Luck items first, then by value: the three-per-kill cap must never cut the vestige for a
 		// stack of runes worth more on the GE.
@@ -8107,7 +8108,7 @@ public class AnvilPlugin extends Plugin {
 			}
 		}
 		var src = lootSourceAt(now);
-		recordDropMoment(src[0], src[1], itemId, itemName, 1, itemId != null ? Math.max(0, itemManager.getItemPrice(itemId)) : 0);
+		recordDropMoment(src[0], src[1], itemId, itemName, 1, itemId != null ? max(0, itemManager.getItemPrice(itemId)) : 0);
 	}
 
 	/** {source, kind} of the last loot event when it is within the clog window of {@code now}, else {null, null}. */
@@ -8279,7 +8280,7 @@ public class AnvilPlugin extends Plugin {
 		} catch (IOException e) {
 			synchronized (moments) {
 				momentPushTask = reschedule(momentPushTask, this::flushMomentPush,
-						RetryPolicy.backoffMs(++momentFailures, MOMENT_PUSH_COALESCE_MS, CoalescedPush.RETRY_CAP_MS, Math.random()));
+						RetryPolicy.backoffMs(++momentFailures, MOMENT_PUSH_COALESCE_MS, CoalescedPush.RETRY_CAP_MS, random()));
 			}
 			return;
 		}
@@ -8424,7 +8425,7 @@ public class AnvilPlugin extends Plugin {
 		// the notification gates — placement tracking is independent of death notifications.
 		// A counter never read (0) is an unknown place, not 2nd: guessing 2nd credited top-2
 		// tiles for deaths that could have been anywhere in the game.
-		if (lmsInGame && !lmsPlacementRecorded && lmsSurvivors > 0) recordLmsPlacement(Math.max(lmsSurvivors, 2));
+		if (lmsInGame && !lmsPlacementRecorded && lmsSurvivors > 0) recordLmsPlacement(max(lmsSurvivors, 2));
 		// Recap counter — count the death for the "Wipe Magnet" superlative even if death
 		// notifications are off (still gated on an active event inside).
 		recordEventDeath();
@@ -8641,7 +8642,7 @@ public class AnvilPlugin extends Plugin {
 			int itemId = item.getId();
 			var iname = itemName(itemId);
 			if (isLootKey(iname)) continue;
-			int qty = Math.max(1, item.getQuantity());
+			int qty = max(1, item.getQuantity());
 			var value = itemUnitValue(itemId) * qty;
 			total += value;
 			if (!key) {
@@ -9580,15 +9581,15 @@ public class AnvilPlugin extends Plugin {
 	long itemUnitValue(int itemId) {
 		long ge = 0, ha = 0;
 		try {
-			ge = Math.max(0, itemManager.getItemPrice(itemId));
+			ge = max(0, itemManager.getItemPrice(itemId));
 		} catch (Exception ignored) {
 		}
 		try {
 			var comp = itemManager.getItemComposition(itemId);
-			if (comp != null) ha = Math.max(0, comp.getHaPrice());
+			if (comp != null) ha = max(0, comp.getHaPrice());
 		} catch (Exception ignored) {
 		}
-		return Math.max(ge, ha);
+		return max(ge, ha);
 	}
 
 	/**
@@ -9831,8 +9832,8 @@ public class AnvilPlugin extends Plugin {
 	/** A proof frame as a JPEG (no alpha: JPEG has none), at most {@link #PROOF_MAX_WIDTH} wide. */
 	static byte[] jpeg(BufferedImage img) throws IOException {
 		var rgb = img;
-		int w = Math.min(img.getWidth(), PROOF_MAX_WIDTH);
-		int h = (int) Math.round(img.getHeight() * (w / (double) img.getWidth()));
+		int w = min(img.getWidth(), PROOF_MAX_WIDTH);
+		int h = (int) round(img.getHeight() * (w / (double) img.getWidth()));
 		if (img.getType() != BufferedImage.TYPE_INT_RGB || w != img.getWidth()) rgb = scaled(img, w, h, RenderingHints.VALUE_INTERPOLATION_BILINEAR, BufferedImage.TYPE_INT_RGB);
 		var writer = ImageIO.getImageWritersByFormatName("jpg").next();
 		var param = writer.getDefaultWriteParam();
@@ -9980,7 +9981,7 @@ public class AnvilPlugin extends Plugin {
 				int p = TENURE_SHEET.getRGB((t - 1) * TENURE_PX + x, y), key = (p >> 16 & 255) / 16;
 				if (p >>> 24 == 0 || key < 1 || key > TENURE_TONE.length) continue;
 				double f = TENURE_TONE[key - 1];
-				if (glint >= 0 && key > 1 && Math.abs(x + y - glint * 7 - 3) <= 1) f = Math.min(0.85, Math.max(f, 0) + 0.5);
+				if (glint >= 0 && key > 1 && abs(x + y - glint * 7 - 3) <= 1) f = min(0.85, max(f, 0) + 0.5);
 				int c = f >= 0 ? ChatPalette.mix(ink, 0xffffff, f) : ChatPalette.mix(ink, 0, -f);
 				// Pure black can read as see-through in the game's icon palette: a hole that blinks.
 				img.setRGB(x, y + top, 0xff000000 | (c == 0 ? 0x010101 : c));
@@ -9999,7 +10000,7 @@ public class AnvilPlugin extends Plugin {
 			double u = (h[0] - 0.075) / 0.145;
 			rgb = Color.HSBtoRGB((float) (0.075 + 0.145 * u * u * u), h[1], h[2]);
 		}
-		double w = Math.max(0, 1 - h[1] / 0.3) * Math.max(0, Math.min(1, (h[2] - 0.35) / 0.3));
+		double w = max(0, 1 - h[1] / 0.3) * max(0, min(1, (h[2] - 0.35) / 0.3));
 		if (w > 0) rgb = ChatPalette.mix(rgb, Color.HSBtoRGB(0.58f, 0.55f, h[2]), w);
 		return rgb & 0xffffff;
 	}
@@ -10007,7 +10008,7 @@ public class AnvilPlugin extends Plugin {
 	/** The sprite {@code size} px tall for the panel, where we choose the size: crisp at whole multiples, smooth between. */
 	static BufferedImage tenureSprite(int t, int ink, int glint, int size) {
 		var one = tenureArt(t, ink, glint, 0);
-		int k = Math.max(1, (size + TENURE_PX - 1) / TENURE_PX);
+		int k = max(1, (size + TENURE_PX - 1) / TENURE_PX);
 		var img = scaled(one, one.getWidth() * k, one.getHeight() * k, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR, BufferedImage.TYPE_INT_ARGB);
 		return size == img.getHeight() ? img : scaled(img, img.getWidth() * size / img.getHeight(), size, RenderingHints.VALUE_INTERPOLATION_BICUBIC, BufferedImage.TYPE_INT_ARGB);
 	}
@@ -10461,7 +10462,7 @@ public class AnvilPlugin extends Plugin {
 			sendChatMessage("No event chat you can post in right now.");
 			return;
 		}
-		eventChatAt = Math.floorMod(i, list.size());
+		eventChatAt = floorMod(i, list.size());
 		var c = list.get(eventChatAt).getAsJsonObject();
 		eventChatInput = chatboxPanelManager.openTextInput("[" + c.get("l").getAsString() + "] " + getLocalPlayerName() + ":")
 				// The game's own chat limit, which the site enforces too (a longer line was dropped there whole).
@@ -10495,7 +10496,7 @@ public class AnvilPlugin extends Plugin {
 		for (var n : statusNames.entrySet()) if (statusSeen.contains(n.getKey()) && relayConnected(n.getValue())) live.add(n.getValue());
 		if (show < 2) status = "reconnecting";
 		else if (statusNames.size() == 1) status = !live.isEmpty() ? "<col=00ff00>connected" : "<col=ff0000>disconnected";
-		else status = live.isEmpty() ? "<col=ff0000>none of these" : "<col=00ff00>" + String.join(", ", live.subList(0, Math.min(3, live.size()))) + (live.size() > 3 ? " +" + (live.size() - 3) : "");
+		else status = live.isEmpty() ? "<col=ff0000>none of these" : "<col=00ff00>" + String.join(", ", live.subList(0, min(3, live.size()))) + (live.size() > 3 ? " +" + (live.size() - 3) : "");
 		return "<col=9f9f9f>Anvil chat: " + status;
 	}
 
@@ -10591,7 +10592,7 @@ public class AnvilPlugin extends Plugin {
 		while (!feedShownAt.isEmpty() && now - feedShownAt.peekFirst() >= 60_000L) feedShownAt.pollFirst();
 		if (feedShownAt.size() >= FEED_PER_MINUTE) {
 			feedHeld++;
-			if (feedHeldFlush == null) feedHeldFlush = later(this::flushFeedHeld, Math.max(1_000L, 60_000L - (now - feedShownAt.peekFirst())));
+			if (feedHeldFlush == null) feedHeldFlush = later(this::flushFeedHeld, max(1_000L, 60_000L - (now - feedShownAt.peekFirst())));
 			return;
 		}
 		feedShownAt.addLast(now);
@@ -10883,7 +10884,7 @@ public class AnvilPlugin extends Plugin {
 		var raw = configManager.getRSProfileConfiguration(RUNELITE_PB_GROUP, activity);
 		if (raw == null || raw.trim().isEmpty()) return;
 		try {
-			int centis = (int) Math.round(Double.parseDouble(raw.trim()) * 100.0);
+			int centis = (int) round(Double.parseDouble(raw.trim()) * 100.0);
 			if (centis > 0) into.put(activity, centis);
 		} catch (NumberFormatException e) {
 			// Not a time -- skip the key rather than the import.
@@ -10928,7 +10929,7 @@ public class AnvilPlugin extends Plugin {
 		if (pushBatch("Collection log pages", clogBackoff, now, () -> {
 			apiClient.submitClogPages(batch, clogSync.syncedPages());
 			return batch;
-		}, ms -> clogPushAllowedAt = now() + Math.max(ms, 1_000L), m -> clogSync.onSent(batch), m -> {
+		}, ms -> clogPushAllowedAt = now() + max(ms, 1_000L), m -> clogSync.onSent(batch), m -> {
 		}) == null) return;
 		clogSync.onSent(batch);
 		cfgSet(accountKey(CFG_CLOG_STATE, profileSyncRsn),
@@ -10968,7 +10969,7 @@ public class AnvilPlugin extends Plugin {
 		// the next attempt; a site that's down mustn't cost them the transmit.
 		var result = pushBatch("Whole-log", clogFullBackoff, now,
 				() -> apiClient.submitClogItems(clogFullSync.snapshot()), ms -> {
-					clogPushAllowedAt = now + Math.max(ms, 1_000L);
+					clogPushAllowedAt = now + max(ms, 1_000L);
 					clogFullSync.onSendFailed(now);
 					if (manual) sendChatMessage("Synced very recently — the site allows one sync a minute. Try again in "
 							+ secs(ms) + "s.");

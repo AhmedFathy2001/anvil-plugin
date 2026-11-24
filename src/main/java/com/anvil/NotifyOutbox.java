@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static java.lang.Math.*;
 import lombok.*;
 import com.google.gson.Gson;
 import java.io.IOException;
@@ -86,7 +87,7 @@ class NotifyOutbox {
 		it.id = now + "-" + UUID.randomUUID().toString().substring(0, 8);
 		it.createdAt = now;
 		it.attempts = 1;
-		it.nextAttemptAt = now + RetryPolicy.backoffMs(1, FIRST_RETRY_MS, MAX_RETRY_MS, Math.random());
+		it.nextAttemptAt = now + RetryPolicy.backoffMs(1, FIRST_RETRY_MS, MAX_RETRY_MS, random());
 		return it;
 	}
 
@@ -102,13 +103,13 @@ class NotifyOutbox {
 			if (now - it.createdAt > maxAge) evict.add(it);
 			else {
 				kept.add(it);
-				bytes += Math.max(0, it.pngBytes);
+				bytes += max(0, it.pngBytes);
 			}
 		}
 		int i = 0;
 		while (i < kept.size() && (kept.size() - i > maxItems || bytes > maxBytes)) {
 			var oldest = kept.get(i++);
-			bytes -= Math.max(0, oldest.pngBytes);
+			bytes -= max(0, oldest.pngBytes);
 			evict.add(oldest);
 		}
 		return evict;
@@ -159,7 +160,7 @@ class NotifyOutbox {
 		synchronized (this) {
 			items.add(item);
 			prune(System.currentTimeMillis());
-			if (task == null || task.isDone()) schedule(Math.max(0, item.nextAttemptAt - System.currentTimeMillis()));
+			if (task == null || task.isDone()) schedule(max(0, item.nextAttemptAt - System.currentTimeMillis()));
 		}
 	}
 
@@ -207,7 +208,7 @@ class NotifyOutbox {
 		var ex = scheduler.get();
 		if (ex == null || ex.isShutdown()) return;
 		cancel();
-		task = ex.schedule(this::handOff, Math.max(0, waitMs), TimeUnit.MILLISECONDS);
+		task = ex.schedule(this::handOff, max(0, waitMs), TimeUnit.MILLISECONDS);
 	}
 
 	/** On the timer: run the pass on the HTTP pool, never the plugin's one thread. */
@@ -248,8 +249,8 @@ class NotifyOutbox {
 				// Still down. Push this one back, and don't dial again for the rest — same wait for all.
 				var now = System.currentTimeMillis();
 				synchronized (this) {
-					var next = now + RetryPolicy.backoffMs(++it.attempts, FIRST_RETRY_MS, MAX_RETRY_MS, Math.random());
-					for (var x : due.subList(i, due.size())) x.nextAttemptAt = Math.max(x.nextAttemptAt, next);
+					var next = now + RetryPolicy.backoffMs(++it.attempts, FIRST_RETRY_MS, MAX_RETRY_MS, random());
+					for (var x : due.subList(i, due.size())) x.nextAttemptAt = max(x.nextAttemptAt, next);
 				}
 				rewrite(it);
 				break;

@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static java.lang.Math.*;
 import static com.anvil.AnvilPlugin.empty;
 import lombok.RequiredArgsConstructor;
 import java.util.*;
@@ -246,7 +247,7 @@ class ChatFlair {
 			if (from > 0 && Character.isLetterOrDigit(text.charAt(from - 1)) || !Character.isLetterOrDigit(text.charAt(from))) continue;
 			var before = raw.substring(0, at[from]);
 			if (!paintedJustBefore(before)) continue;
-			for (int to = Math.min(text.length(), from + MAX_NAME_LENGTH); to > from; to--) {
+			for (int to = min(text.length(), from + MAX_NAME_LENGTH); to > from; to--) {
 				if (to < text.length() && Character.isLetterOrDigit(text.charAt(to))) continue;
 				var e = entry(text.substring(from, to));
 				if (e == null) continue;
@@ -523,9 +524,9 @@ class ChatFlair {
 			int by = shift(d, need, ax[j] - ax[at]);
 			if (by <= 0) continue;
 			x[j] += by;
-			w[j] = Math.max(1, w[j] - by);
+			w[j] = max(1, w[j] - by);
 			recX[j] = x[j];
-			if (d <= 0) grow = Math.max(grow, by);
+			if (d <= 0) grow = max(grow, by);
 			moved = true;
 		}
 		if (grow > 0 && w[at] != recW[at]) {
@@ -542,7 +543,7 @@ class ChatFlair {
 	 * the message, e.g. an icon another plugin added after the layout. 0 {@code need}: just {@code d}.
 	 */
 	static int shift(int d, int need, int offset) {
-		return Math.max(d, need > 0 ? need - offset : 0);
+		return max(d, need > 0 ? need - offset : 0);
 	}
 
 	/** The drawn width of a whole painted sender (every icon, the star, the text) plus a one-space gap; 0 with no font. */
@@ -716,7 +717,7 @@ class ChatFlair {
 		var changed = false;
 		for (int from = shown.text.length() - 1; from >= 0; from--) {
 			if (from > 0 && nameChar(shown.text.charAt(from - 1))) continue;
-			int limit = Math.min(shown.text.length(), from + MAX_NAME_LENGTH);
+			int limit = min(shown.text.length(), from + MAX_NAME_LENGTH);
 			for (int to = limit; to > from; to--) {
 				if (to < shown.text.length() && nameChar(shown.text.charAt(to)) || entry(shown.text.substring(from, to)) == null) continue;
 				var painted = paintAt(out, shown, from, to, null, opaque, shift);
@@ -736,7 +737,7 @@ class ChatFlair {
 		var text = shown(raw).text;
 		for (int from = 0; from < text.length(); from++) {
 			if (from > 0 && nameChar(text.charAt(from - 1))) continue;
-			for (int to = Math.min(text.length(), from + MAX_NAME_LENGTH); to > from; to--) {
+			for (int to = min(text.length(), from + MAX_NAME_LENGTH); to > from; to--) {
 				if ((to == text.length() || !nameChar(text.charAt(to))) && movingName(text.substring(from, to))) return true;
 			}
 		}
@@ -752,7 +753,7 @@ class ChatFlair {
 		var t = s.text;
 		int from = leadEnd(t);
 		for (int to
- = Math.min(t.length(), from + MAX_NAME_LENGTH); to > from; to--) {
+ = min(t.length(), from + MAX_NAME_LENGTH); to > from; to--) {
 			if (!Character.isLetterOrDigit(t.charAt(to - 1)) || to < t.length() && nameChar(t.charAt(to))) continue;
 			if (entry(t.substring(from, to)) != null) return to;
 		}
