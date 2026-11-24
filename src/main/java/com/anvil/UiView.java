@@ -1249,9 +1249,23 @@ final class UiView extends JPanel {
 			wrap.add(gap(6));
 		}
 		wrap.add(none);
-		wrap.add(lists);
+		wrap.add(n.has("h") ? scrollBox(lists, num(n, "h", 300)) : lists);
 		wrap.add(more);
 		return wrap;
+	}
+
+	/** {@code view} in a box {@code h} px tall that scrolls inside, with the feed's slim bar. */
+	static JScrollPane scrollBox(JComponent view, int h) {
+		var sp = new JScrollPane(view, ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED, ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+		sp.setBorder(createEmptyBorder());
+		sp.setOpaque(false);
+		sp.getViewport().setOpaque(false);
+		sp.getVerticalScrollBar().setUnitIncrement(16);
+		SlimScrollBarUI.applyTo(sp);
+		sp.setPreferredSize(new Dimension(0, h));
+		sp.setMaximumSize(new Dimension(Integer.MAX_VALUE, h));
+		sp.setAlignmentX(0f);
+		return sp;
 	}
 
 	/** A row found only by a later "|" part of its key: template "at" filled with that part and the row's "av", else the row. */
