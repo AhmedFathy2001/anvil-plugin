@@ -111,6 +111,8 @@ class RuleEngine {
 		final List<Rule> toasts = new ArrayList<>();
 		/** Item hunt popups: the banner's three lines. */
 		final List<String[]> banners = new ArrayList<>();
+		/** The hunt targets behind them, by item id: each gets its screenshot (AnvilPlugin huntShot). */
+		final Set<Integer> hunted = new LinkedHashSet<>();
 	}
 
 
@@ -232,6 +234,7 @@ class RuleEngine {
 					if (huntOk && said.add(r)) {
 						out.say.add(fill(t, "hunt", r, "{hunt}", r.hunt));
 						out.banners.add(new String[]{"Item hunt", r.hunt, r.label});
+						out.hunted.add(it[0]);
 					}
 					continue;
 				}
@@ -298,6 +301,7 @@ class RuleEngine {
 			if (r.hunt == null) continue;
 			out.say.add(fill(t, "hunt", r, "{hunt}", r.hunt));
 			out.banners.add(new String[]{"Item hunt", r.hunt, r.label});
+			out.hunted.add(itemId);
 		}
 		return out;
 	}

@@ -3931,6 +3931,7 @@ public class AnvilPlugin extends Plugin {
 		o.banners.forEach(b -> {
 			if (config.selfTileBanner() && clogBanner.show(b[0], b[1], b[2])) playBannerSound();
 		});
+		o.hunted.forEach(this::huntShot);
 		for (var f : o.facts) {
 			if (o.shot && f.has("t")) noteLocalProgress(f.get("t").getAsInt()); // "Active now": this account credited this tile
 			queueFact(f, o.shot, coop);
@@ -8165,8 +8166,9 @@ public class AnvilPlugin extends Plugin {
 		if (!momentsEnabled() || moments.isEmpty()) return;
 		var batch = moments.nextBatch();
 		if (batch.isEmpty()) return;
+		String reply;
 		try {
-			apiClient.submitMoments(batch);
+			reply = apiClient.submitMoments(batch);
 		} catch (PermanentSubmissionException e) {
 			// The site will never take this batch; drop it rather than resend it forever.
 			log.warn("Moments refused: {}", e.getMessage());
@@ -8183,8 +8185,61 @@ public class AnvilPlugin extends Plugin {
 			momentFailures = 0;
 		}
 		moments.onSent(batch);
+		huntKeys(reply);
 		// More than one batch's worth waiting (a long offline stretch) — keep going.
 		if (!moments.isEmpty()) scheduleMomentPush();
+	}
+
+	/** Item hunt drops: item id → {screenshot, the site's key for it, when}. Whichever lands second sends it. */
+	final Map<Integer, Object[]> huntShots = new HashMap<>();
+
+	/**
+	 * Client thread: an item hunt target just dropped. The at-drop frame now and the settled one a moment
+	 * later, stacked like a bingo proof, held until the moments reply names its key. A bonus picture for
+	 * the clan's Discord post: nothing waits for it, and a drop never needs it to count.
+	 */
+	void huntShot(int itemId) {
+		var show = hideChatForShot();
+		drawManager.requestNextFrameListener(img -> {
+			if (show != null) clientThread.invokeLater(show);
+			later(() -> onCleanFrame(clean -> {
+				try {
+					huntReady(itemId, null, jpeg(composeDualProof((BufferedImage) img, clean)));
+				} catch (IOException ignored) {
+				}
+			}), 1_200);
+		});
+	}
+
+	/** The moments reply's {@code huntProofs}: each new hunt drop's screenshot key, by item. */
+	void huntKeys(String reply) {
+		try {
+			var o = reply == null ? null : gson.fromJson(reply, JsonObject.class);
+			if (o != null && o.has("huntProofs")) for (var el : o.getAsJsonArray("huntProofs")) {
+				var p = el.getAsJsonObject();
+				huntReady(p.get("itemId").getAsInt(), p.get("key").getAsString(), null);
+			}
+		} catch (RuntimeException ignored) {
+		}
+	}
+
+	/** Executor: a hunt drop's picture or its key. With both in hand it goes up; either alone expires in 3 minutes. */
+	void huntReady(int itemId, String key, byte[] jpg) {
+		Object[] e;
+		synchronized (huntShots) {
+			var at = now();
+			huntShots.values().removeIf(x -> at - (long) x[2] > 180_000);
+			e = huntShots.computeIfAbsent(itemId, k -> new Object[]{null, null, at});
+			if (jpg != null) e[0] = jpg;
+			if (key != null) e[1] = key;
+			if (e[0] == null || e[1] == null) return;
+			huntShots.remove(itemId);
+		}
+		try {
+			apiClient.postProof((String) e[1], (byte[]) e[0], new JsonObject());
+		} catch (IOException x) {
+			log.debug("Hunt screenshot not sent: {}", x.getMessage());
+		}
 	}
 
 	/** Persist the per-event counters to the config store so a restart resumes them. Call under counterLock. */

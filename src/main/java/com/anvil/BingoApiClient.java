@@ -1608,8 +1608,8 @@ public class BingoApiClient {
 	 *
 	 * <p>Never scoring: nothing here completes a tile or moves a standing.
 	 */
-	void submitMoments(List<AnvilMoments.Moment> batch) throws IOException {
-		if (empty(batch)) return;
+	String submitMoments(List<AnvilMoments.Moment> batch) throws IOException {
+		if (empty(batch)) return null;
 		var out = new JsonArray();
 		for (var m : batch) {
 			if (m == null || m.kind == null || m.key == null) continue;
@@ -1626,7 +1626,8 @@ public class BingoApiClient {
 			addText(o, "sourceKind", m.sourceKind);
 			out.add(o);
 		}
-		if (out.size() > 0) postJson("/api/plugin/moments", obj("moments", out), "Moment push failed", true);
+		// The reply names each new item hunt drop's screenshot key (AnvilPlugin huntKeys).
+		return out.size() > 0 ? postJson("/api/plugin/moments", obj("moments", out), "Moment push failed", true) : null;
 	}
 
 	/** A one-element array. */
