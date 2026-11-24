@@ -1,9 +1,9 @@
 package com.anvil;
 
 import java.awt.*;
-import java.util.function.BooleanSupplier;
+import java.util.function.*;
 import net.runelite.api.*;
-import net.runelite.api.gameval.InterfaceID;
+import net.runelite.api.gameval.*;
 import net.runelite.client.ui.overlay.*;
 import net.runelite.client.ui.overlay.tooltip.*;
 

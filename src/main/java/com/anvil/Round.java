@@ -1,7 +1,7 @@
 package com.anvil;
 
 import java.awt.*;
-import javax.swing.JPanel;
+import javax.swing.*;
 
 /**
  * A panel drawn as a rounded rectangle: a card, a raised row, a track step. {@code fill} null draws no

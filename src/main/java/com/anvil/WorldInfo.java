@@ -1,8 +1,8 @@
 package com.anvil;
 
 import java.util.*;
-import java.util.stream.Collectors;
-import net.runelite.api.WorldType;
+import java.util.stream.*;
+import net.runelite.api.*;
 
 /**
  * What the client knows about the world the player is on, in the form the site reads it.

@@ -1,6 +1,6 @@
 package com.anvil;
 
-import lombok.AllArgsConstructor;
+import lombok.*;
 /**
  * Which level-ups a destination wants posted: 99s, every {@code skillStep} levels from
  * {@code skillFrom}, every {@code totalStep} total from {@code totalFrom}, and maxing. The site sends

@@ -1,6 +1,6 @@
 package com.anvil;
 
-import static com.anvil.AnvilPlugin.empty;
+import static com.anvil.AnvilPlugin.*;
 import java.util.*;
 
 /**

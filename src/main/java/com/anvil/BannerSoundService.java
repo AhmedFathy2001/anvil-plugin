@@ -1,17 +1,17 @@
 package com.anvil;
 
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import net.runelite.client.audio.AudioPlayer;
-import net.runelite.client.util.Filepath;
+import lombok.*;
+import lombok.extern.slf4j.*;
+import net.runelite.client.audio.*;
+import net.runelite.client.util.*;
 
 import javax.inject.*;
-import javax.swing.SwingUtilities;
-import java.io.IOException;
-import java.nio.file.StandardCopyOption;
+import javax.swing.*;
+import java.io.*;
+import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.function.Consumer;
+import java.util.function.*;
 import java.util.stream.*;
 
 /**

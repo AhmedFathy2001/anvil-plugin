@@ -4,13 +4,13 @@ import static net.runelite.client.ui.ColorScheme.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.time.*;
-import java.time.format.DateTimeParseException;
-import java.util.Locale;
-import java.util.regex.Pattern;
+import java.time.format.*;
+import java.util.*;
+import java.util.regex.*;
 import javax.swing.*;
 import net.runelite.client.ui.*;
 import javax.swing.event.*;
-import javax.swing.text.JTextComponent;
+import javax.swing.text.*;
 
 /**
  * The side panel's shared Swing pieces — the labels, rows, cards and click wiring every view builds

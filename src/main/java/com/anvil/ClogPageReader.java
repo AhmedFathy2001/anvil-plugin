@@ -2,7 +2,7 @@ package com.anvil;
 
 import java.util.*;
 import java.util.regex.*;
-import net.runelite.api.Client;
+import net.runelite.api.*;
 import net.runelite.api.widgets.*;
 
 /**

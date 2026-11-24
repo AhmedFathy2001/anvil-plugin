@@ -1,8 +1,8 @@
 package com.anvil;
 
-import java.awt.Toolkit;
+import java.awt.*;
 import java.awt.datatransfer.*;
-import lombok.extern.slf4j.Slf4j;
+import lombok.extern.slf4j.*;
 
 /**
  * Putting a path on the clipboard, which is as far as a hub plugin may go toward "open this folder".

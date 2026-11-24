@@ -1,7 +1,7 @@
 package com.anvil;
 
 import java.util.*;
-import java.util.regex.Pattern;
+import java.util.regex.*;
 
 /**
  * The reader for the server's {@code dropFacts}: which monster a pet is really from, and

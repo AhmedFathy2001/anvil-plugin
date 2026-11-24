@@ -1,8 +1,8 @@
 package com.anvil;
 
 import java.util.*;
-import java.util.function.Predicate;
-import net.runelite.api.gameval.ItemID;
+import java.util.function.*;
+import net.runelite.api.gameval.*;
 
 /**
  * Which item a "funny feeling" line was about.

@@ -1,10 +1,10 @@
 package com.anvil;
 
-import lombok.Setter;
+import lombok.*;
 import com.google.gson.*;
 import javax.inject.*;
-import lombok.extern.slf4j.Slf4j;
-import net.runelite.client.util.Filepath;
+import lombok.extern.slf4j.*;
+import net.runelite.client.util.*;
 
 import java.io.*;
 import java.util.*;

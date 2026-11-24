@@ -1,7 +1,7 @@
 package com.anvil;
 
 import static java.lang.Math.*;
-import lombok.RequiredArgsConstructor;
+import lombok.*;
 
 /**
  * The client-side half of the STARTING SHOT rule (site lib/startProof).

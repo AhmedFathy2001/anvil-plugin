@@ -1,7 +1,7 @@
 package com.anvil;
 
-import lombok.RequiredArgsConstructor;
-import java.util.function.LongSupplier;
+import lombok.*;
+import java.util.function.*;
 
 
 /**

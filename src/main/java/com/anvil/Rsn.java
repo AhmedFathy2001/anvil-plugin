@@ -1,6 +1,6 @@
 package com.anvil;
 
-import java.util.Locale;
+import java.util.*;
 
 /**
  * One way to fold an OSRS name into a comparison key — the SAME way the site does it.

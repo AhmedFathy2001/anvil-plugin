@@ -1,7 +1,7 @@
 package com.anvil;
 
 import java.awt.*;
-import javax.inject.Inject;
+import javax.inject.*;
 import net.runelite.client.ui.overlay.*;
 import net.runelite.client.ui.overlay.components.*;
 

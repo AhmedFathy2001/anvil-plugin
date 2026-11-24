@@ -1,7 +1,7 @@
 package com.anvil;
 
 import java.util.*;
-import java.util.function.Predicate;
+import java.util.function.*;
 
 /**
  * What killed us — as opposed to what we were killing.

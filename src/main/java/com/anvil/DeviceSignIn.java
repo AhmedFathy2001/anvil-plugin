@@ -1,12 +1,12 @@
 package com.anvil;
 
-import static com.anvil.AnvilPlugin.empty;
-import lombok.RequiredArgsConstructor;
+import static com.anvil.AnvilPlugin.*;
+import lombok.*;
 import java.net.*;
 import java.util.concurrent.*;
 import java.util.function.*;
-import lombok.extern.slf4j.Slf4j;
-import net.runelite.client.util.LinkBrowser;
+import lombok.extern.slf4j.*;
+import net.runelite.client.util.*;
 
 /**
  * The plugin's "Sign in with Discord" — the home-native device-code flow (site: /api/plugin/auth/*).

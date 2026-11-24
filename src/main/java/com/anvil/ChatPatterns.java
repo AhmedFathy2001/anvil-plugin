@@ -1,13 +1,13 @@
 package com.anvil;
 
 import static java.util.Collections.*;
-import lombok.RequiredArgsConstructor;
-import com.google.gson.Gson;
+import lombok.*;
+import com.google.gson.*;
 import java.io.*;
-import java.nio.charset.StandardCharsets;
+import java.nio.charset.*;
 import java.util.*;
 import java.util.regex.*;
-import lombok.extern.slf4j.Slf4j;
+import lombok.extern.slf4j.*;
 
 /**
  * Every chat line the plugin reads, by a stable key, so the site can re-word one without a release.

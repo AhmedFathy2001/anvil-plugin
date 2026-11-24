@@ -2,7 +2,7 @@ package com.anvil;
 
 import lombok.*;
 import java.util.*;
-import java.util.function.Predicate;
+import java.util.function.*;
 
 /**
  * Counters read off game values (varbits/varps) rather than a chat line: Tithe Farm points, Giants'

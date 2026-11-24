@@ -1,6 +1,6 @@
 package com.anvil;
 
-import lombok.RequiredArgsConstructor;
+import lombok.*;
 import java.util.*;
 import net.runelite.api.*;
 import net.runelite.api.gameval.*;

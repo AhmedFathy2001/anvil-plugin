@@ -1,7 +1,7 @@
 package com.anvil;
 
-import java.util.Locale;
-import java.util.regex.Pattern;
+import java.util.*;
+import java.util.regex.*;
 
 /**
  * Boss nicknames both ways, so a search finds a thing by whichever name the player knows it by:

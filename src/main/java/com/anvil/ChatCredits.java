@@ -1,7 +1,7 @@
 package com.anvil;
 
 import java.util.*;
-import net.runelite.client.game.ItemStack;
+import net.runelite.client.game.*;
 
 /**
  * Items a chat line already credited, held until the loot event for the same acquisition turns up.

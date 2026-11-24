@@ -1,11 +1,11 @@
 package com.anvil;
 
 import java.awt.*;
-import java.awt.image.BufferedImage;
+import java.awt.image.*;
 import java.io.*;
 import java.util.*;
 import javax.imageio.*;
-import javax.imageio.metadata.IIOMetadata;
+import javax.imageio.metadata.*;
 
 import javax.swing.*;
 import javax.swing.Timer;

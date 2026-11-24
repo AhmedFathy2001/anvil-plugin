@@ -1,21 +1,21 @@
 package com.anvil;
 
 import static java.lang.Math.*;
-import static com.anvil.AnvilPlugin.empty;
+import static com.anvil.AnvilPlugin.*;
 import static java.util.Collections.*;
 import static com.anvil.NotifyOutbox.Result.*;
 import lombok.*;
 import com.google.gson.*;
 import javax.inject.*;
-import lombok.extern.slf4j.Slf4j;
+import lombok.extern.slf4j.*;
 import okhttp3.*;
 
-import java.awt.image.BufferedImage;
+import java.awt.image.*;
 import java.io.*;
-import java.nio.charset.StandardCharsets;
+import java.nio.charset.*;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.regex.Pattern;
+import java.util.regex.*;
 import java.util.function.*;
 import javax.swing.*;
 

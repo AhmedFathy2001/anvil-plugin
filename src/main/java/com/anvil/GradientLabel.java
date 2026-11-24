@@ -1,10 +1,10 @@
 package com.anvil;
 
 import static java.lang.Math.*;
-import lombok.Setter;
+import lombok.*;
 import java.awt.*;
 import java.awt.event.*;
-import java.awt.image.BufferedImage;
+import java.awt.image.*;
 import java.util.*;
 import javax.swing.*;
 import javax.swing.Timer;

@@ -5,7 +5,7 @@ import java.awt.*;
 import java.util.*;
 import java.util.List;
 import javax.inject.*;
-import net.runelite.client.config.ConfigManager;
+import net.runelite.client.config.*;
 import net.runelite.client.ui.overlay.*;
 import net.runelite.client.ui.overlay.components.*;
 import java.util.function.*;

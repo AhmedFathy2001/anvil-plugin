@@ -1,7 +1,7 @@
 package com.anvil;
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.*;
+import java.util.concurrent.*;
 
 /**
  * Progress this client has seen on a tile that the site hasn't confirmed yet — a kill, a drop, a KC

@@ -1,10 +1,10 @@
 package com.anvil;
 
 import static java.lang.Math.*;
-import lombok.RequiredArgsConstructor;
+import lombok.*;
 import java.awt.*;
 import java.awt.geom.*;
-import javax.swing.Icon;
+import javax.swing.*;
 
 /**
  * The sidebar's small symbols — chevrons, the external-link arrow, a tick, a cross, an ellipsis —

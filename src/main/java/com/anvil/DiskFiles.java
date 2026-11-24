@@ -1,14 +1,14 @@
 package com.anvil;
 
-import com.google.gson.Gson;
+import com.google.gson.*;
 import java.io.*;
-import java.nio.charset.StandardCharsets;
+import java.nio.charset.*;
 import java.nio.file.*;
 import java.security.*;
 import java.util.*;
-import java.util.function.Predicate;
+import java.util.function.*;
 import java.util.stream.*;
-import net.runelite.client.util.Filepath;
+import net.runelite.client.util.*;
 
 /**
  * The few disk primitives the caches and the outbox share, all through RuneLite's {@link Filepath}.
