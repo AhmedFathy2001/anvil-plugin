@@ -260,7 +260,7 @@ public class AnvilPlugin extends Plugin {
 	/** The site's rule table, run locally (RuleEngine); the site matches the facts. */
 	final RuleEngine rules = new RuleEngine();
 	{
-		rules.floor = this::optimisticFloor; // event rules build on our own unconfirmed counts
+		rules.floor = t -> this.optimistic.floor(t, now()); // event rules build on our own unconfirmed counts
 		rules.counts = this::countLine;
 	}
 	/** moveNotifyPrefs ran (or is running) this session. */
@@ -2909,7 +2909,7 @@ public class AnvilPlugin extends Plugin {
 			sendChatMessage(WARN, "Anvil: your Account Token was rejected — tracking is OFF. "
 					+ "Press Sign out in the Anvil side panel, then Sign in again.");
 		} else {
-			sendChatMessage(WARN, "Anvil: can't reach the site" + configuredHostSuffix() + " — tracking is OFF. "
+			sendChatMessage(WARN, "Anvil: can't reach the site (" + BingoApiClient.CANONICAL_SITE.replaceFirst("^https?://", "") + ") — tracking is OFF. "
 					+ "Check your connection.");
 		}
 	}
@@ -2923,10 +2923,6 @@ public class AnvilPlugin extends Plugin {
 		return code == 401 || code == 403 ? ConnProblem.TOKEN : ConnProblem.NONE; // NONE: e.g. a 5xx / other transient — logged, but not a config problem
 	}
 
-	/** " (host)" for the unreachable message. */
-	String configuredHostSuffix() {
-		return " (" + BingoApiClient.CANONICAL_SITE.replaceFirst("^https?://", "") + ")";
-	}
 
 	void sendHello() {
 		if (helloSent) return;
@@ -3255,18 +3251,7 @@ public class AnvilPlugin extends Plugin {
 						: ". Missions play these now, instead of the game sound they used before.")));
 	}
 
-	/** Clip filenames in {@code kind}'s folder — the tab's list; missions say "chime" when it's empty. */
-	List<String> soundClips(BannerSoundService.Kind kind) {
-		return bannerSound.listClips(kind);
-	}
 
-	/**
-	 * Whether {@code name} is currently in the play cycle (for the tab's on/off
-	 * rendering).
-	 */
-	boolean bannerSoundSelected(String name) {
-		return bannerSound.isSelected(name);
-	}
 
 	/**
 	 * Toggles a clip in/out of the play cycle from the tab. The cycle is
@@ -3652,7 +3637,8 @@ public class AnvilPlugin extends Plugin {
 		// Pushed even when no tile tracks this boss (maybeQueueKcPush deliberately won't) and
 		// regardless of whether an event is running: a collection log is a profile, not a board.
 		// Once per unlock, which is once per account per item, ever.
-		pushKcForUnlock();
+		// The most recent kill line, while fresh, is the kill that produced this unlock.
+		if (statPushAllowed() && kcLineFresh()) kcPush.queue(lastKcName, lastKcValue);
 		sendClogUnlock(item);
 		var claimedPet = claimPetName(item);
 		// Not a pet, so this is the ungated route to the clan's feed for an unlock that the
@@ -4966,8 +4952,8 @@ public class AnvilPlugin extends Plugin {
 
 		// Where this account is standing, for the drawn spot's position check. Read before anything
 		// async: by the time the frame arrives the player may have taken a step.
-		var worldX = localWorldX();
-		var worldY = localWorldY();
+		var here = realWorldPosition();
+		Integer worldX = here == null ? null : here.getX(), worldY = here == null ? null : here.getY();
 		var loginAtMs = sessionLoginAtMs;
 
 		// Refuse rather than file something staff will only have to chase: standing in the wrong
@@ -5188,15 +5174,7 @@ public class AnvilPlugin extends Plugin {
 		return WorldPoint.fromLocalInstance(client, me.getLocalLocation());
 	}
 
-	Integer localWorldX() {
-		var p = realWorldPosition();
-		return p == null ? null : p.getX();
-	}
 
-	Integer localWorldY() {
-		var p = realWorldPosition();
-		return p == null ? null : p.getY();
-	}
 
 	int startProofStillTicks;
 	// One automatic attempt per login: a failure says so in chat and leaves the button, rather than
@@ -6831,11 +6809,6 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
-	/** Put every open whitelisted interface back exactly as the game supplied it. */
-	void unflairInterfaces() {
-		unpaint(interfaceNameFlair);
-		interfaceNameFrame = Long.MIN_VALUE;
-	}
 
 	/**
 	 * Client thread, each frame: players' right-click names back in their Supporter colours after other
@@ -6905,7 +6878,8 @@ public class AnvilPlugin extends Plugin {
 	/** Client thread: remove all Anvil-owned name markup, including currently open game interfaces. */
 	void unflairAll() {
 		unflairChat();
-		unflairInterfaces();
+		unpaint(interfaceNameFlair);
+		interfaceNameFrame = Long.MIN_VALUE;
 		// The side lists are only rebuilt by the game when they change: left alone, colours switched off
 		// stayed on the friends chat list until it was reopened. Back to the plain name, if it is still theirs.
 		for (var row : nameListPlain.entrySet()) {
@@ -7658,10 +7632,6 @@ public class AnvilPlugin extends Plugin {
 		if (panel != null) panel.liveCountsMoved();
 	}
 
-	/** This client's unconfirmed count for a tile (0 when none) — read-only, see OptimisticProgress.floor. */
-	long optimisticFloor(int tileId) {
-		return optimistic.floor(tileId, now());
-	}
 
 	/** What to show for a tile the site last put at {@code siteCurrent}: that, or this client's newer count. */
 	long shownProgress(int tileId, long siteCurrent) {
@@ -7737,20 +7707,6 @@ public class AnvilPlugin extends Plugin {
 		return SearchAliases.fold(s);
 	}
 
-	/**
-	 * Push the killcount an unlock just happened at, bypassing the tracked-boss gate.
-	 *
-	 * {@link #maybeQueueKcPush} only pushes bosses some tile tracks, which is right for board
-	 * scoring and wrong here: a clog unlock is worth dating whatever the board happens to be about,
-	 * and the boss it came from usually isn't on it. The kill line always precedes the loot, so the
-	 * most recent one is the kill that produced this unlock — with a window on it, so an unlock that
-	 * arrives with no recent kill (a shop-bought minigame reward, a gamble pet) pushes nothing
-	 * rather than attributing itself to whatever was killed an hour ago.
-	 */
-	void pushKcForUnlock() {
-		if (!statPushAllowed() || !kcLineFresh()) return;
-		kcPush.queue(lastKcName, lastKcValue);
-	}
 
 	/**
 	 * Buffers a boss's absolute kill count for a debounced push.
@@ -8508,7 +8464,8 @@ public class AnvilPlugin extends Plugin {
 	 * posts. Runs on the client thread; screenshot + network send are deferred.
 	 */
 	void notifyPvpKill(String name) {
-		var message = buildKillMessage(getLocalPlayerName(), name);
+		var killer = getLocalPlayerName();
+		var message = "**" + (empty(killer) ? "Someone" : killer) + "** just killed **" + name + "**!";
 		captureFrameAsync(png -> apiClient.postNotification("pvpKills", message, null, png, "anvil-pvp-kill.png"));
 	}
 
@@ -8559,10 +8516,6 @@ public class AnvilPlugin extends Plugin {
 		emit(rules.event("pvpLoot", RuleEngine.named(victim), haulValue(items), null, null, "what", victimName));
 	}
 
-	String buildKillMessage(String killer, String victim) {
-		var who = empty(killer) ? "Someone" : killer;
-		return "**" + who + "** just killed **" + victim + "**!";
-	}
 
 	/**
 	 * Reports loot that might post to the rare-drops channel; the site judges it (lib/notifyDrops) against
@@ -8583,7 +8536,7 @@ public class AnvilPlugin extends Plugin {
 		for (var item : items) {
 			int itemId = item.getId();
 			var iname = itemName(itemId);
-			if (isLootKey(iname)) continue;
+			if (iname != null && iname.toLowerCase().contains("loot key")) continue; // opened, a key fires its own LootReceived
 			int qty = max(1, item.getQuantity());
 			var value = itemUnitValue(itemId) * qty;
 			total += value;
@@ -8805,13 +8758,6 @@ public class AnvilPlugin extends Plugin {
 		return s.equals("loot chest") || s.contains("loot key");
 	}
 
-	/**
-	 * True when the item (by name) is a loot key — its contents fire a separate
-	 * LootReceived when opened.
-	 */
-	static boolean isLootKey(String name) {
-		return name != null && name.toLowerCase().contains("loot key");
-	}
 
 	/**
 	 * Item display name, or "Item {id}" as a fallback. Safe on the client
@@ -9113,7 +9059,7 @@ public class AnvilPlugin extends Plugin {
 			int threshold = client.getVarbitValue(t.getThresholdVarbitId());
 			if (threshold > 0 && before < threshold && threshold <= total) cleared = t; // values() ascend, so the last match is the highest tier crossed
 		}
-		if (cleared != null && !tiers.isEmpty()) postCaTierClear(cleared);
+		if (cleared != null && !tiers.isEmpty()) postWithScreenshot("combatAchievements", facts("caTier").put("tier", cleared.getDisplayName()), "anvil-ca-tier.png");
 
 		// Individual tasks: post each FIRST-seen task at/above the configured floor, but only when
 		// this tick's completions actually raised the CA point total. Already-owned tasks re-fire the
@@ -9156,10 +9102,6 @@ public class AnvilPlugin extends Plugin {
 				"anvil-ca.png");
 	}
 
-	void postCaTierClear(CombatAchievementTier tier) {
-		postWithScreenshot("combatAchievements", facts("caTier").put("tier", tier.getDisplayName()),
-				"anvil-ca-tier.png");
-	}
 
 	/**
 	 * Posts an achievement-diary tier completion to the clan achievements
@@ -10648,9 +10590,6 @@ public class AnvilPlugin extends Plugin {
 		configManager.setConfiguration("osrsbingo", "shareSeasonal", on);
 	}
 
-	boolean canSyncProfileFromPanel() {
-		return clogOpen && supportsProfileSync();
-	}
 
 	void trackClogOpen() {
 		var open = client.getWidget(InterfaceID.Collection.FRAME) != null;

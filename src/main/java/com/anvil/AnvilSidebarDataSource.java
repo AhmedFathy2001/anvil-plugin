@@ -64,7 +64,7 @@ public class AnvilSidebarDataSource {
 	PanelActions actionsFor() {
 		var p = plugin;
 		if (p == null) return PanelActions.NONE;
-		var profile = p.canSyncProfileFromPanel();
+		var profile = p.clogOpen && p.supportsProfileSync();
 		if (!p.isAdmin()) return new PanelActions(false, profile, null);
 		// Admin — but the roster comes from the clan channel, so it has to be readable. The CACHED
 		// answer: this runs while the panel paints, on the EDT, where asking the client directly is a
@@ -100,7 +100,7 @@ public class AnvilSidebarDataSource {
 
 	/** Is this clip in the play cycle? */
 	boolean bannerSoundOn(String clip) {
-		return fromPlugin(p -> p.bannerSoundSelected(clip), false);
+		return fromPlugin(p -> p.bannerSound.isSelected(clip), false);
 	}
 
 	/** Flip one clip in or out of the cycle. */
@@ -120,7 +120,7 @@ public class AnvilSidebarDataSource {
 
 	/** {@code kind}'s clips; for missions, the folder that decides between a clip and the built-in chime. */
 	List<String> sounds(BannerSoundService.Kind kind) {
-		return fromPlugin(p -> p.soundClips(kind), Collections.emptyList());
+		return fromPlugin(p -> p.bannerSound.listClips(kind), Collections.emptyList());
 	}
 
 	/**
