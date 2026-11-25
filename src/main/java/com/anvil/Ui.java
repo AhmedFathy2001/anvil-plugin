@@ -39,7 +39,7 @@ class Ui {
 	}
 
 	/** Secondary text: counts, hints, the quieter half of a row. */
-	static final Color MUTED = new Color(0xa8_a8_a8);
+	static final Color MUTED = new Color(0x9a9a9a);
 
 	/**
 	 * Neutralize a site-supplied string for Swing. A {@link JLabel}/{@link javax.swing.JToolTip} renders as

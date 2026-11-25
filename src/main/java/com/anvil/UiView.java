@@ -92,7 +92,7 @@ class UiView extends JPanel {
 	static final Map<String, String> TABS = new HashMap<>();
 	static final int WRAP_PT = 170;
 	static final String OFFLINE = "Couldn't reach Anvil — try again in a moment.";
-	static final Color DONE_DOT = new Color(0x5fd35f);
+	static final Color DONE_DOT = new Color(0x6fdc6f);
 
 	final Host host;
 	final ItemManager items;
@@ -149,6 +149,7 @@ class UiView extends JPanel {
 	/** Where each nav pane was scrolled to ("slot:pane"), kept across redraws. */
 	final Map<String, Integer> scrolls = new HashMap<>();
 	static final Color RAISED = new Color(0x3a3a3a);
+	static final Color INK = new Color(0x1e1e1e);
 	static final Color RAISED_HOVER = new Color(0x474747);
 
 	UiView(Host host, ItemManager items, SpriteManager sprites, SkillIconManager skills) {
@@ -559,6 +560,16 @@ class UiView extends JPanel {
 				var button = AnvilSidebarPanel.fullWidthButton(label, tip(n), () -> act(on));
 				var b = (JButton) button.getComponent(0);
 				b.setEnabled(!bool(n, "off"));
+				// kind: primary (orange fill), outline (orange edge), plain (grey edge); else the default.
+				var kind = str(n, "kind");
+				var primary = kind.equals("primary");
+				var plain = kind.equals("plain");
+				if (primary || plain || kind.equals("outline")) {
+					b.setBackground(primary ? BRAND_ORANGE : INK);
+					b.setForeground(primary ? INK : plain ? new Color(0xe0e0e0) : BRAND_ORANGE);
+					if (!plain) b.setFont(BOLD);
+					b.putClientProperty("edge", primary ? null : plain ? RAISED : BRAND_ORANGE);
+				}
 				// A copy answers on the button itself: "Copied ✓" for a moment, then its own label.
 				if ("copy".equals(str(on, "a"))) b.addActionListener(e -> {
 					b.setText("Copied ✓");
@@ -615,13 +626,14 @@ class UiView extends JPanel {
 		var bg = str(n, "bg");
 		var edge = color(str(n, "edge"), null);
 		var fill = card || "card".equals(bg) ? DARKER_GRAY_COLOR
-			: "raised".equals(bg) ? RAISED : "panel".equals(bg) ? DARK_GRAY_COLOR : null;
+			: "raised".equals(bg) ? RAISED : "panel".equals(bg) ? DARK_GRAY_COLOR : teamColor(bg, null);
 		if (fill == null && edge == null && !n.has("on")) {
 			var p = new JPanel(layout);
 			p.setOpaque(false);
 			return left(p);
 		}
-		return left(new Round(layout, card ? num(n, "rad", 6) : 4, fill, edge, "raised".equals(bg) ? RAISED_HOVER : null));
+		return left(new Round(layout, card ? num(n, "rad", 6) : 4, fill, edge,
+			"raised".equals(bg) ? RAISED_HOVER : fill == DARKER_GRAY_COLOR ? new Color(0x262626) : null));
 	}
 
 	JComponent col(JsonObject n) {
@@ -1123,7 +1135,7 @@ class UiView extends JPanel {
 		return wrap;
 	}
 
-	/** A segmented switch: a dark rounded track, the picked segment raised with an orange underline. */
+	/** A segmented switch: a dark rounded track, the picked segment filled orange with dark bold text. */
 	static JComponent segments(List<String> labels, String first, Consumer<String> picked) {
 		var strip = new Round(new GridLayout(1, labels.size(), 2, 0), 4, DARKER_GRAY_COLOR, null, null);
 		strip.setBorder(createEmptyBorder(2, 2, 2, 2));
@@ -1132,16 +1144,14 @@ class UiView extends JPanel {
 			var on = k.equals(name);
 			seg.setOpaque(on);
 			var l = (JLabel) seg.getComponent(0);
-			l.setForeground(on ? Color.WHITE : MUTED);
-			l.setBorder(createCompoundBorder(
-				createMatteBorder(0, 0, 2, 0, on ? BRAND_ORANGE : new Color(0, 0, 0, 0)),
-				createEmptyBorder(3, 2, 2, 2)));
+			l.setForeground(on ? INK : new Color(0xe0e0e0));
+			l.setFont(on ? BOLD : SMALL);
 			seg.repaint();
 		});
 		for (var name : labels) {
-			var seg = new Round(new BorderLayout(), 3, RAISED, null, null);
+			var seg = new Round(new BorderLayout(), 3, BRAND_ORANGE, null, null);
 			var l = new ClipLabel(plainText(name), JLabel.CENTER);
-			l.setFont(SMALL);
+			l.setBorder(createEmptyBorder(3, 2, 4, 2));
 			seg.add(l, CENTER);
 			onClick(seg, () -> {
 				paint.accept(name);
@@ -1557,7 +1567,7 @@ class UiView extends JPanel {
 	}
 
 	static final Map<String, Color> COLORS = Map.of("white", Color.WHITE, "text", TEXT_COLOR, "muted", MUTED, "brand", BRAND_ORANGE,
-		"done", PROGRESS_COMPLETE_COLOR, "error", PROGRESS_ERROR_COLOR, "claim", new Color(0x7D_C4_F0), "progress", PROGRESS_INPROGRESS_COLOR);
+		"done", DONE_DOT, "error", PROGRESS_ERROR_COLOR, "claim", new Color(0x7D_C4_F0), "progress", PROGRESS_INPROGRESS_COLOR);
 
 	static Color color(String c, Color fallback) {
 		var k = COLORS.get(c);
@@ -1590,7 +1600,7 @@ class UiView extends JPanel {
 	/** The writer-rank quills (guide bylines), each in its own colour. */
 	static final Map<String, Color> QUILLS = Map.of("quill-bronze", new Color(0xc27c3e), "quill-silver", new Color(0xc9d1d9), "quill-gold", new Color(0xe0b453), "quill-star", new Color(0xffd35c));
 
-	static final Map<String, GlyphIcon.Shape> GLYPHS = Map.of("check", CHECK, "chevron-right", CHEVRON_RIGHT, "chevron-left", CHEVRON_LEFT,
+	static final Map<String, GlyphIcon.Shape> GLYPHS = Map.of("check", CHECK, "chevron-right", CHEVRON_RIGHT, "chevron-left", CHEVRON_LEFT, "chevron-down", CHEVRON_DOWN,
 		"external", EXTERNAL, "close", CLOSE, "star", STAR, "up", UP, "down", DOWN);
 
 	static GlyphIcon.Shape glyph(String g) {

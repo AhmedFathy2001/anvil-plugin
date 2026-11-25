@@ -1812,6 +1812,11 @@ public class AnvilSidebarPanel extends PluginPanel {
 				var g2 = smooth(g);
 				g2.setColor(c.getBackground());
 				g2.fillRoundRect(0, 0, c.getWidth(), c.getHeight(), 8, 8);
+				var edge = (Color) c.getClientProperty("edge");
+				if (edge != null) {
+					g2.setColor(edge);
+					g2.drawRoundRect(0, 0, c.getWidth() - 1, c.getHeight() - 1, 8, 8);
+				}
 				g2.dispose();
 				super.paint(g, c);
 			}
@@ -1819,11 +1824,11 @@ public class AnvilSidebarPanel extends PluginPanel {
 		b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 		b.addMouseListener(new MouseAdapter() {
 			public void mouseEntered(MouseEvent e) {
-				if (b.isEnabled()) b.setBackground(WIDGET_BORDER); // the hover: a step lighter
+				if (b.isEnabled() && b.getBackground() == BUTTON_BG) b.setBackground(WIDGET_BORDER); // the hover: a step lighter
 			}
 
 			public void mouseExited(MouseEvent e) {
-				b.setBackground(BUTTON_BG);
+				if (b.getBackground() == WIDGET_BORDER) b.setBackground(BUTTON_BG);
 			}
 		});
 	}

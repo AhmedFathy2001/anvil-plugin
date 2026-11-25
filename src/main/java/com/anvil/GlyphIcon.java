@@ -21,7 +21,7 @@ import javax.swing.*;
 @RequiredArgsConstructor
 class GlyphIcon implements Icon {
 	enum Shape {
-		CHEVRON_LEFT, CHEVRON_RIGHT, EXTERNAL, CHECK, CLOSE, ELLIPSIS, GEAR, STAR, UP, DOWN, QUILL, QUILL_STAR
+		CHEVRON_LEFT, CHEVRON_RIGHT, CHEVRON_DOWN, EXTERNAL, CHECK, CLOSE, ELLIPSIS, GEAR, STAR, UP, DOWN, QUILL, QUILL_STAR
 	}
 
 	final Shape shape;
@@ -58,6 +58,9 @@ class GlyphIcon implements Icon {
 					break;
 				case CHEVRON_RIGHT:
 					g.draw(stroke(p, s, 0.38, 0.22, 0.66, 0.5, 0.38, 0.78));
+					break;
+				case CHEVRON_DOWN:
+					g.draw(stroke(p, s, 0.22, 0.38, 0.5, 0.66, 0.78, 0.38));
 					break;
 				case EXTERNAL:
 					stroke(p, s, 0.28, 0.72, 0.72, 0.28);
