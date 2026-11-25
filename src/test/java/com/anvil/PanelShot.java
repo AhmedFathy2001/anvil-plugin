@@ -22,7 +22,8 @@ import org.junit.Test;
  * {@code ./gradlew test --tests com.anvil.PanelShot } with env PANELSHOT=<dir> renders every {@code <dir>/*.json}
  * (a node, or a {@code {ui: node}} view) at the side panel's content width into {@code <dir>/<name>.png}.
  * There is no ItemManager here, so item icons draw blank; with env PANELSHOT_ICONS=<dir of <itemId>.png>
- * (the wiki's inventory pictures) every standalone item icon is drawn from that folder instead.
+ * (the wiki's inventory pictures) every standalone item icon is drawn from that folder instead, and a
+ * standalone sprite icon from {@code sprite-<id>.png} there (a spellbook's picture).
  */
 public class PanelShot
 {
@@ -112,7 +113,7 @@ public class PanelShot
 
 	static final String ITEM = "item:";
 
-	/** A copy of the tree with every standalone {@code {t: icon, item}} as an {@code img} the host above draws. */
+	/** A copy of the tree with every standalone item or sprite icon as an {@code img} the host above draws. */
 	static JsonElement itemsAsImages(JsonElement e)
 	{
 		if (e.isJsonArray())
@@ -127,11 +128,11 @@ public class PanelShot
 		}
 		var o = e.getAsJsonObject();
 		var out = new JsonObject();
-		boolean item = o.has("t") && "icon".equals(o.get("t").getAsString()) && o.has("item");
-		if (item)
+		boolean icon = o.has("t") && "icon".equals(o.get("t").getAsString());
+		if (icon && (o.has("item") || o.has("sprite")))
 		{
 			out.addProperty("t", "img");
-			out.addProperty("src", ITEM + o.get("item").getAsInt());
+			out.addProperty("src", ITEM + (o.has("item") ? String.valueOf(o.get("item").getAsInt()) : "sprite-" + o.get("sprite").getAsInt()));
 			out.addProperty("w", o.has("w") ? o.get("w").getAsInt() : 36);
 			out.addProperty("h", o.has("h") ? o.get("h").getAsInt() : 32);
 			if (o.has("tip"))
