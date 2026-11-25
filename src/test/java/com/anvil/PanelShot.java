@@ -1,5 +1,7 @@
 package com.anvil;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.awt.Color;
@@ -19,6 +21,8 @@ import org.junit.Test;
  * Dev only: draws site panel views to PNGs without the game, to check spacing and wrapping.
  * {@code ./gradlew test --tests com.anvil.PanelShot } with env PANELSHOT=<dir> renders every {@code <dir>/*.json}
  * (a node, or a {@code {ui: node}} view) at the side panel's content width into {@code <dir>/<name>.png}.
+ * There is no ItemManager here, so item icons draw blank; with env PANELSHOT_ICONS=<dir of <itemId>.png>
+ * (the wiki's inventory pictures) every standalone item icon is drawn from that folder instead.
  */
 public class PanelShot
 {
@@ -32,7 +36,10 @@ public class PanelShot
 		{
 			var node = new JsonParser().parse(new String(Files.readAllBytes(f.toPath()))).getAsJsonObject();
 			var view = new JsonObject();
-			view.add("ui", node.has("ui") ? node.get("ui") : node);
+			var ui = node.has("ui") ? node.get("ui") : node;
+			var icons = System.getenv("PANELSHOT_ICONS");
+			if (icons != null) ui = itemsAsImages(ui);
+			view.add("ui", ui);
 			var png = new File(dir, f.getName().replace(".json", ".png"));
 			SwingUtilities.invokeAndWait(() -> {
 				try
@@ -71,6 +78,11 @@ public class PanelShot
 						{
 							return null;
 						}
+
+						public void image(String path, int w, int h, boolean motion, Consumer<javax.swing.Icon> done)
+						{
+							done.accept(icons == null || !path.startsWith(ITEM) ? null : itemIcon(new File(icons, path.substring(ITEM.length()) + ".png"), w, h));
+						}
 					}, null, null, null);
 					v.render(view);
 					// PANELSHOT_QUERY: typed into every search box, to see a filtered list.
@@ -95,6 +107,66 @@ public class PanelShot
 					throw new RuntimeException(e);
 				}
 			});
+		}
+	}
+
+	static final String ITEM = "item:";
+
+	/** A copy of the tree with every standalone {@code {t: icon, item}} as an {@code img} the host above draws. */
+	static JsonElement itemsAsImages(JsonElement e)
+	{
+		if (e.isJsonArray())
+		{
+			var out = new JsonArray();
+			e.getAsJsonArray().forEach(x -> out.add(itemsAsImages(x)));
+			return out;
+		}
+		if (!e.isJsonObject())
+		{
+			return e;
+		}
+		var o = e.getAsJsonObject();
+		var out = new JsonObject();
+		boolean item = o.has("t") && "icon".equals(o.get("t").getAsString()) && o.has("item");
+		if (item)
+		{
+			out.addProperty("t", "img");
+			out.addProperty("src", ITEM + o.get("item").getAsInt());
+			out.addProperty("w", o.has("w") ? o.get("w").getAsInt() : 36);
+			out.addProperty("h", o.has("h") ? o.get("h").getAsInt() : 32);
+			if (o.has("tip"))
+			{
+				out.add("tip", o.get("tip"));
+			}
+			return out;
+		}
+		o.entrySet().forEach(x -> out.add(x.getKey(), itemsAsImages(x.getValue())));
+		return out;
+	}
+
+	/** The picture shrunk to fit w x h keeping its shape (as UiView fits the game's own), or null. */
+	static javax.swing.Icon itemIcon(File f, int w, int h)
+	{
+		try
+		{
+			var img = ImageIO.read(f);
+			if (img == null)
+			{
+				return null;
+			}
+			double k = Math.min(1.0, Math.min((double) w / img.getWidth(), (double) h / img.getHeight()));
+			int iw = Math.max(1, (int) Math.round(img.getWidth() * k));
+			int ih = Math.max(1, (int) Math.round(img.getHeight() * k));
+			var out = new BufferedImage(iw, ih, BufferedImage.TYPE_INT_ARGB);
+			var g = out.createGraphics();
+			g.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+			g.drawImage(img, 0, 0, iw, ih, null);
+			g.dispose();
+			return new javax.swing.ImageIcon(out);
+		}
+		catch (java.io.IOException ex)
+		{
+			return null;
 		}
 	}
 
