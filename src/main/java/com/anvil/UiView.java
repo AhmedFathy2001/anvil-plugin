@@ -1471,6 +1471,15 @@ class UiView extends JPanel {
 				row.add(small(str(n, "label"), MUTED), WEST);
 				row.add(spinner, CENTER);
 				return capH(row);
+			case "text":
+				// A typed answer (a sign-up question). One line; the site caps the length.
+				var box = new JTextField(value);
+				box.setFont(SMALL);
+				box.setBackground(DARKER_GRAY_COLOR);
+				box.setForeground(Color.WHITE);
+				box.setCaretColor(Color.WHITE);
+				inputs.put(name, box::getText);
+				return capH(box);
 			case "check":
 				var check = new JCheckBox(plainText(str(n, "label")), "1".equals(value));
 				check.setFont(SMALL);
