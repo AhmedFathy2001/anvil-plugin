@@ -515,9 +515,11 @@ public class AnvilSidebarPanel extends PluginPanel {
 				// The live board's id too: "event 0" (the board page's tiles, teams) means whichever board is live,
 				// so an answer kept for one board must never be drawn once another one is.
 				var key = clan + '|' + api.getCurrentRsn() + '|' + data.activeEventId() + '|' + view + '|' + new TreeMap<>(sent);
-				var seen = uiCache.get(key);
+				var trip = "trip".equals(view); // a fresh check every time: its warn goes on screen
+				var seen = trip ? null : uiCache.get(key);
 				if (seen != null) done.accept(seen);
 				async(() -> api.fetchUi(view, sent, clan), v -> {
+					if (trip) data.withPlugin(p -> p.tripAnswer(v));
 					if (v != null) uiCache.put(key, v);
 					if (v != null || seen == null) done.accept(v); // a failed fetch leaves the remembered answer up
 				});
@@ -705,12 +707,25 @@ public class AnvilSidebarPanel extends PluginPanel {
 	}
 
 	/** Players, Clans, or Guides (the site's guide search); the one Players | Clans | Guides switch stays above all three. */
+	/** The pre-trip check (AnvilPlugin.tripTick): Lookup's Guides pane shows the site's trip view. Any thread. */
+	void showTrip(Map<String, String> args) {
+		invokeLater(() -> {
+			if (tab != LOOKUP) selectTab(LOOKUP);
+			setLookupMode("Guides", args);
+		});
+	}
+
 	void setLookupMode(String mode) {
+		setLookupMode(mode, null);
+	}
+
+	void setLookupMode(String mode, Map<String, String> trip) {
 		lookupClans = "Clans".equals(mode);
 		lookupGuides = "Guides".equals(mode);
 		for (var c : new JComponent[] {lookupBox, lookupRecentRow}) c.setVisible(!lookupGuides);
 		styleLookupModes();
-		if (lookupGuides) lookupView.show("guides", emptyMap(), "Loading guides…");
+		if (trip != null) lookupView.show("trip", trip, "Checking your trip…");
+		else if (lookupGuides) lookupView.show("guides", emptyMap(), "Loading guides…");
 		else sayLookupHint();
 	}
 

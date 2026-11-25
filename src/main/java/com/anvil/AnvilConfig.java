@@ -459,4 +459,15 @@ public interface AnvilConfig extends Config {
 	default boolean shareItems() {
 		return true;
 	}
+
+	@ConfigItem(
+		keyName = "tripWarning",
+		name = "Pre-trip warning",
+		description = "Closing the bank before a boss or raid checks your spellbook, rune pouch and switches, shows the check in the panel and warns on screen if something's missing.",
+		position = 8,
+		section = "profileSection"
+	)
+	default boolean tripWarning() {
+		return true;
+	}
 }

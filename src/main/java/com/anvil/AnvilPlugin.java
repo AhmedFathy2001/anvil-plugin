@@ -136,6 +136,8 @@ public class AnvilPlugin extends Plugin {
 	StartSpotMarker startSpotMarker;
 	@Inject
 	StartProofOverlay startProofOverlay;
+	@Inject
+	TripWarnOverlay tripOverlay;
 
 	@Inject
 	BannerSoundService bannerSound;
@@ -1191,6 +1193,7 @@ public class AnvilPlugin extends Plugin {
 		tileTracker.setOnePanel(config.trackerOnePanel());
 		tileTracker.startUp();
 		overlayManager.add(startProofOverlay);
+		overlayManager.add(tripOverlay);
 
 		// Mount the always-on progress sidebar in the RuneLite toolbar.
 		sidebarNavButton = NavigationButton.builder()
@@ -1515,6 +1518,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		tileTracker.shutDown();
 		overlayManager.remove(startProofOverlay);
+		overlayManager.remove(tripOverlay);
 		clientThread.invokeLater(startSpotMarker::clear);
 		// OUR WIDGETS ARE OURS TO CLEAR. Disabling the plugin left the buttons sitting in the game's
 		// title bars until the interface happened to be rebuilt — a control for a plugin that is no
@@ -1777,6 +1781,7 @@ public class AnvilPlugin extends Plugin {
 			// Off: what was sent goes, for every character (shareItems), and nothing more is sent. On: read what's held now.
 			itemsSeen.clear();
 			itemsSent.clear();
+			stateSent = null;
 			cfgSet("itemsWiped", config.shareItems() ? "" : "|");
 			if (config.shareItems()) clientThread.invoke(() -> SHARED.keySet().forEach(id -> seeItems(id, client.getItemContainer(id))));
 		}
@@ -1824,6 +1829,7 @@ public class AnvilPlugin extends Plugin {
 		// with a couple of retries in case the text lands late.
 		if (g == InterfaceID.QUESTSCROLL) scheduleQuestScrollRead(3);
 		if (g == InterfaceID.CLANS_STORAGE_MAIN) resetCoffer(true);
+		if (g == InterfaceID.BANKMAIN) tripOverlay.warn = null;
 		movesOpened(g);
 	}
 
@@ -1833,6 +1839,10 @@ public class AnvilPlugin extends Plugin {
 		// inventory changes suppressed (see onItemContainerChanged).
 		int g = event.getGroupId();
 		if (g == InterfaceID.CLANS_STORAGE_MAIN) resetCoffer(false);
+		if (g == InterfaceID.BANKMAIN && !tripAsked && inTripRegion() && config.tripWarning() && siteHas("trip-check")) {
+			tripAsked = true;
+			tripDue = client.getTickCount() + 2;
+		}
 		if (movedFrom != null && (g == InterfaceID.SHARED_BANK || g == InterfaceID.TRADEMAIN || g == InterfaceID.TRADECONFIRM)) movedTick = client.getTickCount() + 2;
 		for (int id : MOVE_INTERFACES) if (g == id) lastSuppressCloseTick = client.getTickCount();
 	}
@@ -2243,6 +2253,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		lastWornItemIds = wornItemIds();
 		shareItems();
+		tripTick();
 		relayHeal();
 		relayPmMode();
 		maybeSettleStats();
@@ -2508,6 +2519,9 @@ public class AnvilPlugin extends Plugin {
 			lootingBagWatchBase = null;
 			itemsSeen.clear(); // another character may log in next
 			itemsSent.clear();
+			stateSent = null;
+			tripEnd();
+			tripOverlay.warn = null;
 			recentDropLines.clear();
 			chestLineCredits.clear();
 			// The destination sends a fresh table. Until its burst settles, restoring the real
@@ -3445,6 +3459,7 @@ public class AnvilPlugin extends Plugin {
 				var firstSeen = !killCounts.containsKey(kcKey);
 				int kc = Integer.parseInt(kcMatcher.group("count").replace(",", ""));
 				killCounts.put(kcKey, kc);
+				tripEnd();
 				lastKcName = kcName;
 				lastKcValue = kc;
 				lastKcAtMs = now();
@@ -4319,6 +4334,12 @@ public class AnvilPlugin extends Plugin {
 			});
 			return;
 		}
+		var st = siteHas("trip-check") ? tripState() : null;
+		if (st != null && !st.equals(stateSeen)) {
+			stateSeen = st;
+			itemsDirty = true;
+			itemsAt = client.getTickCount();
+		}
 		int quiet = client.getTickCount() - itemsAt;
 		if (!itemsDirty || quiet < 2 || !siteHas("guides-panel")) return;
 		boolean all = quiet >= 5 && now() >= itemsNextAt;
@@ -4329,6 +4350,8 @@ public class AnvilPlugin extends Plugin {
 		itemsSeen.forEach((k, v) -> {
 			if ((all || "equipment".equals(k)) && !v.equals(itemsSent.get(k))) body.add(k, BingoApiClient.obj("items", v));
 		});
+		var state = stateSeen;
+		if (all && state != null && !state.equals(stateSent)) body.add("state", state);
 		if (body.size() == 0) return;
 		wornNextAt = now() + 4_000;
 		if (all) itemsNextAt = now() + 20_000;
@@ -4336,6 +4359,7 @@ public class AnvilPlugin extends Plugin {
 			try {
 				if (!config.shareItems()) return; // turned off while this waited
 				apiClient.postJson("/api/plugin/items", body, "Items push failed", false);
+				if (body.remove("state") != null) stateSent = state;
 				body.keySet().forEach(k -> itemsSent.put(k, body.getAsJsonObject(k).getAsJsonArray("items")));
 				if (body.has("equipment") && sidebarPanel != null) sidebarPanel.wornGearSent();
 			} catch (Exception e) {
@@ -4343,6 +4367,64 @@ public class AnvilPlugin extends Plugin {
 				wornNextAt = itemsNextAt = now() + 300_000;
 			}
 		});
+	}
+
+	// PRE-TRIP CHECK: closing the bank in a site-named trip region asks the site's "trip" view once per trip;
+	// a KC/completion line, a death, logging out or ~10s out of those regions ends the trip. The site judges.
+	volatile JsonObject stateSeen, stateSent;
+	boolean tripAsked;
+	int tripDue = -1, tripAway;
+	static final int[][] POUCH = {{VarbitID.RUNE_POUCH_TYPE_1, VarbitID.RUNE_POUCH_QUANTITY_1}, {VarbitID.RUNE_POUCH_TYPE_2, VarbitID.RUNE_POUCH_QUANTITY_2},
+		{VarbitID.RUNE_POUCH_TYPE_3, VarbitID.RUNE_POUCH_QUANTITY_3}, {VarbitID.RUNE_POUCH_TYPE_4, VarbitID.RUNE_POUCH_QUANTITY_4}};
+
+	/** Spellbook, rune pouch runes (item id, qty) and unlocked prayers. Client thread. */
+	JsonObject tripState() {
+		var s = new JsonObject();
+		s.addProperty("book", client.getVarbitValue(VarbitID.SPELLBOOK));
+		var pouch = new JsonArray();
+		for (var v : POUCH) {
+			int t = client.getVarbitValue(v[0]), q = client.getVarbitValue(v[1]);
+			if (t <= 0 || q <= 0) continue;
+			var p = new JsonArray();
+			p.add(client.getEnum(EnumID.RUNEPOUCH_RUNE).getIntValue(t));
+			p.add(q);
+			pouch.add(p);
+		}
+		s.add("pouch", pouch);
+		var pray = new JsonArray();
+		if (client.getVarbitValue(VarbitID.PRAYER_RIGOUR_UNLOCKED) == 1) pray.add("rigour");
+		if (client.getVarbitValue(VarbitID.PRAYER_AUGURY_UNLOCKED) == 1) pray.add("augury");
+		s.add("pray", pray);
+		return s;
+	}
+
+	boolean inTripRegion() {
+		var c = pluginConfig;
+		return c != null && c.tripRegions != null && c.tripRegions.contains(region);
+	}
+
+	void tripEnd() {
+		tripAsked = false;
+		tripAway = 0;
+	}
+
+	void tripTick() {
+		if (tripAsked && tripDue < 0 && (tripAway = inTripRegion() ? 0 : tripAway + 1) > 16) tripEnd();
+		if (tripDue < 0 || client.getTickCount() < tripDue) return;
+		tripDue = -1;
+		// The site reads what was pushed: send the bank just closed now, then ask (one executor, in order).
+		itemsAt = Math.min(itemsAt, client.getTickCount() - 5);
+		itemsNextAt = 0;
+		shareItems();
+		var args = Map.of("region", "" + region, "why", "bank-close");
+		submit(() -> { if (sidebarPanel != null) sidebarPanel.showTrip(args); });
+	}
+
+	/** The trip view's answer (AnvilSidebarPanel's load): its {@code warn} goes on screen. */
+	void tripAnswer(JsonObject v) {
+		if (v == null || !config.tripWarning()) return;
+		var w = v.get("warn");
+		tripOverlay.show(w != null && w.isJsonObject() ? w.getAsJsonObject() : null);
 	}
 
 	void onLootingBagChanged(ItemContainer bag) {
@@ -8378,6 +8460,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	void ownDeath() {
 		ownDeathAt = now();
+		tripEnd();
 		// LMS: dying while the BR HUD reads N survivors means we placed Nth. Record before
 		// the notification gates — placement tracking is independent of death notifications.
 		// A counter never read (0) is an unknown place, not 2nd: guessing 2nd credited top-2

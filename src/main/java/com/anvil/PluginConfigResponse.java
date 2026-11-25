@@ -169,6 +169,8 @@ public class PluginConfigResponse {
 	 * Null on sites that predate it — then nothing is read.
 	 */
 	List<Integer> caVarps;
+	/** Regions where a trip starts (a content's bank or lobby): closing the bank there runs the pre-trip check. Null/empty = off. */
+	List<Integer> tripRegions;
 	/**
 	 * Counters read off a varbit/varp (site lib/gameCounters): each
 	 * positive change credits kill tiles targeting the entry's name (GameValueCounters). Null on
