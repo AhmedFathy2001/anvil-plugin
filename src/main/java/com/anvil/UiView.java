@@ -47,6 +47,10 @@ class UiView extends JPanel {
 
 		void site(String path);
 
+		/** A click asked for a trip check: push what is held before it loads. */
+		default void held() {
+		}
+
 		/** Show only these items in the bank (comma-separated ids). */
 		default void bank(String ids) {
 		}
@@ -406,6 +410,7 @@ class UiView extends JPanel {
 					drawn.remove(into);
 					replace(busy.holder, small("Loading…", MUTED));
 				}
+				if ("trip".equals(str(a, "v"))) host.held();
 				fetch(place, str(a, "v"), strings(a.get("args")));
 				break;
 			case "pane":

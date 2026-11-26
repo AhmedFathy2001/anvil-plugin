@@ -518,8 +518,11 @@ public class AnvilSidebarPanel extends PluginPanel {
 				var trip = "trip".equals(view); // a fresh check every time: its warn goes on screen
 				var seen = trip ? null : uiCache.get(key);
 				if (seen != null) done.accept(seen);
+				// Only a check the player asked for (bank close, a click) pushes what is held first.
+				var push = trip && freshTrip;
+				if (push) freshTrip = false;
 				async(() -> {
-					if (trip) data.withPlugin(AnvilPlugin::pushHeld);
+					if (push) data.withPlugin(AnvilPlugin::pushHeld);
 					return api.fetchUi(view, sent, clan);
 				}, v -> {
 					if (trip) data.withPlugin(p -> p.tripAnswer(v));
@@ -571,14 +574,15 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 			public void post(String act, Map<String, String> args, Map<String, String> fields, Consumer<JsonObject> done) {
 				uiCache.clear();
-				async(() -> {
-					if (act.startsWith("trip")) data.withPlugin(AnvilPlugin::pushHeld);
-					return api.postUi(act, args, fields);
-				}, done);
+				async(() -> api.postUi(act, args, fields), done);
 			}
 
 			public void site(String path) {
 				LinkBrowser.browse(api.siteLink(path));
+			}
+
+			public void held() {
+				freshTrip = true;
 			}
 
 			public void bank(String ids) {
@@ -717,8 +721,11 @@ public class AnvilSidebarPanel extends PluginPanel {
 	}
 
 	/** Players, Clans, or Guides (the site's guide search); the one Players | Clans | Guides switch stays above all three. */
+	volatile boolean freshTrip;
+
 	/** The pre-trip check (AnvilPlugin.tripTick): Lookup's Guides pane shows the site's trip view. Any thread. */
 	void showTrip(Map<String, String> args) {
+		freshTrip = true;
 		invokeLater(() -> {
 			if (tab != LOOKUP) selectTab(LOOKUP);
 			setLookupMode("Guides", args);

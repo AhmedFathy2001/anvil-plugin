@@ -4348,7 +4348,7 @@ public class AnvilPlugin extends Plugin {
 			itemsAt = client.getTickCount();
 		}
 		int quiet = client.getTickCount() - itemsAt;
-		if (!itemsDirty || quiet < 2 || !siteHas("guides-panel")) return;
+		if (!itemsDirty || quiet < 2 || !mayShareItems()) return;
 		boolean all = quiet >= 5 && now() >= itemsNextAt;
 		if (!all && (!wornDirty || now() < wornNextAt)) return;
 		wornDirty = false;
@@ -4446,15 +4446,21 @@ public class AnvilPlugin extends Plugin {
 		submit(() -> { if (sidebarPanel != null) sidebarPanel.showTrip(args); });
 	}
 
-	/** Before every trip check: what is worn and carried now, so it never judges an older push. Blocking. */
+	/** Every item push's guard: signed in and not paused, on a character, sharing on, a site that takes them. */
+	boolean mayShareItems() {
+		return apiClient.isConfigured() && apiClient.getCurrentRsn() != null && config.shareItems() && siteHas("guides-panel");
+	}
+
+	/** Before a trip check the player asked for (bank close, a click): what is worn and carried now. Blocking. */
 	void pushHeld() {
+		if (!mayShareItems()) return;
 		var body = new JsonObject();
 		for (var k : new String[] {"equipment", "inventory"}) {
 			var v = itemsSeen.get(k);
 			if (v != null) body.add(k, BingoApiClient.obj("items", v));
 		}
 		if (stateSeen != null) body.add("state", stateSeen);
-		if (config.shareItems() && body.size() > 0) try {
+		if (body.size() > 0) try {
 			apiClient.postJson("/api/plugin/items", body, "Items push failed", false);
 		} catch (Exception ignored) {
 		}
