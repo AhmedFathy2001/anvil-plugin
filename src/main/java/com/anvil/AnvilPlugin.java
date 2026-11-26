@@ -6166,7 +6166,8 @@ public class AnvilPlugin extends Plugin {
 			if (chatFlair.adopt(rc.loadShared(file, ChatFlair.Wire.class))) repaintFlair();
 		}
 		var at = now();
-		if (at - chatFlairFetchedAt < (10 * 60_000L) /* CHAT_FLAIR_EVERY_MS */) return;
+		// Holding nothing (a new site, or a fetch that failed mid-deploy): ask again within a minute, not ten.
+		if (at - chatFlairFetchedAt < (chatFlair.isEmpty() ? 60_000L : 10 * 60_000L) /* CHAT_FLAIR_EVERY_MS */) return;
 		chatFlairFetchedAt = at;
 		chatFlairSync.sync();
 	}
