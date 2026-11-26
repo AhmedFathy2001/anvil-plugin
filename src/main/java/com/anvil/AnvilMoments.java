@@ -54,6 +54,8 @@ class AnvilMoments {
 		final String tier;
 		final long at;
 		final String key;
+		/** 'death' only: the raid we died inside ("cox" | "tob" | "toa"), however we died. */
+		String raid;
 
 		Moment(String kind, Integer itemId, String itemName, int quantity, Long valueGp,
 			   String source, String sourceKind, Integer kc, long at, String key) {

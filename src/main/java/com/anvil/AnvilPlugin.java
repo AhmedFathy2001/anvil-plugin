@@ -8366,9 +8366,26 @@ public class AnvilPlugin extends Plugin {
 	void recordDeathMoment(AttributedDeath death) {
 		if (!momentsEnabled()) return;
 		var now = now();
-		moments.record(new Moment("death", null, null, 1, null, death.source, death.sourceKind,
-				killCountFor(death.source), now, AnvilMoments.keyFor("death", death.source, null, now)));
+		var moment = new Moment("death", null, null, 1, null, death.source, death.sourceKind,
+				killCountFor(death.source), now, AnvilMoments.keyFor("death", death.source, null, now));
+		// A raid death often has no killer to name (Warden skulls, Zebak's waves, Olm's crystals):
+		// say which raid it was, so a competition over that raid can count it.
+		moment.raid = raidHere();
+		moments.record(moment);
 		scheduleMomentPush(1_000 /* DEATH_PUSH_DELAY_MS */);
+	}
+
+	/**
+	 * The raid we stand inside, by the game's own varbits (as the party size reads them), or null.
+	 * ToA below raid level 150 is Entry Mode, which the hiscores keep apart: "toa-entry". Client thread.
+	 */
+	String raidHere() {
+		var top = client.getTopLevelWorldView();
+		if (top == null || !top.isInstance()) return null;
+		int toa = client.getVarbitValue(VarbitID.TOA_CLIENT_RAID_LEVEL);
+		if (toa > 0) return toa < 150 /* TOA_ENTRY_BELOW */ ? "toa-entry" : "toa";
+		if (client.getVarbitValue(VarbitID.RAIDS_CLIENT_INDUNGEON) == 1) return "cox";
+		return client.getVarbitValue(VarbitID.TOB_CLIENT_PARTYSTATUS) > 0 ? "tob" : null;
 	}
 
 	/**
