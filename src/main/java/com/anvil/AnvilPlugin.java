@@ -4399,7 +4399,9 @@ public class AnvilPlugin extends Plugin {
 	// Asked outside them: entering one (then leaving) or 10 minutes ends that trip too.
 	volatile JsonObject stateSeen, stateSent;
 	volatile boolean tripArmed, tripOver;
-	boolean tripAsked, tripOut;
+	boolean tripAsked, tripOut, tripInFight;
+	/** The last answer's warn: its `fight` regions / `instance`, kept after the warning is gone. */
+	volatile JsonObject tripFight;
 	int tripDue = -1, tripAway;
 	long tripAt;
 	static final int[][] POUCH = {{VarbitID.RUNE_POUCH_TYPE_1, VarbitID.RUNE_POUCH_QUANTITY_1}, {VarbitID.RUNE_POUCH_TYPE_2, VarbitID.RUNE_POUCH_QUANTITY_2},
@@ -4450,9 +4452,16 @@ public class AnvilPlugin extends Plugin {
 		if (tripOut && inTripRegion()) tripOut = false;
 		if (tripAsked && tripDue < 0 && ((tripAway = inTripRegion() || tripOut ? 0 : tripAway + 1) > 16 || tripOut && now() > tripAt)) tripEnd(false);
 		// In the content's fight area (the site's `fight` regions, any instance for a raid): the warning goes.
-		var w = tripOverlay.warn;
+		// Leaving it again (a raid left, a teleport out) ends the trip: the next bank close asks again.
+		var w = tripFight;
 		var v = client.getTopLevelWorldView();
-		if (w != null && (w.has("instance") && v != null && v.isInstance() || w.has("fight") && w.getAsJsonArray("fight").contains(new JsonPrimitive(region)))) tripOverlay.warn = null;
+		if (w != null && (w.has("instance") && v != null && v.isInstance() || w.has("fight") && w.getAsJsonArray("fight").contains(new JsonPrimitive(region)))) {
+			tripOverlay.warn = null;
+			tripInFight = true;
+		} else if (tripInFight) {
+			tripInFight = false;
+			tripEnd(false);
+		}
 		if (tripDue < 0 || client.getTickCount() < tripDue) return;
 		tripDue = -1;
 		var args = Map.of("region", "" + region, "why", "bank-close");
@@ -4522,6 +4531,8 @@ public class AnvilPlugin extends Plugin {
 
 	/** The trip view's answer (AnvilSidebarPanel's load): its {@code warn} goes on screen. */
 	void tripAnswer(JsonObject v, boolean quiet) {
+		var f = v == null ? null : v.get("warn");
+		if (f != null && f.isJsonObject()) tripFight = f.getAsJsonObject();
 		if (v == null || !config.tripWarning() || quiet && !tripOverlay.red()) return;
 		log.debug("Anvil trip check: answered");
 		var w = v.get("warn");
