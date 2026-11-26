@@ -1850,11 +1850,13 @@ public class AnvilPlugin extends Plugin {
 		int g = event.getGroupId();
 		if (g == InterfaceID.CLANS_STORAGE_MAIN) resetCoffer(false);
 		if (g == InterfaceID.BANKMAIN) bankTagGone();
-		if (g == InterfaceID.BANKMAIN && !tripAsked && (inTripRegion() || tripArmed && siteHas("trip-target")) && config.tripWarning() && siteHas("trip-check")) {
+		if (g == InterfaceID.BANKMAIN && !tripAsked && (inTripRegion() || tripArmed && siteHas("trip-target")) && (config.tripWarning() || config.tripAutoOpen()) && siteHas("trip-check")) {
 			tripAsked = true;
 			tripOut = !inTripRegion();
 			tripAt = now() + 600_000;
 			tripDue = client.getTickCount() + 2;
+			var n = pluginConfig == null ? null : pluginConfig.tripNames;
+			if (config.tripWarning()) tripOverlay.show(BingoApiClient.obj("title", "Checking " + (n != null && n.containsKey(region) ? n.get(region) : "your trip") + "…", "ok", "?"));
 		}
 		if (movedFrom != null && (g == InterfaceID.SHARED_BANK || g == InterfaceID.TRADEMAIN || g == InterfaceID.TRADECONFIRM)) movedTick = client.getTickCount() + 2;
 		for (int id : MOVE_INTERFACES) if (g == id) lastSuppressCloseTick = client.getTickCount();
@@ -3194,6 +3196,7 @@ public class AnvilPlugin extends Plugin {
 	@Subscribe
 	void onInteractingChanged(InteractingChanged event) {
 		var source = event.getSource();
+		if (source == client.getLocalPlayer() && event.getTarget() instanceof NPC && ((NPC) event.getTarget()).getCombatLevel() > 0) tripOverlay.warn = null; // the fight started: our warning goes
 		if (source == null || source == client.getLocalPlayer()) return; // our own target changing is the other question entirely
 		var name = source.getName();
 		if (empty(name)) return;
@@ -3219,6 +3222,7 @@ public class AnvilPlugin extends Plugin {
 		var ourHit = event.getHitsplat();
 		var actor = event.getActor();
 		var self = client.getLocalPlayer();
+		if (actor == self || ourHit.isMine()) tripOverlay.warn = null; // combat: never a warning up during it
 		// Damage TAKEN — the clock a death is attributed against. ANY hit landing on us counts: the
 		// game draws damage we take with the "me" hitsplats and poison / venom / disease with their
 		// own, so testing isOthers() (damage by another player) missed nearly every hit and every
@@ -4365,6 +4369,7 @@ public class AnvilPlugin extends Plugin {
 		});
 		var state = stateSeen;
 		if (all && state != null && !state.equals(stateSent)) body.add("state", state);
+		if (body.has("bank")) body.addProperty("region", region);
 		if (tripOver) {
 			body.addProperty("tripEnd", true);
 			tripOver = false;
@@ -4444,14 +4449,15 @@ public class AnvilPlugin extends Plugin {
 	void tripTick() {
 		if (tripOut && inTripRegion()) tripOut = false;
 		if (tripAsked && tripDue < 0 && ((tripAway = inTripRegion() || tripOut ? 0 : tripAway + 1) > 16 || tripOut && now() > tripAt)) tripEnd(false);
+		// In the content's fight area (the site's `fight` regions, any instance for a raid): the warning goes.
+		var w = tripOverlay.warn;
+		var v = client.getTopLevelWorldView();
+		if (w != null && (w.has("instance") && v != null && v.isInstance() || w.has("fight") && w.getAsJsonArray("fight").contains(new JsonPrimitive(region)))) tripOverlay.warn = null;
 		if (tripDue < 0 || client.getTickCount() < tripDue) return;
 		tripDue = -1;
-		// The site reads what was pushed: send the bank just closed now, then ask (one executor, in order).
-		itemsAt = Math.min(itemsAt, client.getTickCount() - 5);
-		itemsNextAt = 0;
-		shareItems();
 		var args = Map.of("region", "" + region, "why", "bank-close");
-		submit(() -> { if (sidebarPanel != null) sidebarPanel.showTrip(args); });
+		var open = config.tripAutoOpen();
+		submit(() -> { if (sidebarPanel != null) sidebarPanel.showTrip(args, open); });
 	}
 
 	/** Every item push's guard: signed in and not paused, on a character, sharing on, a site that takes them. */
@@ -4473,6 +4479,7 @@ public class AnvilPlugin extends Plugin {
 			if (v != null) body.add(k, BingoApiClient.obj("items", v));
 		}
 		if (stateSeen != null) body.add("state", stateSeen);
+		body.addProperty("region", region);
 		try {
 			apiClient.postJson("/api/plugin/items", body, "Items push failed", false);
 			log.debug("Anvil trip check: pushed what is held first");
@@ -4514,10 +4521,17 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/** The trip view's answer (AnvilSidebarPanel's load): its {@code warn} goes on screen. */
-	void tripAnswer(JsonObject v) {
-		if (v == null || !config.tripWarning()) return;
+	void tripAnswer(JsonObject v, boolean quiet) {
+		if (v == null || !config.tripWarning() || quiet && !tripOverlay.red()) return;
+		log.debug("Anvil trip check: answered");
 		var w = v.get("warn");
 		tripOverlay.show(w != null && w.isJsonObject() ? w.getAsJsonObject() : null);
+	}
+
+	/** The warning's "Open": the panel opens on the trip card (left there by the bank-close ask). */
+	void tripOpen() {
+		var nav = sidebarNavButton;
+		if (nav != null) invokeLater(() -> clientToolbar.openPanel(nav));
 	}
 
 	void onLootingBagChanged(ItemContainer bag) {

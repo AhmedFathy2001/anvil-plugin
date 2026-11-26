@@ -171,6 +171,8 @@ public class PluginConfigResponse {
 	List<Integer> caVarps;
 	/** Regions where a trip starts (a content's bank or lobby): closing the bank there runs the pre-trip check. Null/empty = off. */
 	List<Integer> tripRegions;
+	/** Each trip region's content, short ("ToA"): the overlay's "Checking ToA…". */
+	Map<Integer, String> tripNames;
 	/**
 	 * Counters read off a varbit/varp (site lib/gameCounters): each
 	 * positive change credits kill tiles targeting the entry's name (GameValueCounters). Null on

@@ -437,4 +437,15 @@ public interface AnvilConfig extends Config {
 	default boolean tripWarning() {
 		return true;
 	}
+
+	@ConfigItem(
+		keyName = "tripAutoOpen",
+		name = "Open the pre-trip check in the panel",
+		description = "Closing the bank before a boss or raid opens the check in the Anvil panel. Off, it stays in Lookup > Guides and on the You tab.",
+		position = 9,
+		section = "profileSection"
+	)
+	default boolean tripAutoOpen() {
+		return true;
+	}
 }

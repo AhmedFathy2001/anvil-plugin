@@ -527,7 +527,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 					if (push) sent.put("held", data.fromPlugin(AnvilPlugin::pushHeld, "signed-out"));
 					return api.fetchUi(view, sent, clan);
 				}, v -> {
-					if (trip && !quiet) data.withPlugin(p -> p.tripAnswer(v));
+					if (trip) data.withPlugin(p -> p.tripAnswer(v, quiet));
 					if (v != null) uiCache.put(key, v);
 					if (v != null || seen == null) done.accept(v); // a failed fetch leaves the remembered answer up
 				});
@@ -732,7 +732,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		invokeLater(() -> {
 			for (var v : new UiView[] {lookupView, youView}) {
 				var l = v.lastLoads.get("null");
-				if (l == null || !ITEM_VIEWS.contains(l[0]) || !v.isShowing()) continue;
+				if (l == null || !ITEM_VIEWS.contains(l[0]) || !v.isShowing() && !("trip".equals(l[0]) && data.fromPlugin(p -> p.tripOverlay.red(), false))) continue;
 				log.debug("Anvil: reloading {} after an item push", l[0]);
 				quietTrip = "trip".equals(l[0]);
 				v.refresh(true);
@@ -741,8 +741,13 @@ public class AnvilSidebarPanel extends PluginPanel {
 	}
 
 	/** The pre-trip check (AnvilPlugin.tripTick): Lookup's Guides pane shows the site's trip view. Any thread. */
-	void showTrip(Map<String, String> args) {
+	void showTrip(Map<String, String> args, boolean open) {
 		freshTrip = true;
+		// Not opened in the panel (tripAutoOpen off): asked all the same, for the overlay only.
+		if (!open) {
+			uiHost().load("trip", args, v -> {});
+			return;
+		}
 		invokeLater(() -> {
 			if (tab != LOOKUP) selectTab(LOOKUP);
 			setLookupMode("Guides", args);
