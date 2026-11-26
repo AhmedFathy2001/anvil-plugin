@@ -732,13 +732,18 @@ public class BingoApiClient {
 		return getOrNull(plainRequest(rootUrl("/api/plugin/chat-flair/v?since=" + v)).get(), ChatFlair.Since.class);
 	}
 
-	/** GET chat-flair/v/&lt;v&gt; — the whole list at a version (CDN-cached, gzipped). Public; null on failure. */
+	/** GET chat-flair/v/&lt;v&gt;?f=1 — the whole list at a version, plain JSON. Public; null on failure. The ?f=1 is a new
+	 * cache key: the CDN still holds the old double-gzipped answers under the bare path for a year. */
 	ChatFlair.Wire fetchChatFlairList(int v) {
-		try {
-			return execute(readClient, plainRequest(rootUrl("/api/plugin/chat-flair/v/" + v)).get(), (r, body) -> {
-				if (!r.isSuccessful()) throw new HttpStatusException("HTTP " + r.code(), r.code());
-				return gson.fromJson(body, ChatFlair.Wire.class);
-			});
+		var req = plainRequest(rootUrl("/api/plugin/chat-flair/v/" + v + "?f=1")).get().build();
+		OffThread.check("HTTP GET " + req.url().encodedPath());
+		try (var r = readClient.newCall(req).execute()) {
+			if (!r.isSuccessful() || r.body() == null) throw new HttpStatusException("HTTP " + r.code(), r.code());
+			// Bytes, not text: an answer still gzipped after OkHttp's own decoding (a proxy compressing
+			// twice) is unwrapped here instead of read as garbage.
+			var b = r.body().bytes();
+			while (b.length > 2 && b[0] == 0x1f && b[1] == (byte) 0x8b) b = new java.util.zip.GZIPInputStream(new java.io.ByteArrayInputStream(b)).readAllBytes();
+			return gson.fromJson(new String(b, java.nio.charset.StandardCharsets.UTF_8), ChatFlair.Wire.class);
 		} catch (RuntimeException | IOException e) {
 			log.warn("Anvil Supporter list v{} failed: {}", v, e.toString());
 			return null;
