@@ -1528,6 +1528,7 @@ public class AnvilPlugin extends Plugin {
 		overlayManager.remove(startProofOverlay);
 		overlayManager.remove(tripOverlay);
 		clientThread.invokeLater(startSpotMarker::clear);
+		clientThread.invokeLater(this::bankTagGone);
 		// OUR WIDGETS ARE OURS TO CLEAR. Disabling the plugin left the buttons sitting in the game's
 		// title bars until the interface happened to be rebuilt — a control for a plugin that is no
 		// longer running, which does nothing when pressed.
@@ -1847,6 +1848,7 @@ public class AnvilPlugin extends Plugin {
 		// inventory changes suppressed (see onItemContainerChanged).
 		int g = event.getGroupId();
 		if (g == InterfaceID.CLANS_STORAGE_MAIN) resetCoffer(false);
+		if (g == InterfaceID.BANKMAIN) bankTagGone();
 		if (g == InterfaceID.BANKMAIN && !tripAsked && (inTripRegion() || tripArmed && siteHas("trip-target")) && config.tripWarning() && siteHas("trip-check")) {
 			tripAsked = true;
 			tripOut = !inTripRegion();
@@ -4485,6 +4487,12 @@ public class AnvilPlugin extends Plugin {
 			else layoutManager.saveLayout(new net.runelite.client.plugins.banktags.tabs.Layout("anvil trip", at));
 			bankTags.openBankTag("anvil trip", at == null ? 4 /* OPTION_NO_LAYOUT */ : 0);
 		});
+	}
+
+	/** Our tag and its layout leave nothing in the player's config: the bank closed, or we stopped. */
+	void bankTagGone() {
+		layoutManager.removeLayout("anvil trip");
+		tagManager.unregisterTag("anvil trip");
 	}
 
 	/** The trip view's answer (AnvilSidebarPanel's load): its {@code warn} goes on screen. */
