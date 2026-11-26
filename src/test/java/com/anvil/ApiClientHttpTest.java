@@ -72,6 +72,20 @@ public class ApiClientHttpTest
 	}
 
 	@Test
+	public void aDeathInsideARaidSaysWhichRaid() throws IOException
+	{
+		BingoApiClient c = client();
+		var death = new AnvilMoments.Moment("death", null, null, 1, null, null, null, null, 1_000L, "death|k");
+		death.raid = "toa";
+		var elsewhere = new AnvilMoments.Moment("death", null, null, 1, null, "Vorkath", "npc", null, 2_000L, "death|v");
+		c.submitMoments(List.of(death, elsewhere));
+		assertTrue(seen.get(0).url().encodedPath().endsWith("/api/plugin/moments"));
+		var sent = new Gson().fromJson(bodies.get(0), com.google.gson.JsonObject.class).getAsJsonArray("moments");
+		assertEquals("toa", sent.get(0).getAsJsonObject().get("raid").getAsString());
+		assertFalse(sent.get(1).getAsJsonObject().has("raid"));
+	}
+
+	@Test
 	public void clogUnlockSendsTheItemWithItsKillOnlyWhenThereIsOne() throws IOException
 	{
 		BingoApiClient c = client();

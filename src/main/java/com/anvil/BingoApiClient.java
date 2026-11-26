@@ -1637,6 +1637,8 @@ public class BingoApiClient {
 			addText(o, "taskName", m.taskName);
 			addText(o, "tier", m.tier);
 			addText(o, "sourceKind", m.sourceKind);
+			// A death inside a raid: which one ("toa", "toa-entry", "cox", "tob"), for a Boss Rush over it.
+			addText(o, "raid", m.raid);
 			out.add(o);
 		}
 		// The reply names each new item hunt drop's screenshot key (AnvilPlugin huntKeys).
