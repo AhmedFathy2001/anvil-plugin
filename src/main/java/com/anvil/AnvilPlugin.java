@@ -4319,10 +4319,13 @@ public class AnvilPlugin extends Plugin {
 
 	void seeItems(int id, ItemContainer c) {
 		var kind = SHARED.get(id);
-		if (kind == null || c == null || !config.shareItems()) return;
+		if (kind == null || !config.shareItems()) return;
+		// No container is an empty one (everything banked): pushed as [] like any change.
 		var m = new TreeMap<Integer, Integer>();
-		for (var it : c.getItems()) if (it.getId() > 0 && it.getQuantity() > 0) m.merge(it.getId(), it.getQuantity(), Integer::sum);
-		itemsSeen.put(kind, apiClient.pairs(m, "id", "q"));
+		if (c != null) for (var it : c.getItems()) if (it.getId() > 0 && it.getQuantity() > 0) m.merge(it.getId(), it.getQuantity(), Integer::sum);
+		var a = apiClient.pairs(m, "id", "q");
+		if (a.equals(itemsSeen.get(kind))) return;
+		itemsSeen.put(kind, a);
 		itemsDirty = true;
 		wornDirty |= id == InventoryID.WORN;
 		itemsAt = client.getTickCount();
@@ -4358,6 +4361,8 @@ public class AnvilPlugin extends Plugin {
 			itemsAt = client.getTickCount();
 		}
 		boolean bank = client.getWidget(InterfaceID.Bankmain.UNIVERSE) != null;
+		// Banking: read worn and inventory afresh (an emptied one may send no change event).
+		if (bank) for (int id : new int[] {InventoryID.WORN, InventoryID.INV}) seeItems(id, client.getItemContainer(id));
 		int quiet = client.getTickCount() - itemsAt;
 		if (!itemsDirty || quiet < 2 || !mayShareItems()) return;
 		boolean all = (bank || quiet >= 5) && now() >= itemsNextAt;
