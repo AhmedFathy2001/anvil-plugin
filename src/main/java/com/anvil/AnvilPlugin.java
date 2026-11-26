@@ -8382,8 +8382,10 @@ public class AnvilPlugin extends Plugin {
 	String raidHere() {
 		var top = client.getTopLevelWorldView();
 		if (top == null || !top.isInstance()) return null;
-		int toa = client.getVarbitValue(VarbitID.TOA_CLIENT_RAID_LEVEL);
-		if (toa > 0) return toa < 150 /* TOA_ENTRY_BELOW */ ? "toa-entry" : "toa";
+		// In a ToA party (a level 0 run reads no raid level at all): the level only says which mode.
+		if (client.getVarbitValue(VarbitID.TOA_CLIENT_PARTYSTATUS) > 0 || client.getVarbitValue(VarbitID.TOA_CLIENT_RAID_LEVEL) > 0) {
+			return client.getVarbitValue(VarbitID.TOA_CLIENT_RAID_LEVEL) < 150 /* TOA_ENTRY_BELOW */ ? "toa-entry" : "toa";
+		}
 		if (client.getVarbitValue(VarbitID.RAIDS_CLIENT_INDUNGEON) == 1) return "cox";
 		return client.getVarbitValue(VarbitID.TOB_CLIENT_PARTYSTATUS) > 0 ? "tob" : null;
 	}
@@ -8633,7 +8635,7 @@ public class AnvilPlugin extends Plugin {
 	/** The suppression reason for the shared config gates, or null when tracking is live. */
 	String trackingGateReason() {
 		var c = pluginConfig;
-		return c == null ? "no event config" : !c.live() ? "no live board" : c.quiet ? "world not counted" : null;
+		return c == null ? "no event config" : !c.live() && !c.rushLive() ? "no live board" : c.quiet ? "world not counted" : null;
 	}
 
 	/* -------------------------------------------------------------- */

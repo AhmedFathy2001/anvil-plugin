@@ -138,6 +138,13 @@ public class PluginConfigResponse {
 		return boards != null && !boards.isEmpty();
 	}
 
+	/** Set while this character is in a running Boss Rush: its kills are reported with no board live. */
+	Boolean rush;
+
+	boolean rushLive() {
+		return Boolean.TRUE.equals(rush);
+	}
+
 	/** Is this board one of them? */
 	boolean live(int eventId) {
 		return boards != null && boards.stream().anyMatch(b -> b.eventId == eventId);

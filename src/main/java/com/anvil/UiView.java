@@ -1497,8 +1497,17 @@ class UiView extends JPanel {
 	JComponent countdown(JsonObject n) {
 		var l = label("", font(str(n, "font")), color(str(n, "color"), Color.WHITE));
 		var at = utcMillis(str(n, "at"));
+		// A clock that runs out while on screen asks for the page again: what it counted down to (a
+		// start, an end) has changed it. Once, a few seconds on, so the site's own clock has turned too.
+		var armed = new boolean[]{at > System.currentTimeMillis()};
 		Runnable paint = () -> {
 			var secs = max(0, (at - System.currentTimeMillis()) / 1000);
+			if (armed[0] && secs == 0) {
+				armed[0] = false;
+				var later = new Timer(3_000 /* DUE_REFRESH_MS */, e -> refresh(true));
+				later.setRepeats(false);
+				later.start();
+			}
 			// Past a day, "4d 4h" — "100:15:48" reads as a clock, not as four days.
 			var clock = secs >= 86400
 				? String.format(Locale.ROOT, "%dd %dh", secs / 86400, secs % 86400 / 3600)
