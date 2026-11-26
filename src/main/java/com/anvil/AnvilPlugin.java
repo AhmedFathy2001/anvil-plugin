@@ -1839,8 +1839,9 @@ public class AnvilPlugin extends Plugin {
 		// inventory changes suppressed (see onItemContainerChanged).
 		int g = event.getGroupId();
 		if (g == InterfaceID.CLANS_STORAGE_MAIN) resetCoffer(false);
-		if (g == InterfaceID.BANKMAIN && !tripAsked && inTripRegion() && config.tripWarning() && siteHas("trip-check")) {
+		if (g == InterfaceID.BANKMAIN && !tripAsked && (inTripRegion() || tripArmed && siteHas("trip-target")) && config.tripWarning() && siteHas("trip-check")) {
 			tripAsked = true;
+			tripOut = !inTripRegion();
 			tripDue = client.getTickCount() + 2;
 		}
 		if (movedFrom != null && (g == InterfaceID.SHARED_BANK || g == InterfaceID.TRADEMAIN || g == InterfaceID.TRADECONFIRM)) movedTick = client.getTickCount() + 2;
@@ -2520,7 +2521,7 @@ public class AnvilPlugin extends Plugin {
 			itemsSeen.clear(); // another character may log in next
 			itemsSent.clear();
 			stateSent = null;
-			tripEnd();
+			tripEnd(true);
 			tripOverlay.warn = null;
 			recentDropLines.clear();
 			chestLineCredits.clear();
@@ -3459,7 +3460,7 @@ public class AnvilPlugin extends Plugin {
 				var firstSeen = !killCounts.containsKey(kcKey);
 				int kc = Integer.parseInt(kcMatcher.group("count").replace(",", ""));
 				killCounts.put(kcKey, kc);
-				tripEnd();
+				tripEnd(false);
 				lastKcName = kcName;
 				lastKcValue = kc;
 				lastKcAtMs = now();
@@ -4352,13 +4353,17 @@ public class AnvilPlugin extends Plugin {
 		});
 		var state = stateSeen;
 		if (all && state != null && !state.equals(stateSent)) body.add("state", state);
+		if (tripOver) {
+			body.addProperty("tripEnd", true);
+			tripOver = false;
+		}
 		if (body.size() == 0) return;
 		wornNextAt = now() + 4_000;
 		if (all) itemsNextAt = now() + 20_000;
 		submit(() -> {
 			try {
 				if (!config.shareItems()) return; // turned off while this waited
-				apiClient.postJson("/api/plugin/items", body, "Items push failed", false);
+				tripArmed = apiClient.postJson("/api/plugin/items", body, "Items push failed", false).contains("\"armed\":true");
 				if (body.remove("state") != null) stateSent = state;
 				body.keySet().forEach(k -> itemsSent.put(k, body.getAsJsonObject(k).getAsJsonArray("items")));
 				if (body.has("equipment") && sidebarPanel != null) sidebarPanel.wornGearSent();
@@ -4371,8 +4376,10 @@ public class AnvilPlugin extends Plugin {
 
 	// PRE-TRIP CHECK: closing the bank in a site-named trip region asks the site's "trip" view once per trip;
 	// a KC/completion line, a death, logging out or ~10s out of those regions ends the trip. The site judges.
+	// Armed (the site's next-trip target, its item-push answer): any bank asks, once until the trip ends.
 	volatile JsonObject stateSeen, stateSent;
-	boolean tripAsked;
+	volatile boolean tripArmed, tripOver;
+	boolean tripAsked, tripOut;
 	int tripDue = -1, tripAway;
 	static final int[][] POUCH = {{VarbitID.RUNE_POUCH_TYPE_1, VarbitID.RUNE_POUCH_QUANTITY_1}, {VarbitID.RUNE_POUCH_TYPE_2, VarbitID.RUNE_POUCH_QUANTITY_2},
 		{VarbitID.RUNE_POUCH_TYPE_3, VarbitID.RUNE_POUCH_QUANTITY_3}, {VarbitID.RUNE_POUCH_TYPE_4, VarbitID.RUNE_POUCH_QUANTITY_4}};
@@ -4403,13 +4410,18 @@ public class AnvilPlugin extends Plugin {
 		return c != null && c.tripRegions != null && c.tripRegions.contains(region);
 	}
 
-	void tripEnd() {
+	/** {@code over}: a death, logout or hop, which also ends the site's target. */
+	void tripEnd(boolean over) {
 		tripAsked = false;
 		tripAway = 0;
+		if (over) {
+			tripArmed = false;
+			tripOver = true;
+		}
 	}
 
 	void tripTick() {
-		if (tripAsked && tripDue < 0 && (tripAway = inTripRegion() ? 0 : tripAway + 1) > 16) tripEnd();
+		if (tripAsked && tripDue < 0 && (tripAway = inTripRegion() || tripOut ? 0 : tripAway + 1) > 16) tripEnd(false);
 		if (tripDue < 0 || client.getTickCount() < tripDue) return;
 		tripDue = -1;
 		// The site reads what was pushed: send the bank just closed now, then ask (one executor, in order).
@@ -8460,7 +8472,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	void ownDeath() {
 		ownDeathAt = now();
-		tripEnd();
+		tripEnd(true);
 		// LMS: dying while the BR HUD reads N survivors means we placed Nth. Record before
 		// the notification gates — placement tracking is independent of death notifications.
 		// A counter never read (0) is an unknown place, not 2nd: guessing 2nd credited top-2
