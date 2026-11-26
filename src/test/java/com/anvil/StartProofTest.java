@@ -294,5 +294,14 @@ public class StartProofTest
 		assertTrue("unknown session", !StartProofRules.autoReady(sp, StartProofRules.UNKNOWN_LOGIN, now, 3329, 3233, still));
 		assertTrue("no pin, nobody vouching", !StartProofRules.autoReady(owed(), fresh, now, 3329, 3233, still));
 	}
-}
 
+	@Test
+	public void hostSwitchesDefaultOnForOlderSites()
+	{
+		Gson g = new Gson();
+		PluginConfigResponse.StartProof old = g.fromJson("{\"required\":true}", PluginConfigResponse.StartProof.class);
+		assertTrue(old.auto() && old.guide());
+		PluginConfigResponse.StartProof off = g.fromJson("{\"autoShot\":false,\"guide\":false}", PluginConfigResponse.StartProof.class);
+		assertTrue(!off.auto() && !off.guide());
+	}
+}

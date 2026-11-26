@@ -144,11 +144,6 @@ public class AnvilSidebarDataSource {
 		return fromPlugin(p -> p.startProofChecks(proof), Collections.emptyList());
 	}
 
-	/** Will the plugin take the starting shot by itself once the checks pass? (config autoStartShot) */
-	boolean autoStartShot() {
-		return fromPlugin(AnvilPlugin::autoStartShotEnabled, false);
-	}
-
 	/** Ask Shortest Path for a route to the starting shot's spot. */
 	void routeToStartSpot() {
 		withPlugin(AnvilPlugin::routeToStartSpot);

@@ -209,6 +209,19 @@ public class PluginConfigResponse {
 		String windowEndsAt;
 		/** "pending" | "accepted" | "rejected", or null when nothing is on file. */
 		String status;
+		/**
+		 * The host's switches: take the shot by itself once every check is green, and show the guide
+		 * (on-screen card, hint arrow, map pin). Null on sites that predate them: both on.
+		 */
+		Boolean autoShot, guide;
+
+		boolean auto() {
+			return autoShot == null || autoShot;
+		}
+
+		boolean guide() {
+			return guide == null || guide;
+		}
 
 		/** The drawn spot on the world map: where, and how many squares from it still counts. */
 		static class Spot {

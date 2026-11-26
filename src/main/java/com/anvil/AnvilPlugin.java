@@ -1201,7 +1201,6 @@ public class AnvilPlugin extends Plugin {
 		tileTracker.setDoneHooks(
 			id -> later(() -> safely("tileTracker", () -> tileTracker.refresh(id)), TileTracker.DONE_LINGER_MS + 1_000),
 			this::boardChanged);
-		tileTracker.setOnePanel(config.trackerOnePanel());
 		tileTracker.startUp();
 		overlayManager.add(startProofOverlay);
 		overlayManager.add(tripOverlay);
@@ -1800,7 +1799,6 @@ public class AnvilPlugin extends Plugin {
 		if (isInternalStateKey(key)) return;
 		configureApiClient();
 		if ("profileLookupMenu".equals(key) || "lookupPlayers".equals(key)) profileLookup.syncPlayerItem();
-		if ("trackerOnePanel".equals(key)) tileTracker.setOnePanel(config.trackerOnePanel());
 		if ("chatFeed".equals(key) || "anvilChat".equals(key)) {
 			syncPush();
 			submit(() -> safely("pushGuestChannel", this::pushGuestChannel));
@@ -2281,7 +2279,7 @@ public class AnvilPlugin extends Plugin {
 		maybeAutoStartProof(here);
 		var cfgNow = pluginConfig;
 		var sp = cfgNow == null ? null : cfgNow.startProof;
-		startSpotMarker.update(here != null && config.startSpotGuide() && cfgNow != null ? StartSpotMarker.target(sp) : null, sp != null ? sp.location : null);
+		startSpotMarker.update(here != null && sp != null && sp.guide() ? StartSpotMarker.target(sp) : null, sp != null ? sp.location : null);
 		resolveDuplicateScroll();
 		trackClogOpen();
 		flushModeLines();
@@ -5366,19 +5364,16 @@ public class AnvilPlugin extends Plugin {
 
 	/** Client thread, every tick: take the starting shot unprompted once every check is green. */
 	void maybeAutoStartProof(WorldPoint here) {
-		if (here == null || autoStartProofTried || startProofInFlight || !config.autoStartShot()) return;
 		var cfg = pluginConfig;
 		var proof = cfg == null ? null : cfg.startProof;
+		// The event's own switch (site-set; on where the site predates it).
+		if (here == null || autoStartProofTried || startProofInFlight || proof == null || !proof.auto()) return;
 		if (!StartProofRules.autoReady(proof, sessionLoginAtMs, now(),
 				here.getX(), here.getY(), startProofStillTicks)) return;
 		autoStartProofTried = true;
 		sendChatMessage("Checks passed at " + (proof.location != null ? proof.location : "the start spot")
 				+ " — taking your starting shot.");
 		captureStartProofOnClientThread();
-	}
-
-	boolean autoStartShotEnabled() {
-		return config.autoStartShot();
 	}
 
 	/** Whether a starting shot is being taken and sent right now. */
@@ -7416,7 +7411,7 @@ public class AnvilPlugin extends Plugin {
 		int me = cfg != null && cfg.player != null ? cfg.player.id : 0;
 		if ("tile".equals(kind)) {
 			tileTracker.pushed(eventId, m.get("tileId").getAsInt(),
-					gson.fromJson(m.get("progress"), TileTracker.Progress.class), myTeam, me);
+					gson.fromJson(m.get("progress"), TileTracker.Progress.class), myTeam);
 			return;
 		}
 		var ours = cfg != null && cfg.event != null && cfg.event.id == eventId && myTeam == m.get("teamId").getAsInt();
@@ -7625,7 +7620,7 @@ public class AnvilPlugin extends Plugin {
 		var left = StartProofRules.describeWindow(sp, now());
 		sendChatMessage(WARN, "Starting shot needed before you play"
 				+ (!empty(sp.location) ? " — go to " + sp.location : "")
-				+ (sp.spot != null && config.autoStartShot()
+				+ (sp.spot != null && sp.auto()
 						? ". Stand there and it's taken and sent for you (or press \"Take starting shot\" in the Anvil side panel)."
 						: ". Open the Anvil side panel and press \"Take starting shot\".")
 				+ (sp.maxSessionMinutes > 0

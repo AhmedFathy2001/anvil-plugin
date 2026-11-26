@@ -1717,7 +1717,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			addAll(card, gap(2), expires);
 		}
 
-		if (proof.spot != null && data.autoStartShot()) {
+		if (proof.spot != null && proof.auto()) {
 			addAll(card, gap(2), small("Taken and sent automatically once both are green.", LIGHT_GRAY_COLOR));
 
 		}

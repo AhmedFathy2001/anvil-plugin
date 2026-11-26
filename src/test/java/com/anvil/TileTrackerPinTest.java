@@ -8,7 +8,7 @@ import static org.junit.Assert.*;
 /** Pins always end in a real state: restored (old or new format), loaded, or let go — never "loading" for good. */
 public class TileTrackerPinTest {
 	private static TileTracker.Widget pin() {
-		return new TileTracker.Widget(0, 7, (id, site) -> site);
+		return new TileTracker.Widget(7, (id, site) -> site);
 	}
 
 	@Test
@@ -56,7 +56,7 @@ public class TileTrackerPinTest {
 		TileTracker t = new TileTracker(null, null, null);
 		java.util.List<String> said = new java.util.ArrayList<>();
 		t.setBoards(java.util.Collections::emptyList, said::add);
-		for (int id = 1; id <= TileTracker.MAX_PINS; id++) t.pins.put(id, new TileTracker.Widget(id - 1, id, (x, site) -> site));
+		for (int id = 1; id <= TileTracker.MAX_PINS; id++) t.pins.put(id, new TileTracker.Widget(id, (x, site) -> site));
 		t.set(0, 1, true); // already pinned: nothing to say
 		assertTrue(said.isEmpty());
 		t.set(0, 9, true);
