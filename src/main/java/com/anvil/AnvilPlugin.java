@@ -80,8 +80,13 @@ import java.util.concurrent.locks.*;
 		// output that was already dragged into Discord.
 		legacyDataDirectory = "osrs-bingo-pending"
 )
-
+@PluginDependency(net.runelite.client.plugins.banktags.BankTagsPlugin.class)
 public class AnvilPlugin extends Plugin {
+	@Inject
+	net.runelite.client.plugins.banktags.TagManager tagManager;
+
+	@Inject
+	net.runelite.client.plugins.banktags.BankTagsService bankTags;
 
 	@Inject
 	Client client;
@@ -1842,6 +1847,7 @@ public class AnvilPlugin extends Plugin {
 		if (g == InterfaceID.BANKMAIN && !tripAsked && (inTripRegion() || tripArmed && siteHas("trip-target")) && config.tripWarning() && siteHas("trip-check")) {
 			tripAsked = true;
 			tripOut = !inTripRegion();
+			tripAt = now() + 600_000;
 			tripDue = client.getTickCount() + 2;
 		}
 		if (movedFrom != null && (g == InterfaceID.SHARED_BANK || g == InterfaceID.TRADEMAIN || g == InterfaceID.TRADECONFIRM)) movedTick = client.getTickCount() + 2;
@@ -4377,10 +4383,12 @@ public class AnvilPlugin extends Plugin {
 	// PRE-TRIP CHECK: closing the bank in a site-named trip region asks the site's "trip" view once per trip;
 	// a KC/completion line, a death, logging out or ~10s out of those regions ends the trip. The site judges.
 	// Armed (the site's next-trip target, its item-push answer): any bank asks, once until the trip ends.
+	// Asked outside them: entering one (then leaving) or 10 minutes ends that trip too.
 	volatile JsonObject stateSeen, stateSent;
 	volatile boolean tripArmed, tripOver;
 	boolean tripAsked, tripOut;
 	int tripDue = -1, tripAway;
+	long tripAt;
 	static final int[][] POUCH = {{VarbitID.RUNE_POUCH_TYPE_1, VarbitID.RUNE_POUCH_QUANTITY_1}, {VarbitID.RUNE_POUCH_TYPE_2, VarbitID.RUNE_POUCH_QUANTITY_2},
 		{VarbitID.RUNE_POUCH_TYPE_3, VarbitID.RUNE_POUCH_QUANTITY_3}, {VarbitID.RUNE_POUCH_TYPE_4, VarbitID.RUNE_POUCH_QUANTITY_4}};
 
@@ -4402,6 +4410,11 @@ public class AnvilPlugin extends Plugin {
 		if (client.getVarbitValue(VarbitID.PRAYER_RIGOUR_UNLOCKED) == 1) pray.add("rigour");
 		if (client.getVarbitValue(VarbitID.PRAYER_AUGURY_UNLOCKED) == 1) pray.add("augury");
 		s.add("pray", pray);
+		// Dizana's quiver's ammo (the site reads it only while a quiver is worn or carried).
+		var q = new JsonArray();
+		q.add(client.getVarpValue(VarPlayerID.DIZANAS_QUIVER_TEMP_AMMO));
+		q.add(client.getVarpValue(VarPlayerID.DIZANAS_QUIVER_TEMP_AMMO_AMOUNT));
+		s.add("quiver", q);
 		return s;
 	}
 
@@ -4421,7 +4434,8 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	void tripTick() {
-		if (tripAsked && tripDue < 0 && (tripAway = inTripRegion() || tripOut ? 0 : tripAway + 1) > 16) tripEnd(false);
+		if (tripOut && inTripRegion()) tripOut = false;
+		if (tripAsked && tripDue < 0 && ((tripAway = inTripRegion() || tripOut ? 0 : tripAway + 1) > 16 || tripOut && now() > tripAt)) tripEnd(false);
 		if (tripDue < 0 || client.getTickCount() < tripDue) return;
 		tripDue = -1;
 		// The site reads what was pushed: send the bank just closed now, then ask (one executor, in order).
@@ -4430,6 +4444,30 @@ public class AnvilPlugin extends Plugin {
 		shareItems();
 		var args = Map.of("region", "" + region, "why", "bank-close");
 		submit(() -> { if (sidebarPanel != null) sidebarPanel.showTrip(args); });
+	}
+
+	/** Before every trip check: what is worn and carried now, so it never judges an older push. Blocking. */
+	void pushHeld() {
+		var body = new JsonObject();
+		for (var k : new String[] {"equipment", "inventory"}) {
+			var v = itemsSeen.get(k);
+			if (v != null) body.add(k, BingoApiClient.obj("items", v));
+		}
+		if (stateSeen != null) body.add("state", stateSeen);
+		if (config.shareItems() && body.size() > 0) try {
+			apiClient.postJson("/api/plugin/items", body, "Items push failed", false);
+		} catch (Exception ignored) {
+		}
+	}
+
+	/** A trip row's "show in bank": the bank shows only these ids (a Bank Tags tag of ours), display only. */
+	void bankFilter(String ids) {
+		var set = new HashSet<Integer>();
+		for (var s : ids.split(",")) if (s.matches("\\d+")) set.add(Integer.parseInt(s));
+		clientThread.invoke(() -> {
+			tagManager.registerTag("anvil trip", set::contains);
+			bankTags.openBankTag("anvil trip", 4 /* OPTION_NO_LAYOUT */);
+		});
 	}
 
 	/** The trip view's answer (AnvilSidebarPanel's load): its {@code warn} goes on screen. */
@@ -6078,6 +6116,7 @@ public class AnvilPlugin extends Plugin {
 		if (ex != null) ex.schedule(() -> apiClient.interactiveExecutor().execute(() -> safely("chat flair", r)), ms, TimeUnit.MILLISECONDS);
 	}, () -> ThreadLocalRandom.current().nextLong(20_000 /* JITTER_MS */), this::chatFlairChanged);
 	volatile boolean chatFlairSeeded;
+	volatile String chatFlairFile;
 	ScheduledFuture<?> chatFlairSave;
 	// Broadcasts whose text starts with a player's name ("Nisbro HCM has completed a quest: …").
 	static final Set<ChatMessageType> FLAIR_BROADCASTS = EnumSet.of(
@@ -6108,9 +6147,17 @@ public class AnvilPlugin extends Plugin {
 	void maybeRefreshChatFlair() {
 		if (!flairOn() && !menusFlair() || !apiClient.isConfigured()) return;
 		var rc = responseCache;
+		// One list per site (prod's names never on beta).
+		var file = ResponseDiskCache.CHAT_FLAIR + DiskFiles.fingerprint(apiClient.getApiUrl());
+		if (!file.equals(chatFlairFile)) {
+			chatFlairFile = file;
+			chatFlairSeeded = false;
+			chatFlairFetchedAt = 0;
+			chatFlair.held = new ChatFlair().held;
+		}
 		if (!chatFlairSeeded && rc != null) {
 			chatFlairSeeded = true;
-			if (chatFlair.adopt(rc.loadShared(ResponseDiskCache.CHAT_FLAIR, ChatFlair.Wire.class))) repaintFlair();
+			if (chatFlair.adopt(rc.loadShared(file, ChatFlair.Wire.class))) repaintFlair();
 		}
 		var at = now();
 		if (at - chatFlairFetchedAt < (10 * 60_000L) /* CHAT_FLAIR_EVERY_MS */) return;
@@ -6123,10 +6170,11 @@ public class AnvilPlugin extends Plugin {
 		repaintFlair();
 		var ex = executor;
 		var rc = responseCache;
-		if (ex == null || rc == null) return;
+		var file = chatFlairFile;
+		if (ex == null || rc == null || file == null) return;
 		synchronized (chatFlairSync) {
 			if (chatFlairSave == null || chatFlairSave.isDone()) chatFlairSave = ex.schedule(() -> apiClient.interactiveExecutor().execute(
-					() -> rc.storeShared(ResponseDiskCache.CHAT_FLAIR, chatFlair.toWire())), 5, TimeUnit.SECONDS);
+					() -> rc.storeShared(file, chatFlair.toWire())), 5, TimeUnit.SECONDS);
 		}
 	}
 

@@ -26,9 +26,9 @@ import net.runelite.client.util.*;
 class ResponseDiskCache {
 	static final String CONFIG = "config";
 	static final String CHAT_PATTERNS = "chat-patterns";
-	/** The Supporter name list (ChatFlair): public, the same for every account, so one shared file.
+	/** The Supporter name list (ChatFlair): public, the same for every account: one file per site.
 	 * Renamed whenever the wire gains a field: an old file at the same version would never refetch. */
-	static final String CHAT_FLAIR = "chat-flair-2";
+	static final String CHAT_FLAIR = "chat-flair-3-";
 
 	/** One saved answer. */
 	static class Entry {

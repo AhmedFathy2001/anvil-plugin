@@ -518,7 +518,10 @@ public class AnvilSidebarPanel extends PluginPanel {
 				var trip = "trip".equals(view); // a fresh check every time: its warn goes on screen
 				var seen = trip ? null : uiCache.get(key);
 				if (seen != null) done.accept(seen);
-				async(() -> api.fetchUi(view, sent, clan), v -> {
+				async(() -> {
+					if (trip) data.withPlugin(AnvilPlugin::pushHeld);
+					return api.fetchUi(view, sent, clan);
+				}, v -> {
 					if (trip) data.withPlugin(p -> p.tripAnswer(v));
 					if (v != null) uiCache.put(key, v);
 					if (v != null || seen == null) done.accept(v); // a failed fetch leaves the remembered answer up
@@ -568,11 +571,18 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 			public void post(String act, Map<String, String> args, Map<String, String> fields, Consumer<JsonObject> done) {
 				uiCache.clear();
-				async(() -> api.postUi(act, args, fields), done);
+				async(() -> {
+					if (act.startsWith("trip")) data.withPlugin(AnvilPlugin::pushHeld);
+					return api.postUi(act, args, fields);
+				}, done);
 			}
 
 			public void site(String path) {
 				LinkBrowser.browse(api.siteLink(path));
+			}
+
+			public void bank(String ids) {
+				data.withPlugin(p -> p.bankFilter(ids));
 			}
 
 			public void copy(String path) {

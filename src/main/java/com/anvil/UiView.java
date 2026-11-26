@@ -47,6 +47,10 @@ class UiView extends JPanel {
 
 		void site(String path);
 
+		/** Show only these items in the bank (comma-separated ids). */
+		default void bank(String ids) {
+		}
+
 		/** Fetch a site path and put its {@code text} on the clipboard (a guide's bank tag, setup, markers). */
 		default void copy(String path) {
 		}
@@ -381,6 +385,9 @@ class UiView extends JPanel {
 				if (!path.startsWith("/") || path.startsWith("//") || path.indexOf('\\') >= 0) break;
 				if (kind.equals("copy")) host.copy(path);
 				else host.site(path);
+				break;
+			case "bank":
+				host.bank(str(a, "ids"));
 				break;
 			case "lookup":
 				host.lookup(str(a, "rsn"));
