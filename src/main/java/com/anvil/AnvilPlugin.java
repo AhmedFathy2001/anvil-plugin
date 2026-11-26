@@ -89,6 +89,9 @@ public class AnvilPlugin extends Plugin {
 	net.runelite.client.plugins.banktags.BankTagsService bankTags;
 
 	@Inject
+	net.runelite.client.plugins.banktags.tabs.LayoutManager layoutManager;
+
+	@Inject
 	Client client;
 
 	@Inject
@@ -4471,12 +4474,16 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/** A trip row's "show in bank": the bank shows only these ids (a Bank Tags tag of ours), display only. */
-	void bankFilter(String ids) {
+	void bankFilter(String ids, String layout) {
 		var set = new HashSet<Integer>();
 		for (var s : ids.split(",")) if (s.matches("\\d+")) set.add(Integer.parseInt(s));
+		// With a layout (the site's paper doll and supply rows): the tag is laid out that way.
+		var at = layout.isEmpty() ? null : Arrays.stream(layout.split(",")).mapToInt(s -> s.matches("-?\\d+") ? Integer.parseInt(s) : -1).toArray();
 		clientThread.invoke(() -> {
 			tagManager.registerTag("anvil trip", set::contains);
-			bankTags.openBankTag("anvil trip", 4 /* OPTION_NO_LAYOUT */);
+			if (at == null) layoutManager.removeLayout("anvil trip");
+			else layoutManager.saveLayout(new net.runelite.client.plugins.banktags.tabs.Layout("anvil trip", at));
+			bankTags.openBankTag("anvil trip", at == null ? 4 /* OPTION_NO_LAYOUT */ : 0);
 		});
 	}
 

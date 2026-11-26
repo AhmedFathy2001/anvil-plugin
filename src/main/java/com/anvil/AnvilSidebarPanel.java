@@ -587,8 +587,8 @@ public class AnvilSidebarPanel extends PluginPanel {
 				freshTrip = true;
 			}
 
-			public void bank(String ids) {
-				data.withPlugin(p -> p.bankFilter(ids));
+			public void bank(String ids, String layout) {
+				data.withPlugin(p -> p.bankFilter(ids, layout));
 			}
 
 			public void copy(String path) {
