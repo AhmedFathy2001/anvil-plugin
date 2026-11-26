@@ -521,11 +521,13 @@ public class AnvilSidebarPanel extends PluginPanel {
 				// Only a check the player asked for (bank close, a click) pushes what is held first.
 				var push = trip && freshTrip;
 				if (push) freshTrip = false;
+				var quiet = trip && quietTrip;
+				if (quiet) quietTrip = false;
 				async(() -> {
 					if (push) data.withPlugin(AnvilPlugin::pushHeld);
 					return api.fetchUi(view, sent, clan);
 				}, v -> {
-					if (trip) data.withPlugin(p -> p.tripAnswer(v));
+					if (trip && !quiet) data.withPlugin(p -> p.tripAnswer(v));
 					if (v != null) uiCache.put(key, v);
 					if (v != null || seen == null) done.accept(v); // a failed fetch leaves the remembered answer up
 				});
@@ -721,7 +723,22 @@ public class AnvilSidebarPanel extends PluginPanel {
 	}
 
 	/** Players, Clans, or Guides (the site's guide search); the one Players | Clans | Guides switch stays above all three. */
-	volatile boolean freshTrip;
+	volatile boolean freshTrip, quietTrip;
+	/** Views that show the character's items: asked again after each item push while on screen. */
+	static final Set<String> ITEM_VIEWS = Set.of("trip", "guide", "you");
+
+	/** An item push landed (AnvilPlugin.shareItems): a view showing items asks again, the overlay left alone. Any thread. */
+	void itemsPushed() {
+		invokeLater(() -> {
+			for (var v : new UiView[] {lookupView, youView}) {
+				var l = v.lastLoads.get("null");
+				if (l == null || !ITEM_VIEWS.contains(l[0]) || !v.isShowing()) continue;
+				log.debug("Anvil: reloading {} after an item push", l[0]);
+				quietTrip = "trip".equals(l[0]);
+				v.refresh(true);
+			}
+		});
+	}
 
 	/** The pre-trip check (AnvilPlugin.tripTick): Lookup's Guides pane shows the site's trip view. Any thread. */
 	void showTrip(Map<String, String> args) {

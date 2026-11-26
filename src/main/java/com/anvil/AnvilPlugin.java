@@ -4365,13 +4365,15 @@ public class AnvilPlugin extends Plugin {
 		}
 		if (body.size() == 0) return;
 		wornNextAt = now() + 4_000;
-		if (all) itemsNextAt = now() + 20_000;
+		if (all) itemsNextAt = now() + 6_000;
 		submit(() -> {
 			try {
 				if (!config.shareItems()) return; // turned off while this waited
 				tripArmed = apiClient.postJson("/api/plugin/items", body, "Items push failed", false).contains("\"armed\":true");
 				if (body.remove("state") != null) stateSent = state;
 				body.keySet().forEach(k -> itemsSent.put(k, body.getAsJsonObject(k).getAsJsonArray("items")));
+				log.debug("Anvil items pushed: {}", body.keySet());
+				if (sidebarPanel != null && body.size() > 0) sidebarPanel.itemsPushed();
 				if (body.has("equipment") && sidebarPanel != null) sidebarPanel.wornGearSent();
 			} catch (Exception e) {
 				itemsDirty = true;
@@ -4455,14 +4457,16 @@ public class AnvilPlugin extends Plugin {
 	void pushHeld() {
 		if (!mayShareItems()) return;
 		var body = new JsonObject();
-		for (var k : new String[] {"equipment", "inventory"}) {
+		for (var k : new String[] {"equipment", "inventory", "bank"}) {
 			var v = itemsSeen.get(k);
 			if (v != null) body.add(k, BingoApiClient.obj("items", v));
 		}
 		if (stateSeen != null) body.add("state", stateSeen);
 		if (body.size() > 0) try {
 			apiClient.postJson("/api/plugin/items", body, "Items push failed", false);
-		} catch (Exception ignored) {
+			log.debug("Anvil trip check: pushed what is held first");
+		} catch (Exception e) {
+			log.debug("Anvil trip check: push failed", e);
 		}
 	}
 
