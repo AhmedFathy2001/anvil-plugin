@@ -92,6 +92,9 @@ public class AnvilPlugin extends Plugin {
 	net.runelite.client.plugins.banktags.tabs.LayoutManager layoutManager;
 
 	@Inject
+	net.runelite.client.plugins.banktags.tabs.TabManager tabManager;
+
+	@Inject
 	Client client;
 
 	@Inject
@@ -4482,9 +4485,18 @@ public class AnvilPlugin extends Plugin {
 		// With a layout (the site's paper doll and supply rows): the tag is laid out that way.
 		var at = layout.isEmpty() ? null : Arrays.stream(layout.split(",")).mapToInt(s -> s.matches("-?\\d+") ? Integer.parseInt(s) : -1).toArray();
 		clientThread.invoke(() -> {
+			bankTagGone();
 			tagManager.registerTag("anvil trip", set::contains);
-			if (at == null) layoutManager.removeLayout("anvil trip");
-			else layoutManager.saveLayout(new net.runelite.client.plugins.banktags.tabs.Layout("anvil trip", at));
+			if (at != null) {
+				layoutManager.saveLayout(new net.runelite.client.plugins.banktags.tabs.Layout("anvil trip", at));
+				// The hub's Bank Tag Layouts lays a purely virtual tag out flat over ours; it leaves a real
+				// tab's core layout alone. In memory only (never saved): bankTagGone takes it away.
+				var tab = new net.runelite.client.plugins.banktags.tabs.TagTab();
+				tab.setTag("anvil trip");
+				tab.setIconItemId(ItemID.BANK_FILLER);
+				tabManager.add(tab);
+			}
+			log.debug("Anvil bank filter: {} ids, layout {}", set.size(), at == null ? 0 : at.length);
 			bankTags.openBankTag("anvil trip", at == null ? 4 /* OPTION_NO_LAYOUT */ : 0);
 		});
 	}
@@ -4493,6 +4505,7 @@ public class AnvilPlugin extends Plugin {
 	void bankTagGone() {
 		layoutManager.removeLayout("anvil trip");
 		tagManager.unregisterTag("anvil trip");
+		if (tabManager.find("anvil trip") != null) tabManager.remove("anvil trip");
 	}
 
 	/** The trip view's answer (AnvilSidebarPanel's load): its {@code warn} goes on screen. */
