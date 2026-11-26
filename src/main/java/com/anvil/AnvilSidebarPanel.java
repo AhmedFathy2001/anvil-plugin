@@ -524,7 +524,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 				var quiet = trip && quietTrip;
 				if (quiet) quietTrip = false;
 				async(() -> {
-					if (push) data.withPlugin(AnvilPlugin::pushHeld);
+					if (push) sent.put("held", data.fromPlugin(AnvilPlugin::pushHeld, "signed-out"));
 					return api.fetchUi(view, sent, clan);
 				}, v -> {
 					if (trip && !quiet) data.withPlugin(p -> p.tripAnswer(v));
@@ -1249,6 +1249,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 					// after leaving the tab and coming back.
 					if (manual) youView.refresh();
 				} else if (tab == LOOKUP && manual) {
+					freshTrip = true; // Refresh is a check the player asked for
 					lookupView.refresh();
 				} else if (tab == SETTINGS) {
 					renderSettings(); // admin rights and the sound list can change under it

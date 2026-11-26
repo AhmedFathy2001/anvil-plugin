@@ -4462,19 +4462,26 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/** Before a trip check the player asked for (bank close, a click): what is worn and carried now. Blocking. */
-	void pushHeld() {
-		if (!mayShareItems()) return;
+	String pushHeld() {
+		// Why not, for the card ("held" arg) and the log; "1" = pushed.
+		var no = !apiClient.isConfigured() ? (apiClient.isAccountPaused() ? "paused" : "signed-out") : apiClient.getCurrentRsn() == null ? "no-character" : !config.shareItems() ? "sharing-off" : !siteHas("guides-panel") ? "no-site" : null;
+		if (no != null) {
+			log.debug("Anvil trip check: push skipped, {}", no);
+			return no;
+		}
 		var body = new JsonObject();
 		for (var k : new String[] {"equipment", "inventory", "bank"}) {
 			var v = itemsSeen.get(k);
 			if (v != null) body.add(k, BingoApiClient.obj("items", v));
 		}
 		if (stateSeen != null) body.add("state", stateSeen);
-		if (body.size() > 0) try {
+		try {
 			apiClient.postJson("/api/plugin/items", body, "Items push failed", false);
 			log.debug("Anvil trip check: pushed what is held first");
+			return "1";
 		} catch (Exception e) {
 			log.debug("Anvil trip check: push failed", e);
+			return "failed";
 		}
 	}
 
