@@ -4313,7 +4313,7 @@ public class AnvilPlugin extends Plugin {
 	final Map<String, JsonArray> itemsSeen = new ConcurrentHashMap<>(), itemsSent = new ConcurrentHashMap<>();
 	volatile boolean itemsDirty, wornDirty, wiping;
 	int itemsAt;
-	volatile long itemsNextAt, wornNextAt;
+	volatile long itemsNextAt, wornNextAt, bankNextAt;
 	/** The region the player stands in, for the Guides view's "You're at …". */
 	volatile int region = -1;
 
@@ -4357,16 +4357,21 @@ public class AnvilPlugin extends Plugin {
 			itemsDirty = true;
 			itemsAt = client.getTickCount();
 		}
+		boolean bank = client.getWidget(InterfaceID.Bankmain.UNIVERSE) != null;
 		int quiet = client.getTickCount() - itemsAt;
 		if (!itemsDirty || quiet < 2 || !mayShareItems()) return;
-		boolean all = quiet >= 5 && now() >= itemsNextAt;
+		boolean all = (bank || quiet >= 5) && now() >= itemsNextAt;
 		if (!all && (!wornDirty || now() < wornNextAt)) return;
 		wornDirty = false;
 		itemsDirty = !all;
 		var body = new JsonObject();
 		itemsSeen.forEach((k, v) -> {
-			if ((all || "equipment".equals(k)) && !v.equals(itemsSent.get(k))) body.add(k, BingoApiClient.obj("items", v));
+			if ((all || "equipment".equals(k)) && !v.equals(itemsSent.get(k))) {
+				if (bank && "bank".equals(k) && now() < bankNextAt) itemsDirty = true;
+				else body.add(k, BingoApiClient.obj("items", v));
+			}
 		});
+		if (bank && body.has("bank")) bankNextAt = now() + 5_000;
 		var state = stateSeen;
 		if (all && state != null && !state.equals(stateSent)) body.add("state", state);
 		if (body.has("bank")) body.addProperty("region", region);
@@ -4376,7 +4381,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		if (body.size() == 0) return;
 		wornNextAt = now() + 4_000;
-		if (all) itemsNextAt = now() + 6_000;
+		if (all) itemsNextAt = now() + (bank ? 2_000 : 6_000);
 		submit(() -> {
 			try {
 				if (!config.shareItems()) return; // turned off while this waited
