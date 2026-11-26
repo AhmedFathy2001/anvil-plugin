@@ -6218,6 +6218,7 @@ public class AnvilPlugin extends Plugin {
 		if (at - chatFlairFetchedAt < (chatFlair.isEmpty() ? 60_000L : 10 * 60_000L) /* CHAT_FLAIR_EVERY_MS */) return;
 		chatFlairFetchedAt = at;
 		chatFlairSync.sync();
+		if (chatFlair.isEmpty()) log.warn("Anvil Supporter list still empty (v{})", chatFlair.version());
 	}
 
 	/** The list moved: repaint now, save a moment later (a burst is one write), off the client thread. */

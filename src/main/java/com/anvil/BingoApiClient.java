@@ -734,7 +734,15 @@ public class BingoApiClient {
 
 	/** GET chat-flair/v/&lt;v&gt; — the whole list at a version (CDN-cached, gzipped). Public; null on failure. */
 	ChatFlair.Wire fetchChatFlairList(int v) {
-		return getOrNull(plainRequest(rootUrl("/api/plugin/chat-flair/v/" + v)).get(), ChatFlair.Wire.class);
+		try {
+			return execute(readClient, plainRequest(rootUrl("/api/plugin/chat-flair/v/" + v)).get(), (r, body) -> {
+				if (!r.isSuccessful()) throw new HttpStatusException("HTTP " + r.code(), r.code());
+				return gson.fromJson(body, ChatFlair.Wire.class);
+			});
+		} catch (RuntimeException | IOException e) {
+			log.warn("Anvil Supporter list v{} failed: {}", v, e.toString());
+			return null;
+		}
 	}
 
 	/** A non-2xx answer, from any call: every refusal this client throws is one, so callers can go by {@link #code}. */
