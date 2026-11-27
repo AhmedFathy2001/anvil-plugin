@@ -67,7 +67,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 
 
-	final AnvilSidebarDataSource data;
+	AnvilSidebarDataSource data;
 
 	// ---- Tabs: Clan · You · Lookup ----------------------------------------------------------------
 	// Clan is everything the panel always was — `content` below, untouched. You and Lookup are views
@@ -80,22 +80,22 @@ public class AnvilSidebarPanel extends PluginPanel {
 	// Holds ONLY the selected tab's panel. A CardLayout sized every tab to the tallest one — usually
 	// Clan mid-event — and BoxLayout spread that extra height through the You card: log bars drifted
 	// apart and the grids were squeezed until their last row clipped.
-	final JPanel tabBody = new JPanel(new BorderLayout());
-	final JPanel tabStrip = new JPanel(new GridBagLayout());
-	final Map<Tab, JLabel> tabLabels = new EnumMap<>(Tab.class);
-	final JPanel lookupPanel = column();
+	JPanel tabBody = new JPanel(new BorderLayout());
+	JPanel tabStrip = new JPanel(new GridBagLayout());
+	Map<Tab, JLabel> tabLabels = new EnumMap<>(Tab.class);
+	JPanel lookupPanel = column();
 	/** Lookup is for a player or a clan; this says which the search box means. */
 	boolean lookupClans, lookupGuides;
 	/** Players | Clans, redrawn when the mode changes (styleLookupModes). */
-	final JPanel lookupModes = column();
+	JPanel lookupModes = column();
 	String lookupModesShown;
 	/** The site-built views: the Clan tab, the You tab, and what Lookup found. */
-	final UiView clanView;
-	final UiView youView;
-	final UiView lookupView;
+	UiView clanView;
+	UiView youView;
+	UiView lookupView;
 	/** The Feed tab: the clan's and the board's live lists, and the board's chat (view 'feed'). */
-	final UiView feedView;
-	final UiView[] views;
+	UiView feedView;
+	UiView[] views;
 	/** Whose card You holds. */
 	String youRsn;
 	/** The Clan tab has asked for its view since it was last reset (sign-in, a clan switch). */
@@ -103,15 +103,15 @@ public class AnvilSidebarPanel extends PluginPanel {
 	/** When the Clan tab last asked the site, so a burst of repaints asks once. */
 	long clanAskedAt;
 	/** ⚙: syncing and this client's own settings — profile sync, roster sync for admins, sounds. */
-	final JPanel settingsPanel = column();
-	final JPanel lookupRecentRow = column();
-	final JTextField lookupSearch = new JTextField();
+	JPanel settingsPanel = column();
+	JPanel lookupRecentRow = column();
+	JTextField lookupSearch = new JTextField();
 	/** Fills in names as you type in {@link #lookupSearch}; built with the tab bodies. */
 	LookupSuggestions lookupCompleter;
-	final JLabel lookupClear = new JLabel(new GlyphIcon(CLOSE, 10, MUTED));
-	final JPanel lookupBox = new JPanel(new BorderLayout(6, 0));
+	JLabel lookupClear = new JLabel(new GlyphIcon(CLOSE, 10, MUTED));
+	JPanel lookupBox = new JPanel(new BorderLayout(6, 0));
 	/** Newest first, at most five, this session only. */
-	final LinkedList<String> recentLookups = new LinkedList<>();
+	LinkedList<String> recentLookups = new LinkedList<>();
 	/** The clan dropdown is wanted by the clan logic AND only shown on the Clan tab. */
 	boolean pickerWanted;
 
@@ -119,23 +119,23 @@ public class AnvilSidebarPanel extends PluginPanel {
 	// Which clan the plugin is pointed at. One Anvil serves every clan and a person can hold seats in
 	// several, so this is a real choice rather than a filter over data we already have: picking here
 	// re-addresses everything the plugin does — board, stat pushes, submissions, notifications.
-	final JComboBox<ClanChoice> clanPicker = new JComboBox<>();
-	final JButton refreshButton = flatButton("Refresh", null, WHITE, () -> refresh(true));
+	JComboBox<ClanChoice> clanPicker = new JComboBox<>();
+	JButton refreshButton = flatButton("Refresh", null, WHITE, () -> refresh(true));
 
 	// Device sign-in (home-native, DeviceSignIn): shown whenever there is no Account Token yet — the
 	// main way in, so nobody has to copy a token out of the site.
-	final BingoApiClient api;
-	final ConfigManager configManager;
+	BingoApiClient api;
+	ConfigManager configManager;
 	/** RuneLite's shared client-lifetime scheduler — paces the sign-in flow's approval polls. */
-	final ScheduledExecutorService executor;
-	final JButton signInButton = flatButton("Sign in with Discord", null, BRAND_ORANGE, this::startSignIn);
-	final JLabel signInStatus = small("", MUTED);
-	final JPanel signInRow = new JPanel(new BorderLayout(0, 2));
+	ScheduledExecutorService executor;
+	JButton signInButton = flatButton("Sign in with Discord", null, BRAND_ORANGE, this::startSignIn);
+	JLabel signInStatus = small("", MUTED);
+	JPanel signInRow = new JPanel(new BorderLayout(0, 2));
 	// The token isn't in RuneLite's settings (AnvilConfig.playerToken is hidden), so the panel carries
 	// both ends: a manual paste for when the browser sign-in can't work, and Sign out.
-	final JLabel pasteTokenLink = new ClipLabel("Paste a token instead");
+	JLabel pasteTokenLink = new ClipLabel("Paste a token instead");
 	/** Opens the account menu: Not my account / Sign out. */
-	final JLabel accountMenuLink = new JLabel(new GlyphIcon(ELLIPSIS, 14));
+	JLabel accountMenuLink = new JLabel(new GlyphIcon(ELLIPSIS, 14));
 	/**
 	 * Between {@link #onActivate} and {@link #onDeactivate}. Off screen, a refresh is skipped outright:
 	 * XP bumps, config changes and logins all ask for one, and drawing a panel nobody can see is EDT
@@ -149,28 +149,28 @@ public class AnvilSidebarPanel extends PluginPanel {
 	// everyone reading it is the owner: "Tracking X · Not you? ×", "Not tracking X here · Track again",
 	// or "X is someone else's · It's mine?". The way out for a sibling or a visitor; × hides the
 	// tracking line for that character for good.
-	final JLabel accountLabel = small("", MUTED);
+	JLabel accountLabel = small("", MUTED);
 	/** "Tracking" + the tracked name in its Supporter colours (ChatFlair), swapped as the look changes. */
-	final JPanel accountLine = new JPanel();
+	JPanel accountLine = new JPanel();
 	JLabel accountName;
-	final JLabel accountLink = small("", BRAND_ORANGE);
-	final JLabel accountStatus = small("", MUTED);
-	final JPanel accountRowPanel = new JPanel(new BorderLayout(4, 2));
+	JLabel accountLink = small("", BRAND_ORANGE);
+	JLabel accountStatus = small("", MUTED);
+	JPanel accountRowPanel = new JPanel(new BorderLayout(4, 2));
 	/** On a seasonal world: whether its progress is shared with the clan, and a switch for it. */
-	final JPanel seasonRow = new JPanel(new BorderLayout(6, 0));
-	final JLabel seasonLabel = small("Sharing season progress", MUTED);
-	final JLabel seasonLink = new JLabel("Turn off");
+	JPanel seasonRow = new JPanel(new BorderLayout(6, 0));
+	JLabel seasonLabel = small("Sharing season progress", MUTED);
+	JLabel seasonLink = new JLabel("Turn off");
 	AccountRow shownAccountRow;
 	boolean accountActionInFlight;
 
-	final JPanel content = column();
+	JPanel content = column();
 
 	// Only re-renders while the panel is visible; started on activate, stopped on deactivate.
-	final Timer autoRefresh;
+	Timer autoRefresh;
 
 	/** Re-checks the starting-shot card's requirements once a second while it's up; null with no card. */
 	Runnable startProofTick;
-	final Timer startProofTimer = new Timer(1000, e -> {
+	Timer startProofTimer = new Timer(1000, e -> {
 		if (startProofTick != null) startProofTick.run();
 	});
 
@@ -489,7 +489,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	 * for again while the fresh one is on its way — going back, or between tabs, is instant. Anything
 	 * sent to the site (a claim, a pin) may change every view, so it empties. EDT only.
 	 */
-	final Map<String, JsonObject> uiCache = BingoApiClient.capped(40, true);
+	Map<String, JsonObject> uiCache = BingoApiClient.capped(40, true);
 
 	<T> void async(Supplier<T> fetch, Consumer<T> then) {
 		interactive().execute(() -> {
@@ -1327,8 +1327,8 @@ public class AnvilSidebarPanel extends PluginPanel {
 		});
 	}
 
-	final AtomicBoolean liveQueued = new AtomicBoolean();
-	final Timer countsCatchUp = new Timer(15_000 /* COUNTS_CATCH_UP_MS */, e -> boardChanged());
+	AtomicBoolean liveQueued = new AtomicBoolean();
+	Timer countsCatchUp = new Timer(15_000 /* COUNTS_CATCH_UP_MS */, e -> boardChanged());
 
 	/** Counts moved here (own progress, the push): the Clan tab's live ones redraw, at most once per frame. Any thread. */
 	void liveCountsMoved() {
@@ -1870,9 +1870,9 @@ public class AnvilSidebarPanel extends PluginPanel {
 	 * which is the one case it does not guard.
 	 */
 	static class ClanChoiceRenderer implements ListCellRenderer<ClanChoice> {
-		final JPanel row = new JPanel(new BorderLayout(0, 1));
-		final JLabel name = new ClipLabel();
-		final JLabel detail = new ClipLabel();
+		JPanel row = new JPanel(new BorderLayout(0, 1));
+		JLabel name = new ClipLabel();
+		JLabel detail = new ClipLabel();
 
 		ClanChoiceRenderer() {
 			name.setFont(SMALL);

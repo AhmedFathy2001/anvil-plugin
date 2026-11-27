@@ -77,19 +77,19 @@ class GradientLabel extends JLabel {
 		return playedMs;
 	}
 
-	final Color[] stops;
-	final float[] fractions;
-	final boolean moving;
+	Color[] stops;
+	float[] fractions;
+	boolean moving;
 
 	// The label as Swing draws it, plus a same-size buffer each frame is composed in.
 	BufferedImage base;
 	BufferedImage frame;
-	final Rectangle textR = new Rectangle();
-	final Rectangle iconR = new Rectangle();
+	Rectangle textR = new Rectangle();
+	Rectangle iconR = new Rectangle();
 	/** The supporter star takes the gradient too; any other icon keeps its colours. */
 	boolean tintIcon;
 	/** What the gradient fills: the text, or the text and the star. */
-	final Rectangle fillR = new Rectangle();
+	Rectangle fillR = new Rectangle();
 	String baseKey;
 
 	/** Paint the icon with the gradient too (the supporter star), not only the text. */

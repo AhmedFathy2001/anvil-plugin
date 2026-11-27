@@ -102,18 +102,18 @@ class UiView extends JPanel {
 	static final String OFFLINE = "Couldn't reach Anvil — try again in a moment.";
 	static final Color DONE_DOT = new Color(0x6fdc6f);
 
-	final Host host;
-	final ItemManager items;
-	final SpriteManager sprites;
-	final SkillIconManager skills;
+	Host host;
+	ItemManager items;
+	SpriteManager sprites;
+	SkillIconManager skills;
 
-	final Map<String, Slot> slots = new HashMap<>();
-	final Map<String, List<Runnable>> toggles = new HashMap<>();
-	final Map<String, Supplier<String>> inputs = new LinkedHashMap<>();
+	Map<String, Slot> slots = new HashMap<>();
+	Map<String, List<Runnable>> toggles = new HashMap<>();
+	Map<String, Supplier<String>> inputs = new LinkedHashMap<>();
 	/** The last request for each place, for {@link #refresh}. */
-	final Map<String, Object[]> lastLoads = new LinkedHashMap<>();
+	Map<String, Object[]> lastLoads = new LinkedHashMap<>();
 	/** When each warmed load (view and args) was last fetched ahead, so a redraw doesn't ask again. The 64 most recent. */
-	final Map<String, Long> warmed = BingoApiClient.capped(64, true);
+	Map<String, Long> warmed = BingoApiClient.capped(64, true);
 	/** A clickable part's marker, so the row around it leaves its clicks to it. */
 	/** How long after a click a background refresh waits before redrawing. */
 	static final long CLICK_SETTLE_MS = 400;
@@ -121,24 +121,24 @@ class UiView extends JPanel {
 	long pressedAt;
 
 	/** What each place last drew, so an unchanged answer leaves it alone (its scroll, its open folds). */
-	final Map<String, JsonElement> drawn = new HashMap<>();
+	Map<String, JsonElement> drawn = new HashMap<>();
 	/**
 	 * The pane each slot was switched to, kept while the view refreshes so a new answer doesn't throw
 	 * the reader back to the first page. Going somewhere (a load, a new view) forgets them.
 	 */
-	final Map<String, String> openPanes = new HashMap<>();
+	Map<String, String> openPanes = new HashMap<>();
 	/** Countdowns on screen, run once a second while there are any. */
-	final List<Runnable> tickers = new ArrayList<>();
+	List<Runnable> tickers = new ArrayList<>();
 	/** The counts on screen that move without asking the site again ({@code live}), see {@link #tickLive}. */
-	final List<Runnable> lives = new ArrayList<>();
-	final Timer ticker = new Timer(1000, e -> tickers.forEach(Runnable::run));
+	List<Runnable> lives = new ArrayList<>();
+	Timer ticker = new Timer(1000, e -> tickers.forEach(Runnable::run));
 	/** Live lists on screen (node {@code feed}): push rows find them by id, see {@link #feedPush}. */
-	final List<FeedList> feeds = new ArrayList<>();
+	List<FeedList> feeds = new ArrayList<>();
 	/**
 	 * The latest request for each place (a slot's id, "null" for the whole view). An answer carrying
 	 * any other number is for something no longer there; numbers are never reused.
 	 */
-	final Map<String, Integer> seq = new HashMap<>();
+	Map<String, Integer> seq = new HashMap<>();
 	int requests;
 
 	@RequiredArgsConstructor
@@ -147,15 +147,15 @@ class UiView extends JPanel {
 		final JsonObject panes;
 		/** {@code nav}: a pane replaces the page; the panes left keep their build and the row clicked to leave. */
 		final String first;
-		final Map<String, JComponent> built = new HashMap<>();
-		final Map<String, JComponent> from = new HashMap<>();
+		Map<String, JComponent> built = new HashMap<>();
+		Map<String, JComponent> from = new HashMap<>();
 		Round marked;
 	}
 
 	/** The last thing clicked, so a nav slot can mark it when the reader comes back. */
 	JComponent lastClicked;
 	/** Where each nav pane was scrolled to ("slot:pane"), kept across redraws. */
-	final Map<String, Integer> scrolls = new HashMap<>();
+	Map<String, Integer> scrolls = new HashMap<>();
 	static final Color RAISED = new Color(0x3a3a3a);
 	static final Color INK = new Color(0x1e1e1e);
 	static final Color RAISED_HOVER = new Color(0x474747);
@@ -1162,9 +1162,7 @@ class UiView extends JPanel {
 		var wrap = column();
 		wrap.setOpaque(false);
 		var none = small(str(n, "none"), MUTED);
-		none.setVisible(false);
 		var more = small(str(n, "more"), MUTED);
-		more.setVisible(false);
 		int max = num(n, "max", Integer.MAX_VALUE);
 		List<Runnable> refills = new ArrayList<>();
 		String[] query = {""};

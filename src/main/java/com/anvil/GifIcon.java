@@ -26,10 +26,10 @@ class GifIcon implements Icon {
 	static long lastTick;
 	static final Timer TICK = new Timer(20, e -> tick());
 
-	final BufferedImage[] frames;
-	final int[] ends;
-	final int total;
-	final Map<Component, Boolean> hosts = new WeakHashMap<>();
+	BufferedImage[] frames;
+	int[] ends;
+	int total;
+	Map<Component, Boolean> hosts = new WeakHashMap<>();
 	long playedMs;
 	int shown;
 

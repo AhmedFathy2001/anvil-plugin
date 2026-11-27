@@ -292,7 +292,7 @@ class Ui {
 
 	/** JTextField has no placeholder API; paint one without putting fake text into the query. */
 	static class SearchField extends JTextField {
-		final String placeholder;
+		String placeholder;
 
 		/** The panel's search boxes all look alike: {@link #styleSearch}, small type, a grey outline. */
 		SearchField(String placeholder, String value) {
