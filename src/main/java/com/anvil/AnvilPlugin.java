@@ -8397,6 +8397,7 @@ public class AnvilPlugin extends Plugin {
 		// say which raid it was, so a competition over that raid can count it.
 		moment.near = monstersInSight();
 		moments.record(placed(moment));
+		deathShot();
 		scheduleMomentPush(1_000 /* DEATH_PUSH_DELAY_MS */);
 	}
 
@@ -8541,7 +8542,27 @@ public class AnvilPlugin extends Plugin {
 		});
 	}
 
-	/** The moments reply's {@code huntProofs}: each new hunt drop's screenshot key, by item. */
+	/** huntShots' slot for a death's picture: no item has this id. */
+	static final int DEATH_SHOT = Integer.MIN_VALUE;
+
+	/**
+	 * Client thread: the frame we died on, held for 3 minutes. It goes up only if the site says a Boss
+	 * Rush took points for the death (the moments reply's {@code deathProofs}); otherwise it is dropped.
+	 */
+	void deathShot() {
+		var show = hideChatForShot();
+		drawManager.requestNextFrameListener(img -> {
+			if (show != null) clientThread.invokeLater(show);
+			later(() -> {
+				try {
+					huntReady(DEATH_SHOT, null, jpeg((BufferedImage) img));
+				} catch (IOException ignored) {
+				}
+			}, 0);
+		});
+	}
+
+	/** The moments reply's {@code huntProofs}: each new hunt drop's screenshot key, by item; and a counted death's. */
 	void huntKeys(String reply) {
 		try {
 			var o = reply == null ? null : gson.fromJson(reply, JsonObject.class);
@@ -8549,6 +8570,7 @@ public class AnvilPlugin extends Plugin {
 				var p = el.getAsJsonObject();
 				huntReady(p.get("itemId").getAsInt(), p.get("key").getAsString(), null);
 			}
+			if (o != null && o.has("deathProofs")) for (var el : o.getAsJsonArray("deathProofs")) huntReady(DEATH_SHOT, el.getAsString(), null);
 		} catch (RuntimeException ignored) {
 		}
 	}
