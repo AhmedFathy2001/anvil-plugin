@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static com.anvil.DiskFiles.*;
 import lombok.*;
 import com.google.gson.*;
 import javax.inject.*;
@@ -78,7 +79,7 @@ public class PendingSubmissionStore {
 
 	/** The directory, created on demand, or null when there is nowhere to write. */
 	Filepath dir() {
-		return DiskFiles.ensureDir(root);
+		return ensureDir(root);
 	}
 
 	String save(PendingSubmission sub, byte[] pngBytes) {
@@ -90,7 +91,7 @@ public class PendingSubmissionStore {
 		var ext = BingoApiClient.isJpeg(pngBytes) ? ".jpg" : ".png";
 		var png = dir.joinSegment(id + ext);
 		try {
-			DiskFiles.writeAtomic(png, pngBytes);
+			writeAtomic(png, pngBytes);
 		} catch (IOException e) {
 			log.error("Proof image save failed: {}", e.getMessage());
 			return null;
@@ -98,11 +99,11 @@ public class PendingSubmissionStore {
 
 		sub.screenshotFile = id + ext;
 		try {
-			DiskFiles.writeAtomic(dir.joinSegment(id + ".json"), gson.toJson(sub));
+			writeAtomic(dir.joinSegment(id + ".json"), gson.toJson(sub));
 		} catch (IOException e) {
 			log.error("Proof save failed: {}", e.getMessage());
 			// The PNG without its metadata is an orphan nothing will ever read.
-			DiskFiles.deleteQuietly(png);
+			deleteQuietly(png);
 			return null;
 		}
 
@@ -118,15 +119,15 @@ public class PendingSubmissionStore {
 	List<PendingSubmission> loadAll() {
 		List<PendingSubmission> result = new ArrayList<>();
 		var now = System.currentTimeMillis();
-		for (Filepath f : DiskFiles.listFiles(dir(), n -> n.endsWith(".json"))) {
-			var sub = DiskFiles.readJson(gson, f, PendingSubmission.class);
+		for (Filepath f : listFiles(dir(), n -> n.endsWith(".json"))) {
+			var sub = readJson(gson, f, PendingSubmission.class);
 			if (sub == null) {
 				log.warn("Failed to read pending submission {}", f.getFileName());
 				continue;
 			}
 			if (sub.timestamp > 0 && (now - sub.timestamp) > MAX_AGE_MS) {
 				log.info("Pruning expired pending submission '{}' ({} days old)",
-					sub.label, (now - sub.timestamp) / (24 * 60 * 60 * 1000));
+					sub.label, (now - sub.timestamp) / 86_400_000);
 				remove(sub);
 				continue;
 			}
@@ -147,7 +148,7 @@ public class PendingSubmissionStore {
 		var dir = dir();
 		if (dir == null || sub.screenshotFile == null) return;
 		try {
-			DiskFiles.writeAtomic(dir.joinSegment(sub.screenshotFile.replaceAll("\\.(png|jpg)$", "") + ".json"), gson.toJson(sub));
+			writeAtomic(dir.joinSegment(sub.screenshotFile.replaceAll("\\.(png|jpg)$", "") + ".json"), gson.toJson(sub));
 		} catch (IOException e) {
 			log.error("Proof update failed: {}", e.getMessage());
 		}

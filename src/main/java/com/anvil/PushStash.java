@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static com.anvil.DiskFiles.*;
 import static com.anvil.AnvilPlugin.empty;
 import lombok.*;
 import com.google.gson.*;
@@ -48,8 +49,8 @@ class PushStash {
 
 	/** The file stem for a character: by account hash when known, else by name. Null when neither is. */
 	static String keyFor(String rsn, String accountHash) {
-		if (!empty(accountHash)) return DiskFiles.fingerprint("h:" + accountHash);
-		if (rsn != null && !rsn.trim().isEmpty()) return DiskFiles.fingerprint("r:" + rsn.trim().toLowerCase(Locale.ROOT));
+		if (!empty(accountHash)) return fingerprint("h:" + accountHash);
+		if (rsn != null && !rsn.trim().isEmpty()) return fingerprint("r:" + rsn.trim().toLowerCase(Locale.ROOT));
 		return null;
 	}
 
@@ -88,7 +89,7 @@ class PushStash {
 	}
 
 	Filepath file(String key) {
-		var d = DiskFiles.ensureDir(dir);
+		var d = ensureDir(dir);
 		return d == null || key == null ? null : d.joinSegment("pushes-" + key + ".json");
 	}
 
@@ -97,9 +98,9 @@ class PushStash {
 		var f = file(key);
 		if (f == null || data == null || data.isEmpty()) return;
 		// Always through merge, which bounds the facts — also when nothing was saved before.
-		var old = DiskFiles.readJson(gson, f, Data.class);
+		var old = readJson(gson, f, Data.class);
 		try {
-			DiskFiles.writeAtomic(f, gson.toJson(merge(old == null ? new Data() : old, data)));
+			writeAtomic(f, gson.toJson(merge(old == null ? new Data() : old, data)));
 		} catch (Exception e) {
 		}
 	}
@@ -107,13 +108,13 @@ class PushStash {
 	/** What was saved for {@code key} (deleting it), or null when nothing fresh was. */
 	Data take(String key, long now) {
 		var f = file(key);
-		var d = DiskFiles.readJson(gson, f, Data.class);
-		DiskFiles.deleteQuietly(f);
+		var d = readJson(gson, f, Data.class);
+		deleteQuietly(f);
 		return d == null || now - d.savedAt > MAX_AGE_MS ? null : d;
 	}
 
 	/** Signed out: drop every character's saved pushes. */
 	void clearAll() {
-		DiskFiles.listFiles(DiskFiles.ensureDir(dir), n -> n.startsWith("pushes-")).forEach(DiskFiles::deleteQuietly);
+		listFiles(ensureDir(dir), n -> n.startsWith("pushes-")).forEach(DiskFiles::deleteQuietly);
 	}
 }

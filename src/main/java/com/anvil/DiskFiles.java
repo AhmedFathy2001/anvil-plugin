@@ -55,16 +55,11 @@ class DiskFiles {
 		}
 	}
 
-	static String readText(Filepath file) {
-		var b = read(file);
-		return b == null ? null : new String(b, StandardCharsets.UTF_8);
-	}
-
 	/** The file as a {@code type}, or null when it is missing, empty or not valid JSON (a truncated write). */
 	static <T> T readJson(Gson gson, Filepath file, Class<T> type) {
-		var text = readText(file);
+		var b = read(file);
 		try {
-			return text == null ? null : gson.fromJson(text, type);
+			return b == null ? null : gson.fromJson(new String(b, StandardCharsets.UTF_8), type);
 		} catch (RuntimeException e) {
 			return null;
 		}

@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static com.anvil.DiskFiles.*;
 import lombok.*;
 import com.google.gson.*;
 import java.io.*;
@@ -52,7 +53,7 @@ class ResponseDiskCache {
 	 * deletes off the client thread.
 	 */
 	String switchAccount(String token) {
-		var next = DiskFiles.fingerprint(token);
+		var next = fingerprint(token);
 		var prev = account;
 		if (next.equals(prev)) return null;
 		account = next;
@@ -62,14 +63,14 @@ class ResponseDiskCache {
 
 	/** {@code <kind>-<acct>.json}, or the shared {@code <kind>.json} for a null {@code acct}. */
 	Filepath file(String kind, String acct) {
-		var d = DiskFiles.ensureDir(dir);
+		var d = ensureDir(dir);
 		return d == null || "".equals(acct) ? null : d.joinSegment(kind + (acct == null ? "" : "-" + acct) + ".json");
 	}
 
 	/** The saved answer of {@code kind} for the current account, or null. Blocking. */
 	Entry load(String kind) {
 		// Missing or unreadable reads as nothing saved; the next fresh answer overwrites a bad file.
-		var e = DiskFiles.readJson(gson, file(kind, account), Entry.class);
+		var e = readJson(gson, file(kind, account), Entry.class);
 		if (e == null || e.body == null || e.url == null) return null;
 		written.put(kind, e.etag != null ? e.etag : Integer.toString(e.body.hashCode()));
 		return e;
@@ -90,7 +91,7 @@ class ResponseDiskCache {
 		e.rsn = rsn;
 		e.savedAt = System.currentTimeMillis();
 		try {
-			DiskFiles.writeAtomic(f, gson.toJson(e));
+			writeAtomic(f, gson.toJson(e));
 			written.put(kind, marker);
 		} catch (Exception ex) {
 		}
@@ -99,7 +100,7 @@ class ResponseDiskCache {
 	/** A saved copy of public data the same for everyone ({@code <kind>.json}), or null. Blocking. */
 	<T> T loadShared(String kind, Class<T> type) {
 		var f = file(kind, null);
-		return f == null ? null : DiskFiles.readJson(gson, f, type);
+		return f == null ? null : readJson(gson, f, type);
 	}
 
 	/** Save {@link #loadShared}'s copy. Blocking; never the client thread. */
@@ -107,7 +108,7 @@ class ResponseDiskCache {
 		var f = file(kind, null);
 		if (f == null) return;
 		try {
-			DiskFiles.writeAtomic(f, gson.toJson(value));
+			writeAtomic(f, gson.toJson(value));
 		} catch (Exception ex) {
 		}
 	}
@@ -115,6 +116,6 @@ class ResponseDiskCache {
 	/** Delete every saved answer for {@code acct}. Blocking. */
 	void clear(String acct) {
 		if (acct == null || acct.isEmpty()) return;
-		DiskFiles.deleteQuietly(file(CONFIG, acct));
+		deleteQuietly(file(CONFIG, acct));
 	}
 }

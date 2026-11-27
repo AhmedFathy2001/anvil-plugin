@@ -71,14 +71,6 @@ public class BingoApiClient {
 	static class AccountAction {
 	}
 
-	Interceptor pauseGate() {
-		return chain -> {
-			var r = chain.request();
-			if (accountPaused && r.header("Authorization") != null && r.tag(AccountAction.class) == null) throw new IOException("Anvil is off for this account on this computer (Not my account).");
-			return chain.proceed(r);
-		};
-	}
-
 	final OkHttpClient readClient;
 
 	@Inject
@@ -86,7 +78,12 @@ public class BingoApiClient {
 		this.gson = gson;
 		// Read timeout is generous because some server reads do several round-trips to Turso
 		// and can take a while; tighter timeouts here will trip even on healthy servers.
-		httpClient = client.newBuilder().addInterceptor(pauseGate()).connectTimeout(10, TimeUnit.SECONDS)
+		// The pause gate: see accountPaused.
+		httpClient = client.newBuilder().addInterceptor(chain -> {
+			var r = chain.request();
+			if (accountPaused && r.header("Authorization") != null && r.tag(AccountAction.class) == null) throw new IOException("Anvil is off for this account on this computer (Not my account).");
+			return chain.proceed(r);
+		}).connectTimeout(10, TimeUnit.SECONDS)
 			.readTimeout(90, TimeUnit.SECONDS).writeTimeout(30, TimeUnit.SECONDS).build();
 		// Its own pool: a reconnect never rides a pooled connection that died quietly, and a handshake that
 		// hangs gives up in 15s (the shared 90s read kept chat on "reconnecting" through each try).
@@ -645,14 +642,6 @@ public class BingoApiClient {
 		return versionCaps.contains(capability);
 	}
 
-	void refreshVersionCaps() {
-		var now = System.currentTimeMillis();
-		if (now - versionCapsAt < (10 * 60_000L) /* VERSION_CAPS_TTL_MS */) return;
-		versionCapsAt = now;
-		var info = getOrNull(plainRequest(site() + "/api/version").get(), VersionInfo.class);
-		if (info != null) versionCaps = info.capabilities == null ? emptySet() : new HashSet<>(info.capabilities);
-	}
-
 	/** The part of /api/version the plugin reads. */
 	static class VersionInfo {
 		List<String> capabilities;
@@ -667,7 +656,13 @@ public class BingoApiClient {
 			return parsed;
 		} catch (HttpStatusException e) {
 			lastConfigNoClan = e.code == 404;
-			if (lastConfigNoClan) refreshVersionCaps();
+			var now = System.currentTimeMillis();
+			// The no-clan fallback: /api/version's capabilities, read at most every 10 minutes (VERSION_CAPS_TTL_MS).
+			if (lastConfigNoClan && now - versionCapsAt >= 10 * 60_000L) {
+				versionCapsAt = now;
+				var info = getOrNull(plainRequest(site() + "/api/version").get(), VersionInfo.class);
+				if (info != null) versionCaps = info.capabilities == null ? emptySet() : new HashSet<>(info.capabilities);
+			}
 			throw e;
 		}
 	}

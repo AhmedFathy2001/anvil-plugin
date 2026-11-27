@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static com.anvil.DiskFiles.*;
 import static java.lang.Math.*;
 import lombok.*;
 import com.google.gson.*;
@@ -106,20 +107,20 @@ class NotifyOutbox {
 	void load() {
 		var found = new ArrayList<Item>();
 		var pngs = new ArrayList<Filepath>();
-		for (var f : DiskFiles.listFiles(DiskFiles.ensureDir(dir), n -> n.endsWith(".json") || n.endsWith(".png"))) {
+		for (var f : listFiles(ensureDir(dir), n -> n.endsWith(".json") || n.endsWith(".png"))) {
 			if (f.getFileName().endsWith(".png")) {
 				pngs.add(f);
 				continue;
 			}
-			var it = DiskFiles.readJson(gson, f, Item.class);
+			var it = readJson(gson, f, Item.class);
 			if (it != null && it.id != null && it.url != null && it.payload != null && f.getFileName().equals(it.id + ".json")) found.add(it);
-			else DiskFiles.deleteQuietly(f);
+			else deleteQuietly(f);
 		}
 		// A screenshot whose entry never made it to disk is an orphan nothing will read.
 		for (var png : pngs) {
 			var n = png.getFileName();
 			var id = n.substring(0, n.length() - 4);
-			if (found.stream().noneMatch(it -> it.id.equals(id))) DiskFiles.deleteQuietly(png);
+			if (found.stream().noneMatch(it -> it.id.equals(id))) deleteQuietly(png);
 		}
 		if (found.isEmpty()) return;
 		synchronized (this) {
@@ -133,13 +134,13 @@ class NotifyOutbox {
 
 	/** Keep a notification that just failed to send. Blocking (disk); never on the client thread. */
 	void enqueue(Item item, byte[] png) {
-		var d = DiskFiles.ensureDir(dir);
+		var d = ensureDir(dir);
 		item.pngBytes = png == null ? 0 : png.length;
 		if (d == null) item.png = png;
 		else {
 			try {
-				if (png != null && png.length > 0) DiskFiles.writeAtomic(d.joinSegment(item.id + ".png"), png);
-				DiskFiles.writeAtomic(d.joinSegment(item.id + ".json"), gson.toJson(item));
+				if (png != null && png.length > 0) writeAtomic(d.joinSegment(item.id + ".png"), png);
+				writeAtomic(d.joinSegment(item.id + ".json"), gson.toJson(item));
 			} catch (Exception e) {
 				item.png = png; // keep it for this session at least
 			}
@@ -238,7 +239,7 @@ class NotifyOutbox {
 				var d = dir;
 				if (d != null) {
 					try {
-						DiskFiles.writeAtomic(d.joinSegment(it.id + ".json"), gson.toJson(it));
+						writeAtomic(d.joinSegment(it.id + ".json"), gson.toJson(it));
 					} catch (Exception e) {
 					}
 				}
@@ -256,7 +257,7 @@ class NotifyOutbox {
 	byte[] screenshot(Item it) {
 		if (it.png != null) return it.png;
 		var d = dir;
-		return d == null ? null : DiskFiles.read(d.joinSegment(it.id + ".png"));
+		return d == null ? null : read(d.joinSegment(it.id + ".png"));
 	}
 
 	void remove(Item it) {
@@ -270,8 +271,8 @@ class NotifyOutbox {
 		var d = dir;
 		if (d == null || it.id == null) return;
 		try {
-			DiskFiles.deleteQuietly(d.joinSegment(it.id + ".json"));
-			DiskFiles.deleteQuietly(d.joinSegment(it.id + ".png"));
+			deleteQuietly(d.joinSegment(it.id + ".json"));
+			deleteQuietly(d.joinSegment(it.id + ".png"));
 		} catch (RuntimeException ignored) {
 			// joinSegment refusing a name read back from disk: nothing of ours to delete.
 		}

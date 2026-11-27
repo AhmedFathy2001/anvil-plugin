@@ -177,10 +177,11 @@ public class PluginConfigResponse {
 	 * send the numbers, and let the site decode: which task each bit is belongs with the catalogue,
 	 * not here, so a game update that adds a varp is a data change there rather than a release here.
 	 * Null on sites that predate it — then nothing is read.
+	 *
+	 * tripRegions: regions where a trip starts (a content's bank or lobby): closing the bank there runs
+	 * the pre-trip check. Null/empty = off.
 	 */
-	List<Integer> caVarps;
-	/** Regions where a trip starts (a content's bank or lobby): closing the bank there runs the pre-trip check. Null/empty = off. */
-	List<Integer> tripRegions;
+	List<Integer> caVarps, tripRegions;
 	/** Each trip region's content, short ("ToA"): the overlay's "Checking ToA…". */
 	Map<Integer, String> tripNames;
 	/**
@@ -240,16 +241,16 @@ public class PluginConfigResponse {
 			int x, y, radius;
 		}
 	}
-	// Set on a no-active-event response when the logged-in RSN IS a player in a live bingo but this
-	// account isn't linked to it — the plugin warns so tracking isn't silently off. Null otherwise.
-	String unlinkedActiveEvent;
-
 	/**
-	 * Whose the logged-in character is: {@code yours} | {@code other} (claimed by another Anvil
+	 * unlinkedActiveEvent: set on a no-active-event response when the logged-in RSN IS a player in a
+	 * live bingo but this account isn't linked to it — the plugin warns so tracking isn't silently off.
+	 * Null otherwise.
+	 *
+	 * accountStanding: whose the logged-in character is: {@code yours} | {@code other} (claimed by another Anvil
 	 * account — nothing tracks for this token) | {@code ignored} (marked Not my account) |
 	 * {@code unclaimed}. {@code null} at the login screen and on older sites.
 	 */
-	String accountStanding;
+	String unlinkedActiveEvent, accountStanding;
 	/** Every tracked tile's count, for the panel's live counts and a combo's part lines. */
 	List<TileCount> tiles;
 	// Site stat keys ("cluesElite", "collectionsLogged") for the hiscores counters that are neither a

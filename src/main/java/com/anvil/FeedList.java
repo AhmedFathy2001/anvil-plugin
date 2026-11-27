@@ -303,16 +303,6 @@ class FeedList extends JPanel {
 	}
 
 
-	/** One of the row's posts answered: once none are out, wait {@link #SETTLE_MS} and replay what was held. */
-	void unhold(String rowId) {
-		var h = held.get(rowId);
-		if (h == null) return;
-		h.posts = max(0, h.posts - 1);
-		if (h.posts > 0) return;
-		int gen = ++h.gen;
-		UiView.once(1500 /* SETTLE_MS */, e -> settle(rowId, gen));
-	}
-
 	void settle(String rowId, int gen) {
 		var h = held.get(rowId);
 		if (h == null || h.posts > 0 || h.gen != gen) return;
@@ -689,7 +679,13 @@ class FeedList extends JPanel {
 		}
 		if (rowId != null) held.computeIfAbsent(rowId, k -> new Held()).posts++;
 		post(on, Map.of(), v -> {
-			if (rowId != null) unhold(rowId);
+			// Once none of the row's posts are out, wait SETTLE_MS and replay what was held.
+			var h = rowId == null ? null : held.get(rowId);
+			if (h != null && --h.posts <= 0) {
+				h.posts = 0;
+				int gen = ++h.gen;
+				UiView.once(1500 /* SETTLE_MS */, e -> settle(rowId, gen));
+			}
 			showError(errorOf(v));
 		});
 	}
@@ -822,7 +818,7 @@ class FeedList extends JPanel {
 		final Color tint;
 
 		public void paintIcon(Component c, Graphics g, int x, int y) {
-			var g2 = Ui.smooth(g);
+			var g2 = smooth(g);
 			g2.setColor(tint);
 			g2.fillRoundRect(x, y, ICON_W, ICON_W - 2, 6, 6);
 			g2.dispose();
