@@ -69,56 +69,10 @@ class TimedClearParser {
 	// -> "tzkal-zuk", Colosseum -> "sol heredit"). Default signature is the activity name itself.
 	static final Map<String, List<String>> SIGNATURES = new HashMap<>();
 
-	// {"activity|alias…", signature…}
-	static final String[][] SIGNATURE_TABLE = {
-		// Zuk's kill-count line only — never the bare word: TzHaar-Ket-Rak's challenges end with
-		// "You need to complete the Inferno to unlock …", which credited a 3:11 Jad challenge
-		// to a 65-minute Inferno tile.
-		{"inferno", "tzkal-zuk"},
-		{"fight caves", "tztok-jad", "fight cave"},
-		// Raid-mode shorthands, so a mode tile matches however the admin phrased it. Colons and
-		// spacing are already folded away by norm(), so we only enumerate the abbreviations here;
-		// each pins the EXACT game count-line substring. A CM/HM/Expert tile must carry the full
-		// mode text so a *base*-mode clear (whose line omits it) can't wrongly complete it — while a
-		// base-raid tile keeps matching every harder mode (the mode line contains the base name).
-		{"chambers of xeric|cox", "chambers of xeric"},
-		{"cox cm|cox challenge mode|chambers of xeric cm", "chambers of xeric challenge mode"},
-		{"theatre of blood|tob", "theatre of blood"},
-		{"tob hm|tob hard mode|theatre of blood hm", "theatre of blood hard mode"},
-		{"tombs of amascut|toa", "tombs of amascut"},
-		{"toa em|toa expert|toa expert mode|tombs of amascut em", "tombs of amascut expert mode"},
-		// Raids 4: "Your completed Fractured Archive count is: N" carries no article.
-		{"the fractured archive|fractured archive|tfa", "fractured archive"},
-		{"fortis colosseum|colosseum", "sol heredit", "colosseum"},
-		{"the nightmare|nightmare", "nightmare"},
-		{"phosani's nightmare", "phosani's nightmare"},
-		{"tzhaar-ket-rak", "tzhaar-ket-rak"},
-		// The completion line reads "Your Gauntlet completion count is: N" — it never contains
-		// "the gauntlet", so a self-signature could never match. "your gauntlet completion" is
-		// also Corrupted-safe: CG's line reads "your corrupted gauntlet completion count".
-		{"the gauntlet", "your gauntlet completion", "the gauntlet"},
-		{"corrupted gauntlet", "corrupted gauntlet"},
-		// Bosses whose kill-count line drops the article ("Your Leviathan kill count is: N"),
-		// so a tile named with "The …" would miss on the plain-substring fallback.
-		{"the leviathan", "leviathan"},
-		{"the whisperer", "whisperer"},
-		{"the hueycoatl", "hueycoatl"},
-		{"the royal titans", "royal titans"},
-		// "nex" is too short for the contains-fallback — "next" in any nearby line would
-		// false-match. Pin it to the real kill-count line.
-		{"nex", "your nex kill count"},
-		// Sailing Barracuda Trials: no chat line ever says "barracuda", so a generic
-		// any-trial tile needs the three course names. Tiles naming a specific course
-		// ("Gwenith Glide") ride the plain fallback — both flanking lines name it.
-		{"barracuda trials|barracuda trial", "tempor tantrum", "jubbly jive", "gwenith glide"},
-		// Hallowed Sepulchre full runs: no chat line says "sepulchre" either — the exit
-		// message is "Overall time: 26:39.20", which both carries the time and identifies
-		// the run. Floor tiles ("Floor 5") ride the fallback against "Floor 5 time: ...".
-		{"hallowed sepulchre|sepulchre", "overall time"}
-	};
+	// {"activity|alias…", signature…}, with why each row reads as it does: timed-signatures.json.
 
 	static {
-		for (var row : SIGNATURE_TABLE) for (var activity : row[0].split("\\|")) SIGNATURES.put(activity, Arrays.asList(row).subList(1, row.length));
+		for (var row : DiskFiles.table("timed-signatures.json")) for (var activity : row.get(0).split("\\|")) SIGNATURES.put(activity, row.subList(1, row.size()));
 	}
 
 	/** Returns the clear time in whole seconds, or null if the message carries no duration. */

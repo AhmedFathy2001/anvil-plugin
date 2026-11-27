@@ -18,6 +18,24 @@ import net.runelite.client.util.*;
  * method here blocks on disk — callers run them on the plugin executor, never the client thread.
  */
 class DiskFiles {
+	/**
+	 * A fixed table the plugin ships as a resource beside this class: the JSON file's {@code rows},
+	 * each a list of strings (the file's {@code _about} says what the table is for). Empty when it
+	 * can't be read.
+	 */
+	static List<List<String>> table(String resource) {
+		var out = new ArrayList<List<String>>();
+		try (var r = new InputStreamReader(DiskFiles.class.getResourceAsStream(resource), StandardCharsets.UTF_8)) {
+			for (var row : new JsonParser().parse(r).getAsJsonObject().getAsJsonArray("rows")) {
+				var l = new ArrayList<String>();
+				for (var c : row.getAsJsonArray()) l.add(c.getAsString());
+				out.add(l);
+			}
+		} catch (Exception e) {
+		}
+		return out;
+	}
+
 	/** {@code dir}, created on demand; null when it can't be. */
 	static Filepath ensureDir(Filepath dir) {
 		if (dir == null) return null;
