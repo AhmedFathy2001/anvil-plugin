@@ -107,7 +107,7 @@ class PersonalBests {
 
 	/** The pending bests, activity → centiseconds. */
 	Map<String, Integer> nextBatch() {
-		Map<String, Integer> batch = new LinkedHashMap<>(dirty.size());
+		var batch = new LinkedHashMap<String, Integer>();
 		for (var activity : dirty) {
 			var centis = best.get(activity);
 			if (centis != null) batch.put(activity, centis);

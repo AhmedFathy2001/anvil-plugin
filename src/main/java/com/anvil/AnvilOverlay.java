@@ -12,7 +12,6 @@ import java.time.format.*;
 
 @Slf4j
 public class AnvilOverlay extends OverlayPanel {
-
 	static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm 'UTC'");
 
 	final AnvilPlugin plugin;
@@ -57,8 +56,6 @@ public class AnvilOverlay extends OverlayPanel {
 			date.setRight(ZonedDateTime.now(ZoneOffset.UTC).format(DATE_FMT));
 		}
 		c.add(date);
-
-
 		return super.render(graphics);
 	}
 

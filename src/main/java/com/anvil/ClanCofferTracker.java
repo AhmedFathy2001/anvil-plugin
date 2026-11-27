@@ -11,7 +11,6 @@ import java.util.*;
  * truth and an unconfirmed movement is still reported anonymously.</p>
  */
 class ClanCofferTracker {
-
 	enum Kind {
 		SNAPSHOT, DEPOSIT, WITHDRAWAL;
 
@@ -24,7 +23,6 @@ class ClanCofferTracker {
 		final int beforeBalance;
 		final int afterBalance;
 		final boolean actorConfirmed;
-
 	}
 
 	Integer lastBalance;

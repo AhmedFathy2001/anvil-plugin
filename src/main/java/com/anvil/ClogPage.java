@@ -36,18 +36,10 @@ class ClogPage {
 		this.counts = counts == null || counts.isEmpty()
 			? Collections.emptyMap()
 			: Collections.unmodifiableMap(new LinkedHashMap<>(counts));
-		hash = computeHash();
-	}
-
-	/**
-	 * FNV-1a over the page's contents.
-	 *
-	 * <p>Hand-rolled rather than {@code Objects.hash} / a JSON round-trip because this runs on the
-	 * client thread every time the log redraws — which is every keystroke while a player scrolls the
-	 * log. No boxing, no allocation, no string building; a page is folded in a few hundred nanoseconds
-	 * and the result is what stops us re-sending 125 identical pages.
-	 */
-	long computeHash() {
+		// FNV-1a over the page's contents. Hand-rolled rather than {@code Objects.hash} / a JSON round-trip because this runs on the
+		// client thread every time the log redraws — which is every keystroke while a player scrolls the
+		// log. No boxing, no allocation, no string building; a page is folded in a few hundred nanoseconds
+		// and the result is what stops us re-sending 125 identical pages.
 		var h = 0xcbf29ce484222325L;
 		h = fold(h, name == null ? 0 : name.hashCode());
 		h = fold(h, obtained);
@@ -56,11 +48,11 @@ class ClogPage {
 			h = fold(h, itemIds[i]);
 			h = fold(h, quantities[i]);
 		}
-		for (var e : counts.entrySet()) {
+		for (var e : this.counts.entrySet()) {
 			h = fold(h, e.getKey().hashCode());
 			h = fold(h, e.getValue());
 		}
-		return h;
+		hash = h;
 	}
 
 	static long fold(long h, int value) {
