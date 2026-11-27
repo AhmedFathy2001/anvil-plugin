@@ -101,7 +101,7 @@ class AnvilMoments {
 	}
 
 	/** Keyed so a duplicate observation replaces rather than repeats; insertion-ordered for the batch. */
-	final Map<String, Moment> pending = new LinkedHashMap<>();
+	Map<String, Moment> pending = new LinkedHashMap<>();
 
 	/**
 	 * Queue one. A repeat of a key already waiting REPLACES it — the second sighting of the same pet

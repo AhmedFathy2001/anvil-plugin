@@ -31,7 +31,7 @@ public class AnvilOverlay extends OverlayPanel {
 	/** The event's [start, end], or null when it can't be live (force-ended, an unparseable date). */
 	Instant[] window;
 	LineComponent team;
-	final LineComponent date = LineComponent.builder().left("Date:").build();
+	LineComponent date = LineComponent.builder().left("Date:").build();
 	long dateMinute = -1;
 
 	static final TitleComponent TITLE = TitleComponent.builder().text("Anvil").color(new Color(255, 215, 0)).build();

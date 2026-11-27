@@ -24,9 +24,9 @@ class ClogSync {
 	static final int BATCH_PAGES = 25;
 
 	/** Last hash we successfully sent, per page name. The persisted half of the state. */
-	final Map<String, Long> sent = new HashMap<>();
+	Map<String, Long> sent = new HashMap<>();
 	/** Changed pages awaiting a push, newest write wins. Insertion-ordered so batches are stable. */
-	final Map<String, ClogPage> pending = new LinkedHashMap<>();
+	Map<String, ClogPage> pending = new LinkedHashMap<>();
 
 	long lastChangeAt;
 

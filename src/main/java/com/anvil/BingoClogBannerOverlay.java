@@ -40,7 +40,7 @@ public class BingoClogBannerOverlay extends Overlay {
 
 	static final Color ORANGE = new Color(255, 152, 31);
 
-	final ConcurrentLinkedQueue<String[]> queue = new ConcurrentLinkedQueue<>();
+	ConcurrentLinkedQueue<String[]> queue = new ConcurrentLinkedQueue<>();
 	final BufferedImage background;
 	final Font headerFont;
 	final Font bodyFont;
@@ -91,7 +91,7 @@ public class BingoClogBannerOverlay extends Overlay {
 	}
 
 	/** Banners past the three waiting: one "+N more" closes the run, the rest is in chat and the panel. */
-	final AtomicInteger folded = new AtomicInteger();
+	AtomicInteger folded = new AtomicInteger();
 
 	public Dimension render(Graphics2D g) {
 		if (background == null || AnvilPlugin.capturing) return null;

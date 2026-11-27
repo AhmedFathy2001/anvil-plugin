@@ -11,7 +11,7 @@ class ModeLines {
 	static final int MAX_BATCH = 20;
 	static final long FLUSH_MS = 5_000;
 
-	final List<String> pending = new ArrayList<>();
+	List<String> pending = new ArrayList<>();
 	long firstAt;
 	String last;
 

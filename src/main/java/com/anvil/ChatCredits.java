@@ -16,7 +16,7 @@ class ChatCredits {
 	static final long WINDOW_MS = 30 * 60_000;
 
 	/** itemId → {quantity still owed, when it was credited}. */
-	final Map<Integer, long[]> owed = new HashMap<>();
+	Map<Integer, long[]> owed = new HashMap<>();
 
 	synchronized void note(Collection<ItemStack> credited, long now) {
 		for (var s : credited) {

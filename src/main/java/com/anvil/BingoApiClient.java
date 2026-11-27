@@ -786,7 +786,7 @@ public class BingoApiClient {
 	// body and costs a few header bytes instead of the whole board. The roster gets its own cache so
 	// paging back and forth never evicts the polls.
 	// Each a bounded URL → {etag, parsed body} cache, for If-None-Match.
-	final Map<String, Object[]> polls = synchronizedMap(capped(16, true)), trackedTiles = synchronizedMap(capped(TileTracker.MAX_PINS, true));
+	Map<String, Object[]> polls = synchronizedMap(capped(16, true)), trackedTiles = synchronizedMap(capped(TileTracker.MAX_PINS, true));
 
 	/**
 	 * Where the last good config and board are saved between sessions (ResponseDiskCache). Null until
@@ -874,7 +874,7 @@ public class BingoApiClient {
 
 	static final int THUMB_MAX_BYTES = 2 * 1024 * 1024;
 	/** Decoded panel pictures by path and size, least recently used first. */
-	final Map<String, Icon> thumbs = synchronizedMap(new LinkedHashMap<String, Icon>(16, 0.75f, true) {
+	Map<String, Icon> thumbs = synchronizedMap(new LinkedHashMap<String, Icon>(16, 0.75f, true) {
 		protected boolean removeEldestEntry(Map.Entry<String, Icon> e) {
 			// Animated pictures hold every frame (megabytes each): no more than 8 of them either.
 			return size() > 50 || values().stream().filter(v -> v instanceof GifIcon).count() > 8;

@@ -103,7 +103,7 @@ class GameValueCounters {
 	}
 
 	// Baselines, keyed per entry name AND var, so two entries on one var each keep their own.
-	final Map<String, Integer> last = new HashMap<>();
+	Map<String, Integer> last = new HashMap<>();
 	List<Entry> entries = Collections.emptyList();
 	List<Entry> source;
 	boolean inGame;

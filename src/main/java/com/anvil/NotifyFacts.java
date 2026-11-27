@@ -28,7 +28,7 @@ import com.google.gson.*;
  */
 class NotifyFacts {
 	final String kind;
-	final JsonObject facts = new JsonObject();
+	JsonObject facts = new JsonObject();
 
 	NotifyFacts(String kind, String rsn) {
 		this.kind = kind;

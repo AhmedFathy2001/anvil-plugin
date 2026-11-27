@@ -25,7 +25,7 @@ class LookupSuggestions extends KeyAdapter {
 		static final Names EMPTY = new Names(null, null, null, null);
 
 		/** Friends, clan members online, players nearby, then the rest of the clan: the order they're offered in. */
-		final List<List<String>> lists = new ArrayList<>();
+		List<List<String>> lists = new ArrayList<>();
 
 		Names(Collection<String> clanOnline, Collection<String> friends, Collection<String> nearby, Collection<String> clan) {
 			for (var c : Arrays.asList(friends, clanOnline, nearby, clan)) lists.add(c == null ? List.of() : new ArrayList<>(c));

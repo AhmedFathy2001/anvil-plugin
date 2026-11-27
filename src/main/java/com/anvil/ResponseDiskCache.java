@@ -43,7 +43,7 @@ class ResponseDiskCache {
 	/** Fingerprint of the token in use, "" when signed out. */
 	volatile String account = "";
 	/** kind → etag (or body hash) last written, so an unchanged 30s poll doesn't rewrite the file. */
-	final Map<String, String> written = new ConcurrentHashMap<>();
+	Map<String, String> written = new ConcurrentHashMap<>();
 
 
 	/**

@@ -97,8 +97,8 @@ class RuleEngine {
 
 	/** What one event comes to: lines to print now, the fact for the site, and whether to screenshot it. */
 	static class Out {
-		final List<String> say = new ArrayList<>();
-		final List<JsonObject> facts = new ArrayList<>();
+		List<String> say = new ArrayList<>();
+		List<JsonObject> facts = new ArrayList<>();
 		boolean shot;
 		boolean coop;
 		/** A gain was held for its tile's batch: flushGains sends it. */
@@ -106,21 +106,21 @@ class RuleEngine {
 		/** A stat tile reached its goal: the stat push goes now. */
 		boolean done;
 		/** Tile id → its local count after this event, for the panel's optimistic rows. */
-		final Map<Integer, Long> raised = new HashMap<>();
+		Map<Integer, Long> raised = new HashMap<>();
 		/** Drop tiles this event moved, as they stood, for the in-game "tile progress" popup. */
-		final List<Rule> toasts = new ArrayList<>();
+		List<Rule> toasts = new ArrayList<>();
 		/** Item hunt popups: the banner's three lines. */
-		final List<String[]> banners = new ArrayList<>();
+		List<String[]> banners = new ArrayList<>();
 		/** The hunt targets behind them, by item id: each gets its screenshot (AnvilPlugin huntShot). */
-		final Set<Integer> hunted = new LinkedHashSet<>();
+		Set<Integer> hunted = new LinkedHashSet<>();
 	}
 
 
 	volatile Table table;
-	final Map<Integer, Long> seenItems = new HashMap<>();
-	final Map<String, TreeSet<Long>> xpMinutes = new HashMap<>();
+	Map<Integer, Long> seenItems = new HashMap<>();
+	Map<String, TreeSet<Long>> xpMinutes = new HashMap<>();
 	/** Gains held per tile until the batch goes or the tile completes. */
-	final Map<Integer, Long> held = new HashMap<>();
+	Map<Integer, Long> held = new HashMap<>();
 	/** This client's unconfirmed count for a tile: event rules build on it when the table is older. */
 	volatile IntToLongFunction floor = t -> 0;
 	/** A name's absolute count off the game's count line just read for it, else null. */
@@ -281,7 +281,7 @@ class RuleEngine {
 		return out;
 	}
 
-	final Map<Integer, Long> huntSeen = new HashMap<>();
+	Map<Integer, Long> huntSeen = new HashMap<>();
 
 	boolean huntFresh(int itemId, long now) {
 		var last = huntSeen.put(itemId, now);

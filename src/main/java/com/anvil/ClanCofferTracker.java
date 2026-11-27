@@ -14,7 +14,7 @@ class ClanCofferTracker {
 	enum Kind {
 		SNAPSHOT, DEPOSIT, WITHDRAWAL;
 
-		final String wire = name().toLowerCase(Locale.ROOT);
+		String wire = name().toLowerCase(Locale.ROOT);
 	}
 
 	@RequiredArgsConstructor

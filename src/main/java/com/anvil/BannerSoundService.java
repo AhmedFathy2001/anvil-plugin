@@ -74,7 +74,7 @@ public class BannerSoundService {
 	enum Kind {
 		BANNER, MISSION;
 
-		final String folder = name().toLowerCase(Locale.ROOT);
+		String folder = name().toLowerCase(Locale.ROOT);
 	}
 
 	/** One kind's directory, created on demand, or null when there is nowhere to read or write. */
@@ -115,9 +115,9 @@ public class BannerSoundService {
 	 * so it is always answered from memory and the re-read happens on {@link #audioExecutor}; a clip
 	 * dropped into the folder by hand shows up this much later at worst (Add sounds re-reads at once).
 	 */
-	final Map<Kind, List<String>> listed = new EnumMap<>(Kind.class);
-	final Map<Kind, Long> listedAt = new EnumMap<>(Kind.class);
-	final Set<Kind> relisting = EnumSet.noneOf(Kind.class);
+	Map<Kind, List<String>> listed = new EnumMap<>(Kind.class);
+	Map<Kind, Long> listedAt = new EnumMap<>(Kind.class);
+	Set<Kind> relisting = EnumSet.noneOf(Kind.class);
 	/** Told (on the audio thread) when a re-read finds the clips changed, so the panel can redraw. */
 	volatile Runnable onClipsChanged = () -> { };
 

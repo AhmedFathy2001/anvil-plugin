@@ -63,7 +63,7 @@ class NotifyOutbox {
 	final Supplier<ExecutorService> sendPool;
 	@Setter volatile Filepath dir;
 	@Setter volatile Sender sender;
-	final List<Item> items = new ArrayList<>();
+	List<Item> items = new ArrayList<>();
 	ScheduledFuture<?> task;
 	boolean pumping;
 

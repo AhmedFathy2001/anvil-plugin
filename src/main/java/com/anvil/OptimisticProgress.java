@@ -19,7 +19,7 @@ class OptimisticProgress {
 	static final long TTL_MS = 120_000;
 
 	/** tileId → {floor, expiresAt}. */
-	final Map<Integer, long[]> floors = new ConcurrentHashMap<>();
+	Map<Integer, long[]> floors = new ConcurrentHashMap<>();
 	/**
 	 * tileId → the highest count the site has been seen at, from any source (a tile push, the config).
 	 * The next gain builds on this rather than on the caller's possibly older count: a teammate's
@@ -27,7 +27,7 @@ class OptimisticProgress {
 	 * until they climbed past it. Building on it can only undercount for a moment (if our earlier
 	 * gains hadn't reached the site yet), never overcount.
 	 */
-	final Map<Integer, Long> seenSite = new ConcurrentHashMap<>();
+	Map<Integer, Long> seenSite = new ConcurrentHashMap<>();
 	/** Told when the site's count for a tile went DOWN (a deleted submission): views showing the old one redraw. */
 	volatile Runnable onDrop;
 

@@ -37,7 +37,7 @@ class ClogFullSync {
 	static final int MIN_ITEMS = 5;
 
 	/** itemId -> quantity, in arrival order so a batch reads like the log does. */
-	final Map<Integer, Integer> items = new LinkedHashMap<>();
+	Map<Integer, Integer> items = new LinkedHashMap<>();
 
 	long lastItemAt;
 	boolean receiving;

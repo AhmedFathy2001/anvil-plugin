@@ -55,8 +55,8 @@ class FeedList extends JPanel {
 	final SkillIconManager skills;
 	final Consumer<JsonObject> act;
 	final int cap;
-	final RowModel model = new RowModel();
-	final JList<JsonObject> list = new JList<JsonObject>(model) {
+	RowModel model = new RowModel();
+	JList<JsonObject> list = new JList<JsonObject>(model) {
 		public boolean getScrollableTracksViewportWidth() {
 			return true;
 		}
@@ -79,12 +79,12 @@ class FeedList extends JPanel {
 		}
 	};
 	final JScrollPane scroll;
-	final JLabel empty, newPill = new ClipLabel("", SwingConstants.CENTER), error = new ClipLabel(), lockLine = new ClipLabel(), lockSub = new ClipLabel();
+	JLabel empty, newPill = new ClipLabel("", SwingConstants.CENTER), error = new ClipLabel(), lockLine = new ClipLabel(), lockSub = new ClipLabel();
 	/** In place of the message box while locked: the reason, coral when it's the viewer's own timeout. */
-	final JPanel lockBox = clear(2);
+	JPanel lockBox = clear(2);
 	JPanel boxPanel;
 	/** Chat: the channel switch over the list (My team | All teams | Announcements). */
-	final List<Seg> segs = new ArrayList<>();
+	List<Seg> segs = new ArrayList<>();
 	JTextField input;
 	JsonObject send;
 	/** A chat (it has a message box): oldest at the top, newest at the bottom, pinned to the latest. */
@@ -94,17 +94,17 @@ class FeedList extends JPanel {
 	/** Whose lines are the viewer's own, re-read at each flush. */
 	String me;
 	/** Chat: every name the viewer's own lines carry (the site's `mine`: their characters and host name), per person. */
-	final Set<String> mineNames = new HashSet<>();
+	Set<String> mineNames = new HashSet<>();
 	/** Arrived since the last flush, oldest first. */
-	final List<JsonObject> pending = new ArrayList<>();
-	final Set<String> pendingDel = new HashSet<>();
+	List<JsonObject> pending = new ArrayList<>();
+	Set<String> pendingDel = new HashSet<>();
 	/** Rows whose reaction chip this viewer just pressed: their pushes wait (see {@link #reaction}). */
-	final Map<String, Held> held = new HashMap<>();
+	Map<String, Held> held = new HashMap<>();
 	/** slide: repaints only the visible rows with a sliding name, ~25 times a second, and only while there are any. */
-	final Timer flush = new Timer(FLUSH_MS, e -> flush()), slide = new Timer(40, e -> slideVisible());
+	Timer flush = new Timer(FLUSH_MS, e -> flush()), slide = new Timer(40, e -> slideVisible());
 	int unseen;
-	final Map<Integer, Icon> icons = new HashMap<>(), spriteIcons = new HashMap<>();
-	final Map<String, Icon> skillIcons = new HashMap<>();
+	Map<Integer, Icon> icons = new HashMap<>(), spriteIcons = new HashMap<>();
+	Map<String, Icon> skillIcons = new HashMap<>();
 
 	FeedList(JsonObject n, Host host, ItemManager items, SpriteManager sprites, SkillIconManager skills, Consumer<JsonObject> act) {
 		super(new BorderLayout(0, 4));
@@ -323,7 +323,7 @@ class FeedList extends JPanel {
 	/** Pushes for a row whose chip this viewer just pressed. */
 	static class Held {
 		int posts, gen;
-		final List<JsonObject> queued = new ArrayList<>();
+		List<JsonObject> queued = new ArrayList<>();
 	}
 
 	/**
@@ -690,8 +690,8 @@ class FeedList extends JPanel {
 	// ---- The model: one list, changed in batches -------------------------------------------------
 
 	static class RowModel extends AbstractListModel<JsonObject> {
-		final List<JsonObject> rows = new ArrayList<>();
-		final Set<String> ids = new HashSet<>();
+		List<JsonObject> rows = new ArrayList<>();
+		Set<String> ids = new HashSet<>();
 
 		public int getSize() {
 			return rows.size();
@@ -830,7 +830,7 @@ class FeedList extends JPanel {
 	/** A blank icon the size of a row's picture. */
 	static final Icon BLANK = new ImageIcon(new BufferedImage(ICON_W, ICON_H, BufferedImage.TYPE_INT_ARGB));
 
-	final ChatCell chatCell = new ChatCell();
+	ChatCell chatCell = new ChatCell();
 
 	/**
 	 * One chat line, painted straight onto the list: the name (and team, or HOST / MOD / TEAM) with
@@ -843,7 +843,7 @@ class FeedList extends JPanel {
 	 */
 	class ChatCell extends JComponent {
 		static final int PAD_X = 8;
-		final Map<String, List<String>> wraps = new HashMap<>();
+		Map<String, List<String>> wraps = new HashMap<>();
 		int wrapWidth = -1;
 		JsonObject r;
 		boolean grouped;
@@ -1109,9 +1109,9 @@ class FeedList extends JPanel {
 	}
 
 	class RowRenderer extends JPanel implements ListCellRenderer<JsonObject> {
-		final JLabel icon = new ClipLabel(), line1 = new ClipLabel(), value = new ClipLabel(), gz = new ClipLabel();
-		final WhoLine line2 = new WhoLine();
-		final Chips chips = new Chips();
+		JLabel icon = new ClipLabel(), line1 = new ClipLabel(), value = new ClipLabel(), gz = new ClipLabel();
+		WhoLine line2 = new WhoLine();
+		Chips chips = new Chips();
 
 		RowRenderer() {
 			super(new BorderLayout(6, 0));

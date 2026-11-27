@@ -44,7 +44,7 @@ public class TileTracker {
 	final BingoApiClient apiClient;
 
 	/** tileId → its pin, in pin order. Guarded by {@code this}. */
-	final Map<Integer, Widget> pins = new LinkedHashMap<>();
+	Map<Integer, Widget> pins = new LinkedHashMap<>();
 	/** The logged-in account's hash, or -1 at the login screen: pins are saved per account. */
 	long account = -1;
 	/**
@@ -61,7 +61,7 @@ public class TileTracker {
 	volatile Supplier<List<Integer>> boards = Collections::emptyList;
 	/** Says why a pin came down (a chat line). */
 	volatile Consumer<String> told = m -> { };
-	final Combined combined = new Combined();
+	Combined combined = new Combined();
 	/**
 	 * The pins as the frame draw sees them: replaced whole on every change, read without a lock.
 	 * The shared panel renders on the client thread every frame, which must never wait on a lock.
@@ -445,7 +445,7 @@ public class TileTracker {
 		 * The lines drawn every frame, built once per fetch on the client thread — the frame only moves
 		 * your team's bar and the countdown, and only when they change.
 		 */
-		final List<LayoutableRenderableEntity> lines = new ArrayList<>();
+		List<LayoutableRenderableEntity> lines = new ArrayList<>();
 		Progress builtFor;
 		Team mine;
 		ProgressBarComponent bar;

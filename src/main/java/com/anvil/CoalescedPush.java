@@ -30,7 +30,7 @@ class CoalescedPush {
 	final Sender sender;
 	final Runnable afterSend;
 	/** What the site last accepted, when only a RISE is worth sending; null to send every value. */
-	final Map<String, Integer> sent, pending = new HashMap<>();
+	Map<String, Integer> sent, pending = new HashMap<>();
 	ScheduledFuture<?> task;
 	/** Failed sends since the last success; 0 = healthy. Drives the retry wait. */
 	int failures;

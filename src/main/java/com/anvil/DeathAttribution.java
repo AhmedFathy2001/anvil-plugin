@@ -35,9 +35,9 @@ class DeathAttribution {
 
 
 	/** Who has us targeted, and when they acquired us. Insertion-ordered so "most recent" is cheap. */
-	final Map<String, Long> attackers = new LinkedHashMap<>();
+	Map<String, Long> attackers = new LinkedHashMap<>();
 	/** Which of {@link #attackers} are players rather than NPCs. */
-	final Set<String> players = new HashSet<>();
+	Set<String> players = new HashSet<>();
 
 	/** When we last took damage from something other than ourselves. */
 	long lastDamageAt;
