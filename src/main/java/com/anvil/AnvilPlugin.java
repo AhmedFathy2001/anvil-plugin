@@ -10625,7 +10625,10 @@ public class AnvilPlugin extends Plugin {
 		var names = new LinkedHashMap<String, String>();
 		var seen = new HashSet<String>();
 		var onFriendsList = false;
-		for (var en : e.getMenuEntries()) if (WidgetUtil.componentToInterface(en.getParam1()) == InterfaceID.FRIENDS) onFriendsList = true;
+		for (var en : e.getMenuEntries()) onFriendsList |= WidgetUtil.componentToInterface(en.getParam1()) == InterfaceID.FRIENDS;
+		var cc = client.getClanChannel();
+		var gc = client.getGuestClanChannel();
+		var fc = client.getFriendsChatManager();
 		for (var en : show > 0 ? e.getMenuEntries() : new MenuEntry[0]) {
 			// Only someone the game itself shows us as here: in the scene, in one of our channels' member
 			// lists, or online on our friends list. Never more than the game shows (no entry at all).
@@ -10635,19 +10638,16 @@ public class AnvilPlugin extends Plugin {
 			// no line, whatever we share. Other plugins' entries in the same menu (World Hopper's Hop-to,
 			// lookups) don't carry the list's widget, so this is decided for the menu, not per entry.
 			if (onFriendsList && !friendOnline(name)) continue;
-			var cc = client.getClanChannel();
-			var gc = client.getGuestClanChannel();
-			var fc = client.getFriendsChatManager();
 			// Visible: the game shows them to us right now. A chat line's name or a friend the game shows
 			// offline still gets a line, but always "disconnected": whoever hides as offline stays so, and
 			// it reads the same as someone without Anvil.
-			var visible = en.getPlayer() != null || inScene(name) || inGroup(name) || friendOnline(name) || (cc != null && cc.findMember(name) != null)
-				|| (gc != null && gc.findMember(name) != null) || (fc != null && fc.findByName(name) != null);
+			var visible = en.getPlayer() != null || inScene(name) || inGroup(name) || friendOnline(name) || cc != null && cc.findMember(name) != null || gc != null && gc.findMember(name) != null || fc != null && fc.findByName(name) != null;
 			// A hidden name gets a line only off a chat line, and only on an option about a player (not a
 			// task or an item a broadcast names); an offline friend none at all.
 			if (!visible && !(overChatLine && PLAYER_OPTIONS.contains(Text.removeTags(String.valueOf(en.getOption()))))) continue;
-			var key = Text.standardize(Text.removeTags(name));
-			names.putIfAbsent(key, Text.removeTags(name).replace('\u00a0', ' '));
+			var plain = Text.removeTags(name);
+			var key = Text.standardize(plain);
+			names.putIfAbsent(key, plain.replace('\u00a0', ' '));
 			if (visible) seen.add(key);
 		}
 		if (show == 2) relayWho(names.values());
@@ -10657,28 +10657,24 @@ public class AnvilPlugin extends Plugin {
 			statusSeen = seen;
 			statusEntry = client.getMenu().createMenuEntry(1).setOption(relayStatus(show)).setTarget("").setType(MenuAction.RUNELITE);
 		}
-		for (var en : e.getMenuEntries()) {
-			int on = en.getParam1();
-			if (on != InterfaceID.Chatbox.CHAT_CLAN) continue;
+		for (var en : e.getMenuEntries()) if (en.getParam1() == InterfaceID.Chatbox.CHAT_CLAN) {
 			for (int i = chans == null ? -1 : chans.size() - 1; i >= 0; i--) {
 				int at = i;
 				menuEntry("Event chat:", chans.get(i).getAsJsonObject().get("l").getAsString(), () -> openEventChat(at, ""));
 			}
 			return;
 		}
-		var kids = area == null || area.isHidden() ? null : area.getDynamicChildren();
-		if (kids == null || !area.getBounds().contains(mp.getX(), mp.getY())) return;
-		for (var w : kids) {
+		var kids = overChatLine && chans != null ? area.getDynamicChildren() : null;
+		if (kids != null) for (var w : kids) {
 			if (w == null || w.isHidden() || w.getText() == null || !w.getBounds().contains(mp.getX(), mp.getY())) continue;
 			var t = Text.removeTags(w.getText());
-			for (var line : eventLines.entrySet()) {
-				if (!t.endsWith(line.getKey()) || chans == null) continue;
-				for (int i = 0; i < chans.size(); i++) {
+			eventLines.forEach((k, v) -> {
+				for (int i = 0; t.endsWith(k) && i < chans.size(); i++) {
 					var c = chans.get(i).getAsJsonObject();
 					int at = i;
-					if (line.getValue().equals(c.get("e").getAsString() + ":" + c.get("to").getAsString())) menuEntry("Reply in", c.get("l").getAsString(), () -> openEventChat(at, ""));
+					if (v.equals(c.get("e").getAsString() + ":" + c.get("to").getAsString())) menuEntry("Reply in", c.get("l").getAsString(), () -> openEventChat(at, ""));
 				}
-			}
+			});
 		}
 	}
 
@@ -10688,9 +10684,7 @@ public class AnvilPlugin extends Plugin {
 
 	synchronized void feedLine(JsonObject m) {
 		if (!config.chatFeed()) return;
-		var tag = m.has("tag") ? m.get("tag").getAsString() : "";
-		var who = m.has("who") ? m.get("who").getAsString() : "";
-		var text = m.has("text") ? m.get("text").getAsString() : "";
+		String tag = UiView.str(m, "tag"), who = UiView.str(m, "who"), text = UiView.str(m, "text");
 		var now = now();
 		while (!feedShownAt.isEmpty() && now - feedShownAt.peekFirst() >= 60_000L) feedShownAt.pollFirst();
 		if (feedShownAt.size() >= 6 /* FEED_PER_MINUTE */) {
@@ -10702,19 +10696,19 @@ public class AnvilPlugin extends Plugin {
 		// The sender's Supporter colour on their name, and a Patron's star; the rest in the line's tone.
 		var whoColor = m.has("whoColor") ? ChatPalette.nameColor(m.get("whoColor").getAsString()) : null;
 		var star = m.has("star") && m.get("star").getAsBoolean();
+		var w = clean(who);
 		// Champion/Patron: the name letter by letter across their gradient; else the solid colour.
 		String grad = null;
 		if (!who.isEmpty() && m.has("whoGrad") && m.get("whoGrad").isJsonArray()) {
 			List<String> stops = new ArrayList<>();
 			for (var e : m.getAsJsonArray("whoGrad")) if (e.isJsonPrimitive()) stops.add(e.getAsString());
-			grad = ChatPalette.gradientName(clean(who), stops);
+			grad = ChatPalette.gradientName(w, stops);
 		}
 		// The dataset's look for this surface (own dark/light look, else adapted) wins over the push's
 		// raw colours, so a feed line's name matches the same name in chat.
-		var own = who.isEmpty() || !flairOn() ? null : chatFlair.paintNameFor(clean(who), lastChatboxOpaque);
-		var name = own != null ? own : grad != null ? grad
-				: whoColor != null ? "<col=" + whoColor + ">" + clean(who) + "</col>" : clean(who);
-		var fe = own == null ? null : chatFlair.entry(clean(who));
+		var own = who.isEmpty() || !flairOn() ? null : chatFlair.paintNameFor(w, lastChatboxOpaque);
+		var name = own != null ? own : grad != null ? grad : whoColor != null ? "<col=" + whoColor + ">" + w + "</col>" : w;
+		var fe = own == null ? null : chatFlair.entry(w);
 		var lead = who.isEmpty() ? null : (fe != null && fe.t != null ? tenureIcon(fe, lastChatboxOpaque, -1, 0) : star ? chatStar() : "") + name;
 		var tone = Tone.of(m.has("tone") ? m.get("tone").getAsString() : null);
 		sendChatLine(tag.isEmpty() ? "Anvil" : "Anvil \u00B7 " + tag, text, tone, lead);
@@ -10722,19 +10716,17 @@ public class AnvilPlugin extends Plugin {
 
 	synchronized void flushFeedHeld() {
 		feedHeldFlush = null;
-		if (feedHeld > 0) {
-			sendChatMessage(Tone.FEED, "+" + feedHeld + " more in the chat feed. Choose what shows on your Anvil profile.");
-			feedHeld = 0;
-		}
+		if (feedHeld > 0) sendChatMessage(FEED, "+" + feedHeld + " more in the chat feed. Choose what shows on your Anvil profile.");
+		feedHeld = 0;
 	}
 
 	/** {@code lead}: markup already made safe (a coloured name, an icon) before the message's own colour. */
-	void sendChatLine(String tag, String message, ChatPalette.Tone tone, String lead) {
+	void sendChatLine(String tag, String message, Tone tone, String lead) {
 		sendChatLine(tag, message, tone, lead, null);
 	}
 
 	/** {@code tail}: already-safe markup after the message (a flaired name), e.g. "<col=…>N</col>!". */
-	void sendChatLine(String tag, String message, ChatPalette.Tone tone, String lead, String tail) {
+	void sendChatLine(String tag, String message, Tone tone, String lead, String tail) {
 		if (empty(message)) return;
 		// A raw '|' in a chat line gets mangled by the chat pipeline (an event named
 		// "The AFK Spot | July Bingo" printed as a bare "July Bingo."). Interpolated names are
@@ -10749,9 +10741,7 @@ public class AnvilPlugin extends Plugin {
 			var own = opaque ? "000000" : "ffffff";
 			var prefix = chatTag != null ? chatTag : opaque ? "7a5600" : "ffd700";
 			// Every colour in the line, whoever chose it, readable on this chatbox (ChatPalette.readable).
-			var line = ChatPalette.readable("<col=" + prefix + ">[" + clean(tag) + "]</col> "
-					+ (lead != null ? lead + " " : "") + "<col=" + chatPalette.text(tone, own, opaque) + ">" + safe + "</col>"
-					+ (tail != null ? tail : ""), opaque);
+			var line = ChatPalette.readable("<col=" + prefix + ">[" + clean(tag) + "]</col> " + (lead != null ? lead + " " : "") + "<col=" + chatPalette.text(tone, own, opaque) + ">" + safe + "</col>" + (tail != null ? tail : ""), opaque);
 			// addChatMessage posts to every plugin's ChatMessage subscriber. During startup/logout
 			// RuneLite has neither a local player nor its varbit array yet, and a surprising number
 			// of third-party subscribers assume both exist. Never inject an Anvil line into that
@@ -10775,22 +10765,12 @@ public class AnvilPlugin extends Plugin {
 	 * channel isn't readable — the roster is scraped from it, so there is nothing to send.
 	 */
 	void syncClanRosterFromPanel() {
-		if (!isAdmin) {
-			sendChatMessage("Only clan admins can sync the roster.");
-			return;
-		}
-		// Cached, because this is called from the side panel on the EDT — reading the clan channel
-		// from there is the same thread violation that swallowed the profile button's message.
-		if (!clanRosterReadable) {
-			sendChatMessage("Join your clan channel first — the roster is read from it.");
-			return;
-		}
-		if (panelRosterSyncRunning) {
-			sendChatMessage("Already syncing the roster.");
-			return;
-		}
+		// clanRosterReadable is cached, because this is called from the side panel on the EDT — reading the
+		// clan channel from there is the same thread violation that swallowed the profile button's message.
+		var no = !isAdmin ? "Only clan admins can sync the roster." : !clanRosterReadable ? "Join your clan channel first — the roster is read from it." : panelRosterSyncRunning ? "Already syncing the roster." : null;
+		sendChatMessage(no != null ? no : "Syncing the clan roster...");
+		if (no != null) return;
 		panelRosterSyncRunning = true;
-		sendChatMessage("Syncing the clan roster...");
 		syncClanRoster((ok, msg) -> {
 			panelRosterSyncRunning = false;
 			repaintSidebar(); // the callback lands on the executor or client thread, never the EDT
@@ -10813,10 +10793,9 @@ public class AnvilPlugin extends Plugin {
 	/** Client thread: logged in on a separate-save (seasonal) world, cached for the side panel. */
 	void markSeasonalWorld() {
 		var on = client.getGameState() == GameState.LOGGED_IN && WorldInfo.separateSave(client.getWorldType());
-		if (on != seasonalWorld) {
-			seasonalWorld = on;
-			if (sidebarPanel != null) invokeLater(sidebarPanel::seasonalChanged);
-		}
+		if (on == seasonalWorld) return;
+		seasonalWorld = on;
+		if (sidebarPanel != null) invokeLater(sidebarPanel::seasonalChanged);
 	}
 
 	volatile boolean seasonalWorld;
@@ -10928,13 +10907,10 @@ public class AnvilPlugin extends Plugin {
 		// and try again once the site's config has landed.
 		var cfg = pluginConfig;
 		var activities = cfg != null ? cfg.pbActivities : null;
-		if (empty(activities)) return;
 		// String.hashCode is specified, so the same list gives the same signature on every client
 		// and every release. An older flag ("1", or an earlier list) simply doesn't match.
-		var signature = Integer.toString(activities.hashCode());
-		var done = cfgGet(accountKey(CFG_PB_IMPORTED, rsnKey));
-		if (signature.equals(done)) return;
-
+		var signature = "" + (activities == null ? 0 : activities.hashCode());
+		if (empty(activities) || signature.equals(cfgGet(accountKey(CFG_PB_IMPORTED, rsnKey)))) return;
 		// ASK, don't list. RuneLite stores these under the RS-profile scope, and its only key-listing
 		// API reads the main profile — so the obvious loop over getConfigurationKeys() silently found
 		// nothing at all, whatever prefix it was given. getRSProfileConfiguration reads the right
@@ -10955,8 +10931,7 @@ public class AnvilPlugin extends Plugin {
 		int adopted = personalBests.seed(imported, now());
 		cfgSet(accountKey(CFG_PB_IMPORTED, rsnKey), signature);
 		log.info("Imported {} PB(s) ({} probed)", adopted, imported.size());
-		if (adopted > 0) sendChatMessage("Imported " + adopted + " personal best" + (adopted == 1 ? "" : "s")
-				+ " from RuneLite.");
+		if (adopted > 0) sendChatMessage("Imported " + adopted + " personal best" + (adopted == 1 ? "" : "s") + " from RuneLite.");
 	}
 
 	/**
@@ -10975,8 +10950,8 @@ public class AnvilPlugin extends Plugin {
 	/** Read one stored best, if RuneLite has it for this account. Times are seconds; ours centis. */
 	void probeRuneLitePb(String activity, Map<String, Integer> into) {
 		var raw = configManager.getRSProfileConfiguration("personalbest" /* RUNELITE_PB_GROUP */, activity);
-		if (raw == null || raw.trim().isEmpty()) return;
-		try {
+		// A blank value fails the parse like any other non-time.
+		if (raw != null) try {
 			int centis = (int) round(Double.parseDouble(raw.trim()) * 100.0);
 			if (centis > 0) into.put(activity, centis);
 		} catch (NumberFormatException e) {
@@ -11025,8 +11000,7 @@ public class AnvilPlugin extends Plugin {
 		}, ms -> clogPushAllowedAt = now() + max(ms, 1_000L), m -> clogSync.onSent(batch), m -> {
 		}) == null) return;
 		clogSync.onSent(batch);
-		cfgSet(accountKey(CFG_CLOG_STATE, profileSyncRsn),
-				clogSync.serializeState());
+		cfgSet(accountKey(CFG_CLOG_STATE, profileSyncRsn), clogSync.serializeState());
 	}
 
 	/**
@@ -11064,8 +11038,7 @@ public class AnvilPlugin extends Plugin {
 				() -> apiClient.submitClogItems(clogFullSync.snapshot()), ms -> {
 					clogPushAllowedAt = now + max(ms, 1_000L);
 					clogFullSync.onSendFailed(now);
-					if (manual) sendChatMessage("Synced very recently — the site allows one sync a minute. Try again in "
-							+ secs(ms) + "s.");
+					if (manual) sendChatMessage("Synced very recently — the site allows one sync a minute. Try again in " + secs(ms) + "s.");
 				}, m -> {
 					clogFullSync.onSent();
 					if (manual) sendChatMessage(WARN, "Couldn't sync your profile: " + m + ".");
@@ -11077,8 +11050,7 @@ public class AnvilPlugin extends Plugin {
 		if (result == null) return;
 		clogPushAllowedAt = now + 60_000L /* SERVER_CLOG_COOLDOWN_MS */;
 		lastClogFingerprint = fingerprint;
-		if (profileSyncRsn != null) cfgSet(accountKey(CFG_CLOG_FINGERPRINT, profileSyncRsn),
-				"" + fingerprint);
+		if (profileSyncRsn != null) cfgSet(accountKey(CFG_CLOG_FINGERPRINT, profileSyncRsn), "" + fingerprint);
 		clogFullSync.onSent();
 		log.info("Collection log synced: {} items", count);
 		if (manual) {
@@ -11086,22 +11058,18 @@ public class AnvilPlugin extends Plugin {
 			// ids than slots (the same slot under two ids), and "497" beside a log reading 493 looked wrong.
 			int slots = client.getVarpValue(VarPlayerID.COLLECTION_COUNT);
 			sendChatMessage(Tone.DONE, "Profile synced — " + (slots > 0 ? slots : count) + " collection log slots.");
-		} else if (result.added > 0) {
-			// New slots are news: always said.
+		} else if (result.added > 0 || !autoClogReportedThisLogin) {
+			// New slots are news: always said. A push that added nothing still proves the round trip
+			// worked — once a login.
 			autoClogReportedThisLogin = true;
-			sendChatMessage(Tone.DONE, "Collection log synced — " + result.added + " new slot"
-					+ (result.added == 1 ? "" : "s") + ".");
-		} else if (!autoClogReportedThisLogin) {
-			// A push that added nothing still proves the round trip worked — once a login.
-			autoClogReportedThisLogin = true;
-			sendChatMessage("Collection log synced — nothing new.");
+			if (result.added > 0) sendChatMessage(DONE, "Collection log synced — " + result.added + " new slot" + (result.added == 1 ? "" : "s") + ".");
+			else sendChatMessage("Collection log synced — nothing new.");
 		}
 	}
 
 	/** Same contract for best times. */
 	void flushPersonalBests() {
-		if (!config.syncPersonalBests() || !apiClient.isConfigured() || profileSyncRsn == null
-				|| !siteKnown()) return;
+		if (!config.syncPersonalBests() || !apiClient.isConfigured() || profileSyncRsn == null || !siteKnown()) return;
 		var now = now();
 		if (!personalBests.isDue(now) || !pbBackoff.ready(now)) return;
 		var batch = personalBests.nextBatch();
@@ -11112,8 +11080,7 @@ public class AnvilPlugin extends Plugin {
 		}, ms -> pbBackoff.onFailure(now()), m -> personalBests.onSent(batch), m -> {
 		}) == null) return;
 		personalBests.onSent(batch);
-		cfgSet(accountKey(CFG_PB_STATE, profileSyncRsn),
-				personalBests.serializeState());
+		cfgSet(accountKey(CFG_PB_STATE, profileSyncRsn), personalBests.serializeState());
 	}
 
 	/**
@@ -11163,7 +11130,7 @@ public class AnvilPlugin extends Plugin {
 		// Joined or left a guest channel: tell the guest bridge now rather than on the next tick.
 		if (event.isGuest()) submit(() -> safely("pushGuestChannel", this::pushGuestChannel));
 		// The member list arrives just after the channel; a delay is cheaper than polling for it.
-		if (!event.isGuest() && config.autoSyncClanRoster()) later(() -> safely("autoRosterSync", this::autoSyncClanRoster), 5_000 /* AUTO_ROSTER_DELAY_MS */);
+		else if (config.autoSyncClanRoster()) later(() -> safely("autoRosterSync", this::autoSyncClanRoster), 5_000 /* AUTO_ROSTER_DELAY_MS */);
 	}
 
 	/**
@@ -11173,8 +11140,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	void autoSyncClanRoster() {
 		if (autoRosterSyncRunning || !isAdmin) return;
-		var token = config.playerToken();
-		if (empty(token) || !apiClient.isConfigured()) return;
+		if (empty(config.playerToken()) || !apiClient.isConfigured()) return;
 		var now = now();
 		if (lastAutoRosterSyncAt != 0 && now - lastAutoRosterSyncAt < (30 * 60 * 1000) /* AUTO_ROSTER_MIN_GAP_MS */) return;
 		autoRosterSyncRunning = true;
