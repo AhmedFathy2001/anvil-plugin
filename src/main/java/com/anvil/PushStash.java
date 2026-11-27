@@ -28,9 +28,7 @@ class PushStash {
 	/** One character's waiting pushes. Plain fields only: it round-trips through Gson as-is. */
 	static class Data {
 		long savedAt;
-		Map<String, Integer> kc = new HashMap<>();
-		Map<String, Integer> xp = new HashMap<>();
-		Map<String, Integer> activity = new HashMap<>();
+		Map<String, Integer> kc = new HashMap<>(), xp = new HashMap<>(), activity = new HashMap<>();
 		/** Stored as they are: Gson fills the final fields itself, under the same names older files used. */
 		List<AnvilMoments.Moment> moments = new ArrayList<>();
 		/** Drop and kill facts (POST /api/plugin/facts) still to send, as queued. Never null. */

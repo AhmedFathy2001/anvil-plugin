@@ -25,17 +25,16 @@ import net.runelite.client.util.*;
 @RequiredArgsConstructor
 @Slf4j
 class ResponseDiskCache {
-	static final String CONFIG = "config";
-	static final String CHAT_PATTERNS = "chat-patterns";
-	/** The Supporter name list (ChatFlair): public, the same for every account: one file per site.
+	/** CHAT_FLAIR: the Supporter name list (ChatFlair): public, the same for every account: one file per site.
 	 * Renamed whenever the wire gains a field: an old file at the same version would never refetch. */
-	static final String CHAT_FLAIR = "chat-flair-3-";
+	static final String CONFIG = "config", CHAT_PATTERNS = "chat-patterns", CHAT_FLAIR = "chat-flair-3-";
 
 	/** One saved answer. */
+	@AllArgsConstructor
+	@NoArgsConstructor
 	static class Entry {
-		String url, etag, body;
-		/** The character the request was made as (X-RSN, else the launcher hint), or null. */
-		String rsn;
+		/** rsn: the character the request was made as (X-RSN, else the launcher hint), or null. */
+		String url, etag, body, rsn;
 		long savedAt;
 	}
 
@@ -84,14 +83,8 @@ class ResponseDiskCache {
 		if (marker.equals(written.get(kind))) return;
 		var f = file(kind, acct);
 		if (f == null) return;
-		var e = new Entry();
-		e.url = url;
-		e.etag = etag;
-		e.body = body;
-		e.rsn = rsn;
-		e.savedAt = System.currentTimeMillis();
 		try {
-			writeAtomic(f, gson.toJson(e));
+			writeAtomic(f, gson.toJson(new Entry(url, etag, body, rsn, System.currentTimeMillis())));
 			written.put(kind, marker);
 		} catch (Exception ex) {
 		}

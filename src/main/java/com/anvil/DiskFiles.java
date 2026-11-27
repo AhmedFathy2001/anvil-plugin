@@ -67,11 +67,11 @@ class DiskFiles {
 
 	/** The files directly in {@code dir} whose names pass {@code name}; empty when there is no listing. */
 	static List<Filepath> listFiles(Filepath dir, Predicate<String> name) {
-		if (dir == null) return new ArrayList<>();
+		if (dir == null) return List.of();
 		try (var walk = dir.walk(1)) {
 			return walk.filter(f -> f.isFile() && name.test(f.getFileName())).collect(Collectors.toList());
 		} catch (Exception e) {
-			return new ArrayList<>();
+			return List.of();
 		}
 	}
 

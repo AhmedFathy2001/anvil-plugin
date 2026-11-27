@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static com.anvil.BingoApiClient.*;
 import static com.anvil.DiskFiles.*;
 import lombok.*;
 import com.google.gson.*;
@@ -71,11 +72,11 @@ public class PendingSubmissionStore {
 	 * its note marks it as one, and the site keeps that note and the saved banner.
 	 */
 	static JsonArray legacyFacts(PendingSubmission p) {
-		var f = BingoApiClient.obj("k", "tile", "t", p.tileId, "n", Math.max(1, p.amount));
-		BingoApiClient.some(f, "sec", p.durationSeconds, "item", p.itemId);
+		var f = obj("k", "tile", "t", p.tileId, "n", Math.max(1, p.amount));
+		some(f, "sec", p.durationSeconds, "item", p.itemId);
 		if (p.inferred != null) f.addProperty("inf", p.inferred);
 		f.addProperty("note", p.note == null ? "" : p.note);
-		return BingoApiClient.one(f);
+		return one(f);
 	}
 
 	/** The directory, created on demand, or null when there is nowhere to write. */
@@ -89,7 +90,7 @@ public class PendingSubmissionStore {
 		var id = sub.tileId + "-" + sub.timestamp;
 
 		// Both atomic: a client killed mid-write leaves no half file for the retry loop to choke on.
-		var ext = BingoApiClient.isJpeg(pngBytes) ? ".jpg" : ".png";
+		var ext = isJpeg(pngBytes) ? ".jpg" : ".png";
 		var png = dir.joinSegment(id + ext);
 		try {
 			writeAtomic(png, pngBytes);
@@ -120,7 +121,7 @@ public class PendingSubmissionStore {
 	List<PendingSubmission> loadAll() {
 		List<PendingSubmission> result = new ArrayList<>();
 		var now = System.currentTimeMillis();
-		for (Filepath f : listFiles(dir(), n -> n.endsWith(".json"))) {
+		for (var f : listFiles(dir(), n -> n.endsWith(".json"))) {
 			var sub = readJson(gson, f, PendingSubmission.class);
 			if (sub == null) {
 				log.warn("Failed to read pending submission {}", f.getFileName());
@@ -160,7 +161,7 @@ public class PendingSubmissionStore {
 		if (dir == null || sub.screenshotFile == null) return null;
 		// joinSegment, not join: it refuses a separator, so a screenshotFile read back out of a JSON
 		// file cannot walk anywhere with "../" in it.
-		try (InputStream in = dir.joinSegment(sub.screenshotFile).openInputStream()) {
+		try (var in = dir.joinSegment(sub.screenshotFile).openInputStream()) {
 			return in.readAllBytes();
 		} catch (Exception e) {
 			log.error("Unreadable proof {}: {}", sub.screenshotFile, e.getMessage());

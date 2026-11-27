@@ -44,8 +44,7 @@ import net.runelite.api.*;
 class FeedList extends JPanel {
 	/** "...+02:00" at the end of a timestamp. Compiled once: it runs for every row on each paint. */
 
-	static final int FLUSH_MS = 400;
-	static final int ICON_W = 24, ICON_H = 21;
+	static final int FLUSH_MS = 400, ICON_W = 24, ICON_H = 21;
 	static final Color GOLD = new Color(0xFF_D3_5C), MINE_BG = new Color(0x2E_2A_22), CORAL = new Color(0xFF_7A_6B),
 		SEG_BG = new Color(0x1E_1E_1E), SEG_ON = new Color(0x3A_3A_3A);
 
@@ -209,7 +208,21 @@ class FeedList extends JPanel {
 
 		var top = clear(4);
 		if (!chat) top.add(newPill, NORTH);
-		else if (arr(n, "chans") != null) top.add(switchOf(arr(n, "chans")), NORTH);
+		else if (arr(n, "chans") != null) {
+			// The channel switch: one Seg per channel.
+			var bar = new JPanel(new GridLayout(1, 0, 2, 0));
+			bar.setBackground(SEG_BG);
+			bar.setBorder(createEmptyBorder(2, 2, 2, 2));
+			for (var e : arr(n, "chans")) {
+				if (!e.isJsonObject()) continue;
+				var c = e.getAsJsonObject();
+				var g = new Seg(c);
+				segs.add(g);
+				if (!g.on && obj(c, "act") != null) onClick(g, () -> act.accept(obj(c, "act")));
+				bar.add(g);
+			}
+			top.add(bar, NORTH);
+		}
 		top.add(empty, SOUTH);
 		add(top, NORTH);
 		add(scroll, CENTER);
@@ -346,21 +359,6 @@ class FeedList extends JPanel {
 	int unread(String feed) {
 		for (var g : segs) if (g.feed.equals(feed)) return g.n;
 		return -1;
-	}
-
-	JPanel switchOf(JsonArray chans) {
-		var bar = new JPanel(new GridLayout(1, 0, 2, 0));
-		bar.setBackground(SEG_BG);
-		bar.setBorder(createEmptyBorder(2, 2, 2, 2));
-		for (var e : chans) {
-			if (!e.isJsonObject()) continue;
-			var c = e.getAsJsonObject();
-			var g = new Seg(c);
-			segs.add(g);
-			if (!g.on && obj(c, "act") != null) onClick(g, () -> act.accept(obj(c, "act")));
-			bar.add(g);
-		}
-		return bar;
 	}
 
 	/** One channel on the switch: its name, lit when open, and an unread pill when not. */
@@ -850,10 +848,10 @@ class FeedList extends JPanel {
 		JsonObject r;
 		boolean grouped;
 		boolean mine;
-		List<String> lines = Collections.emptyList();
+		List<String> lines = List.of();
 		int height;
 
-		ChatCell() {
+		{
 			setOpaque(true);
 		}
 
@@ -1259,7 +1257,6 @@ class FeedList extends JPanel {
 
 		Chips() {
 			setFont(SMALL);
-			setOpaque(false);
 		}
 
 		public Dimension getPreferredSize() {

@@ -146,11 +146,12 @@ public class BingoApiClient {
 	// it everywhere else is what makes a submission, a starting shot and its upload land in the right
 	// clan on the canonical address, where nothing in the URL says which clan is meant.
 
-	/** The member's explicit pick, or "" for Auto. Survives restarts (AnvilPlugin persists it). */
-	@Getter volatile String chosenClan = "";
-
-	/** The clan the site last said it answered for. In-memory: it is the server's judgement, not a setting. */
-	volatile String resolvedClan = "";
+	/**
+	 * chosenClan: the member's explicit pick, or "" for Auto. Survives restarts (AnvilPlugin persists
+	 * it). resolvedClan: the clan the site last said it answered for. In-memory: it is the server's
+	 * judgement, not a setting.
+	 */
+	@Getter volatile String chosenClan = "", resolvedClan = "";
 
 	/** The member picked a clan in the sidebar, or picked Auto (null/blank). */
 	void setChosenClan(String slug) {
@@ -771,11 +772,6 @@ public class BingoApiClient {
 		return "couldn't reach the site";
 	}
 
-	/** A bounded URL → {etag, parsed body} cache, for If-None-Match. */
-	static Map<String, Object[]> etagCache(int max) {
-		return synchronizedMap(capped(max, true));
-	}
-
 	/** A map that drops its eldest entry (least recently used with {@code lru}, else first put) past {@code max}. */
 	static <K, V> Map<K, V> capped(int max, boolean lru) {
 		return new LinkedHashMap<K, V>(16, 0.75f, lru) {
@@ -789,7 +785,8 @@ public class BingoApiClient {
 	// polls, so the last ETag + parsed body per URL rides along as If-None-Match: a 304 reuses the cached
 	// body and costs a few header bytes instead of the whole board. The roster gets its own cache so
 	// paging back and forth never evicts the polls.
-	final Map<String, Object[]> polls = etagCache(16), trackedTiles = etagCache(TileTracker.MAX_PINS);
+	// Each a bounded URL → {etag, parsed body} cache, for If-None-Match.
+	final Map<String, Object[]> polls = synchronizedMap(capped(16, true)), trackedTiles = synchronizedMap(capped(TileTracker.MAX_PINS, true));
 
 	/**
 	 * Where the last good config and board are saved between sessions (ResponseDiskCache). Null until
@@ -1402,9 +1399,7 @@ public class BingoApiClient {
 
 	/** The same mode-line batch with the frame that was visible when it was sent. */
 	void submitModeLines(List<String> lines, byte[] png, String filename) throws IOException {
-		var arr = new JsonArray();
-		lines.forEach(arr::add);
-		var payload = obj("lines", arr);
+		var payload = obj("lines", gson.toJsonTree(lines));
 		// Freeze the world into the body as notifications do: a hop while the request is in flight must
 		// not relabel a Hardcore/League event as main-game activity.
 		addWorld(payload);
@@ -1611,11 +1606,7 @@ public class BingoApiClient {
 			some(o, "itemId", m.itemId, "valueGp", m.valueGp != null && m.valueGp > 0 ? m.valueGp : null, "kc", m.kc != null && m.kc > 0 ? m.kc : null,
 				"itemName", m.itemName, "source", m.source, "taskName", m.taskName, "tier", m.tier, "sourceKind", m.sourceKind,
 				"raid", m.raid, "raidMode", m.raidMode, "regionId", m.regionId, "raidLevel", m.raidLevel, "party", m.party);
-			if (m.near != null && !m.near.isEmpty()) {
-				var near = new JsonArray();
-				m.near.forEach(near::add);
-				o.add("near", near);
-			}
+			if (!empty(m.near)) o.add("near", gson.toJsonTree(m.near));
 			out.add(o);
 		}
 		// The reply names each new item hunt drop's screenshot key (AnvilPlugin huntKeys).

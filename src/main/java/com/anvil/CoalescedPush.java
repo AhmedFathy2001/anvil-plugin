@@ -30,8 +30,7 @@ class CoalescedPush {
 	final Sender sender;
 	final Runnable afterSend;
 	/** What the site last accepted, when only a RISE is worth sending; null to send every value. */
-	final Map<String, Integer> sent;
-	final Map<String, Integer> pending = new HashMap<>();
+	final Map<String, Integer> sent, pending = new HashMap<>();
 	ScheduledFuture<?> task;
 	/** Failed sends since the last success; 0 = healthy. Drives the retry wait. */
 	int failures;
@@ -64,7 +63,7 @@ class CoalescedPush {
 	synchronized void queue(Map<String, Integer> values) {
 		if (live() == null) return;
 		var queued = false;
-		for (Map.Entry<String, Integer> e : values.entrySet()) {
+		for (var e : values.entrySet()) {
 			var last = sent == null ? null : sent.get(e.getKey());
 			if (last == null || last < e.getValue()) {
 				pending.put(e.getKey(), e.getValue());

@@ -35,9 +35,7 @@ import net.runelite.client.util.*;
 @Slf4j
 class NotifyOutbox {
 	static final int MAX_ITEMS = 100;
-	static final long MAX_AGE_MS = 24L * 60 * 60 * 1000;
-	static final long FIRST_RETRY_MS = 15_000L;
-	static final long MAX_RETRY_MS = 300_000L;
+	static final long MAX_AGE_MS = 24L * 60 * 60 * 1000, FIRST_RETRY_MS = 15_000L, MAX_RETRY_MS = 300_000L;
 
 	enum Result {
 		SENT, PERMANENT, RETRY
