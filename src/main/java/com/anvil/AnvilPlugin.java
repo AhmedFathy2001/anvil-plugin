@@ -10061,10 +10061,6 @@ public class AnvilPlugin extends Plugin {
 	/** Registered tenure icons by shape, colour and glint frame. */
 	final Map<String, Integer> tenureIcons = new HashMap<>();
 
-	String tenureIcon(ChatFlair.Entry e, boolean opaque, int glint) {
-		return tenureIcon(e, opaque, glint, 0);
-	}
-
 	/**
 	 * The tenure icon in the name's own look. With a gradient it is coloured like one more letter in
 	 * front of the name: {@code p} is that letter's place along the gradient (and its motion), so the
@@ -10076,15 +10072,14 @@ public class AnvilPlugin extends Plugin {
 		var rgb = ChatPalette.rgbOf(ChatFlair.readableGradient(e, opaque));
 		int ink = rgb.size() < 2 ? Integer.parseInt(c, 16) : ChatPalette.sample(rgb, p) & 0xf8f8f8;
 		var key = e.t + ":" + ink + ":" + glint;
+		var shape = e.t + ":" + glint + ":" + opaque;
 		var id = tenureIcons.get(key);
-		if (id == null && tenureIcons.size() >= 512) return tenureReady.getOrDefault(e.t + ":" + glint + ":" + opaque, "");
+		if (id == null && tenureIcons.size() >= 512) return tenureReady.getOrDefault(shape, "");
 		if (id == null) tenureIcons.put(key, id = chatIconManager.registerChatIcon(tenureSprite(e.t, ink, glint)));
 		int index = chatIconManager.chatIconIndex(id);
-		var tag = dropIcon(index);
 		// A colour still loading shows the last one this shape had ready, never a blank: a gap made the
 		// moving star blink while its frames loaded.
-		var shape = e.t + ":" + glint + ":" + opaque;
-		if (index >= 0) tenureReady.put(shape, tag);
+		if (index >= 0) tenureReady.put(shape, dropIcon(index));
 		return tenureReady.getOrDefault(shape, "");
 	}
 
@@ -10108,15 +10103,10 @@ public class AnvilPlugin extends Plugin {
 	/** How far below its usual place the chat icon is drawn (the sprite's own offset, so every step moves alike). */
 	static final int TENURE_DROP = 2;
 
-	/** The chat icon: the 13px art and a 2px gap before the name. */
+	/** The chat icon: the 13px art in tones of the name's colour and a 2px gap before the name. A Legend's glint brightens a sweeping band. */
 	static BufferedImage tenureSprite(int t, int ink, int glint) {
-		return tenureArt(t, ink, glint, 0);
-	}
-
-	/** The art in tones of the name's colour, {@code top} clear rows above, a 2px gap after. A Legend's glint brightens a sweeping band. */
-	static BufferedImage tenureArt(int t, int ink, int glint, int top) {
 		ink = tenureInk(ink);
-		var img = new BufferedImage(TENURE_PX + 2, TENURE_PX + top, BufferedImage.TYPE_INT_ARGB);
+		var img = new BufferedImage(TENURE_PX + 2, TENURE_PX, BufferedImage.TYPE_INT_ARGB);
 		for (int y = 0; y < TENURE_PX; y++)
 			for (int x = 0; x < TENURE_PX; x++) {
 				int p = TENURE_SHEET.getRGB((t - 1) * TENURE_PX + x, y), key = (p >> 16 & 255) / 16;
@@ -10125,7 +10115,7 @@ public class AnvilPlugin extends Plugin {
 				if (glint >= 0 && key > 1 && abs(x + y - glint * 7 - 3) <= 1) f = min(0.85, max(f, 0) + 0.5);
 				int c = f >= 0 ? ChatPalette.mix(ink, 0xffffff, f) : ChatPalette.mix(ink, 0, -f);
 				// Pure black can read as see-through in the game's icon palette: a hole that blinks.
-				img.setRGB(x, y + top, 0xff000000 | (c == 0 ? 0x010101 : c));
+				img.setRGB(x, y, 0xff000000 | (c == 0 ? 0x010101 : c));
 			}
 		return img;
 	}
@@ -10148,7 +10138,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** The sprite {@code size} px tall for the panel, where we choose the size: crisp at whole multiples, smooth between. */
 	static BufferedImage tenureSprite(int t, int ink, int glint, int size) {
-		var one = tenureArt(t, ink, glint, 0);
+		var one = tenureSprite(t, ink, glint);
 		int k = max(1, (size + TENURE_PX - 1) / TENURE_PX);
 		var img = scaled(one, one.getWidth() * k, one.getHeight() * k, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR, BufferedImage.TYPE_INT_ARGB);
 		return size == img.getHeight() ? img : scaled(img, img.getWidth() * size / img.getHeight(), size, RenderingHints.VALUE_INTERPOLATION_BICUBIC, BufferedImage.TYPE_INT_ARGB);
@@ -10170,11 +10160,8 @@ public class AnvilPlugin extends Plugin {
 		if (chatStarIcon < 0) {
 			var img = new BufferedImage(11, 11, BufferedImage.TYPE_INT_ARGB);
 			var g = img.createGraphics();
-			try {
-				new GlyphIcon(GlyphIcon.Shape.STAR, 11, new Color(0xff, 0xd2, 0x7a)).paintIcon(null, g, 0, 0);
-			} finally {
-				g.dispose();
-			}
+			new GlyphIcon(GlyphIcon.Shape.STAR, 11, new Color(0xffd27a)).paintIcon(null, g, 0, 0);
+			g.dispose();
 			chatStarIcon = chatIconManager.registerChatIcon(img);
 		}
 		int index = chatIconManager.chatIconIndex(chatStarIcon);
@@ -10209,9 +10196,8 @@ public class AnvilPlugin extends Plugin {
 	/** The login brief (site lib/chatBrief): where this character stands, in a line or two. */
 	void sendBrief() {
 		var b = apiClient.fetchBrief();
-		if (b == null) return;
-		if (b.look != null) adoptLook(b.look);
-		if (b.lines != null) for (var l : b.lines) if (l != null && l.text != null) sendChatMessage(Tone.of(l.tone), l.text);
+		if (b != null && b.look != null) adoptLook(b.look);
+		if (b != null && b.lines != null) for (var l : b.lines) if (l != null && l.text != null) sendChatMessage(Tone.of(l.tone), l.text);
 	}
 
 	final ArrayDeque<Long> feedShownAt = new ArrayDeque<>();
@@ -10261,10 +10247,8 @@ public class AnvilPlugin extends Plugin {
 		public void hotkeyPressed() {
 			clientThread.invoke(() -> {
 				// Pressed again with our input open: the next channel, keeping what was typed.
-				var open = eventChatInput != null && chatboxPanelManager.getCurrentInput() == eventChatInput;
-				if (open) {
-					openEventChat(eventChatAt + 1, eventChatInput.getValue());
-				} else if (loggedIn() && apiClient.isConfigured()) {
+				if (eventChatInput != null && chatboxPanelManager.getCurrentInput() == eventChatInput) openEventChat(eventChatAt + 1, eventChatInput.getValue());
+				else if (loggedIn() && apiClient.isConfigured()) {
 					if (chatChans != null) openEventChat(eventChatAt, "");
 					fetchChatChans(chatChans == null ? () -> openEventChat(eventChatAt, "") : null);
 				}
@@ -10290,14 +10274,13 @@ public class AnvilPlugin extends Plugin {
 	boolean relaySay(String c, String text, String to) {
 		var p = pushSocket;
 		var on = config.anvilChat();
-		if (!("pm".equals(c) ? on == AnvilConfig.Relay.See_send_PMs : on.compareTo(AnvilConfig.Relay.See_send) >= 0) || p == null || text.startsWith("::")) return false;
-		return p.say(gson.toJson(BingoApiClient.obj("t", "say", "c", c, "x", text, "to", to)));
+		return ("pm".equals(c) ? on == AnvilConfig.Relay.See_send_PMs : on.compareTo(AnvilConfig.Relay.See_send) >= 0) && p != null && !text.startsWith("::") && p.say(gson.toJson(obj("t", "say", "c", c, "x", text, "to", to)));
 	}
 
 	/** A relay control message (not a chat line): our private chat setting, a who, a friend's yes. */
 	void relaySend(Object... kv) {
 		var p = pushSocket;
-		if (p != null && config.anvilChat() != AnvilConfig.Relay.Off) p.say(gson.toJson(BingoApiClient.obj(kv)));
+		if (p != null && config.anvilChat() != AnvilConfig.Relay.Off) p.say(gson.toJson(obj(kv)));
 	}
 
 	/** The private chat setting last told to the relay ("" after a reconnect: tell it again). */
@@ -10312,9 +10295,7 @@ public class AnvilPlugin extends Plugin {
 		if (f == null || pushSocket == null || !pushSocket.relayOk) return;
 		var t = Text.removeTags(f.getText());
 		var mode = t.contains("Off") ? "off" : t.contains("Friends") ? "friends" : t.contains("On") ? "on" : null;
-		if (mode == null || mode.equals(pmModeSent)) return;
-		pmModeSent = mode;
-		relaySend("t", "pm", "m", mode);
+		if (mode != null && !mode.equals(pmModeSent)) relaySend("t", "pm", "m", pmModeSent = mode);
 	}
 
 	/** Names we asked the relay about, and when (ms): once every 10s each at most. */
@@ -10354,11 +10335,12 @@ public class AnvilPlugin extends Plugin {
 		if (!RELAYED.contains(ct) || e.getName() == null || injecting) return;
 		var name = Text.removeTags(e.getName());
 		var text = Text.removeTags(e.getMessage());
-		var c = ct == CLAN_CHAT ? "clan" : ct == CLAN_GUEST_CHAT ? "guest" : ct == FRIENDSCHAT ? "fc" : ct == PRIVATECHAT || ct == PRIVATECHATOUT ? "pm" : "public";
+		var out = ct == PRIVATECHATOUT;
+		var c = ct == CLAN_CHAT ? "clan" : ct == CLAN_GUEST_CHAT ? "guest" : ct == FRIENDSCHAT ? "fc" : ct == PRIVATECHAT || out ? "pm" : "public";
 		// Our own line (a PM we sent names its recipient instead).
-		if (ct == PRIVATECHATOUT || Text.standardize(name).equals(Text.standardize(String.valueOf(getLocalPlayerName())))) {
+		if (out || Text.standardize(name).equals(Text.standardize(String.valueOf(getLocalPlayerName())))) {
 			// A PM only to someone the relay says is connected: otherwise nothing leaves the client.
-			if (ct != PRIVATECHATOUT || relayConnected(name)) if (relaySay(c, text, ct == PRIVATECHATOUT ? name : null)) relayMark(e.getMessageNode(), "");
+			if ((!out || relayConnected(name)) && relaySay(c, text, out ? name : null)) relayMark(e.getMessageNode(), "");
 			return;
 		}
 		var key = c + relayKey(name, text);
@@ -10411,13 +10393,10 @@ public class AnvilPlugin extends Plugin {
 	 * on a bare {@code <img>}, a coloured name kept the default orb and read as a guest.
 	 */
 	static String relayName(String name, String rank, String icon) {
-		if (rank != null) name = name.replaceFirst("^((?:<(?!img=)[^>]*>)*)<img=\\d+>", "$1" + java.util.regex.Matcher.quoteReplacement(rank));
-		return name.replaceFirst("^((?:<[^>]*>)*)", "$1" + java.util.regex.Matcher.quoteReplacement(icon));
+		if (rank != null) name = name.replaceFirst("^((?:<(?!img=)[^>]*>)*)<img=\\d+>", "$1" + Matcher.quoteReplacement(rank));
+		return name.replaceFirst("^((?:<[^>]*>)*)", "$1" + Matcher.quoteReplacement(icon));
 	}
 
-	/** Client thread: clan / guest clan lines we added, and the sender's rank icon ("" for none). */
-	// As many as the game keeps: 100 lines each of clan and guest clan chat. Fewer, and an older line we added lost its rank icon and wore the game's default (guest) one.
-	final Map<Integer, String> relayRank = capped(200, false);
 
 	/**
 	 * Enter on public chat: the line goes out now, read as typed (never changed or held: the game sends
@@ -10432,7 +10411,7 @@ public class AnvilPlugin extends Plugin {
 
 	/**
 	 * The Anvil chat icon: an anvil (pointed horn, flat top, narrow waist, wide foot) in flat gold with a
-	 * dark outline, drawn 1:1. Laid out like the tenure badge (tenureArt): a 13px-tall canvas with the
+	 * dark outline, drawn 1:1. Laid out like the tenure badge (tenureSprite): a 13px-tall canvas with the
 	 * 9px glyph on rows 2-10, dropped TENURE_DROP, so the two sit level either side of the name.
 	 */
 	String relayIcon() {
@@ -10463,19 +10442,15 @@ public class AnvilPlugin extends Plugin {
 		var key = c + relayKey(n, m.get("x").getAsString());
 		var seen = relaySeen.remove(key);
 		var game = seen == null ? null : client.getMessages().get(seen[0]);
-		if (game != null) {
-			relayMark(game, "");
-			return;
-		}
-		if (client.getIgnoreContainer().findByName(n) != null) return;
+		relayMark(game, "");
+		if (game != null || client.getIgnoreContainer().findByName(n) != null) return;
 		// The sender as our own client knows them: on screen (public), or in our own channel's member list
 		// (clan, guest clan, friends chat). Nobody unknown to it is shown.
 		Player near = null;
-		String from = null, rank = null, shown = null;
+		String from = null, shown = null;
 		var type = PUBLICCHAT;
 		if ("public".equals(c)) {
-			for (var q : client.getPlayers()) if (q != null && q.getName() != null && relayKey(n, "").equals(relayKey(q.getName(), ""))) near = q;
-			if (near != null) shown = near.getName();
+			for (var q : client.getPlayers()) if (q != null && q.getName() != null && relayKey(n, "").equals(relayKey(q.getName(), ""))) shown = (near = q).getName();
 		} else if ("clan".equals(c) || "guest".equals(c)) {
 			var g = "guest".equals(c);
 			var ch = g ? client.getGuestClanChannel() : client.getClanChannel();
@@ -10486,10 +10461,6 @@ public class AnvilPlugin extends Plugin {
 				shown = member.getName().replace(' ', '\u00a0');
 				from = ch.getName();
 				type = g ? CLAN_GUEST_CHAT : CLAN_CHAT;
-				var cs = g ? client.getGuestClanSettings() : client.getClanSettings();
-				var title = cs == null ? null : cs.titleForRank(member.getRank());
-				int r = title == null ? -1 : chatIconManager.getIconNumber(title);
-				rank = r < 0 ? "" : "<img=" + r + ">";
 			}
 		} else if ("pm".equals(c)) {
 			// As the game would: Private On (anyone), Friends (a friend), Off (nobody); no filter read, nobody.
@@ -10522,7 +10493,6 @@ public class AnvilPlugin extends Plugin {
 			// icons go on as the chatbox builds the line (onScriptCallbackEvent).
 			var node = client.addChatMessage(type, shown, x, from);
 			relayNodes.put(key, node.getId());
-			if (rank != null) relayRank.put(node.getId(), rank);
 			relayMark(node, icon);
 		} finally {
 			injecting = false;
@@ -10530,10 +10500,9 @@ public class AnvilPlugin extends Plugin {
 		relaySeen.remove(key);
 		var f = client.getWidget(InterfaceID.Chatbox.CHAT_PUBLIC_FILTER);
 		var mode = f == null ? "" : Text.removeTags(f.getText());
-		if (near != null && !mode.contains("Hide") && !mode.contains("Off") && (!mode.contains("Friends") || client.isFriended(n, false))) {
-			near.setOverheadText(Text.removeTags(x));
-			near.setOverheadCycle(150);
-		}
+		if (near == null || mode.contains("Hide") || mode.contains("Off") || mode.contains("Friends") && !client.isFriended(n, false)) return;
+		near.setOverheadText(Text.removeTags(x));
+		near.setOverheadCycle(150);
 	}
 
 	/** An event chat push row: its chatbox copy (built by the site), or the Feed tab's dot when that's off. */
@@ -10541,8 +10510,8 @@ public class AnvilPlugin extends Plugin {
 		// "chat:<event>:<channel>": where "Reply in" posts, and the line's colours.
 		var feed = m.getAsJsonArray("feeds").get(0).getAsString().split(":");
 		// Off here, or this board switched off on the site: the panel's Feed tab gets a dot instead.
+		var panel = sidebarPanel;
 		if (!config.eventChatbox() || chatboxOff.contains(feed[1])) {
-			var panel = sidebarPanel;
 			if (panel != null) panel.feedUnread();
 			return;
 		}
@@ -10553,8 +10522,7 @@ public class AnvilPlugin extends Plugin {
 		int tag = line.indexOf(']'), colon = line.indexOf(": ", tag);
 		if (colon < 0) return;
 		var ai = m.has("ai") ? "<img=" + m.get("ai").getAsInt() + ">" : "";
-		String[] p = {line.substring(line.indexOf('[') + 1, tag), line.substring(tag + 8, colon), line.substring(colon + 2).replaceAll("</?col[^>]*>", ""), feed[2],
-				ICON_LEAD.matcher(ai).lookingAt() ? ai : ""};
+		String[] p = {line.substring(line.indexOf('[') + 1, tag), line.substring(tag + 8, colon), line.substring(colon + 2).replaceAll("</?col[^>]*>", ""), feed[2], ICON_LEAD.matcher(ai).lookingAt() ? ai : ""};
 		clientThread.invokeLater(() -> {
 			if (!loggedIn() || client.getLocalPlayer() == null) return;
 			opaqueChatbox();
@@ -10603,12 +10571,9 @@ public class AnvilPlugin extends Plugin {
 		}
 		eventChatAt = floorMod(i, list.size());
 		var c = list.get(eventChatAt).getAsJsonObject();
-		eventChatInput = chatboxPanelManager.openTextInput("[" + c.get("l").getAsString() + "] " + getLocalPlayerName() + ":")
-				// The game's own chat limit, which the site enforces too (a longer line was dropped there whole).
-				.value(value.length() > 80 ? value.substring(0, 80) : value)
-				.addCharValidator(ch -> eventChatInput == null || eventChatInput.getValue().length() < 80)
-				.onDone((Consumer<String>) t -> sendEventChat(c, t))
-				.build();
+		// The game's own chat limit, which the site enforces too (a longer line was dropped there whole).
+		eventChatInput = chatboxPanelManager.openTextInput("[" + c.get("l").getAsString() + "] " + getLocalPlayerName() + ":").value(value.substring(0, min(80, value.length())))
+				.addCharValidator(ch -> eventChatInput == null || eventChatInput.getValue().length() < 80).onDone((Consumer<String>) t -> sendEventChat(c, t)).build();
 	}
 
 	void sendEventChat(JsonObject c, String text) {
@@ -10630,13 +10595,12 @@ public class AnvilPlugin extends Plugin {
 
 	/** The status line for the menu's players: connected only for someone the game shows us right now. */
 	String relayStatus(int show) {
-		String status;
 		var live = new ArrayList<String>();
-		for (var n : statusNames.entrySet()) if (statusSeen.contains(n.getKey()) && relayConnected(n.getValue())) live.add(n.getValue());
-		if (show < 2) status = "reconnecting";
-		else if (statusNames.size() == 1) status = !live.isEmpty() ? "<col=00ff00>connected" : "<col=ff0000>disconnected";
-		else status = live.isEmpty() ? "<col=ff0000>none of these" : "<col=00ff00>" + String.join(", ", live.subList(0, min(3, live.size()))) + (live.size() > 3 ? " +" + (live.size() - 3) : "");
-		return "<col=9f9f9f>Anvil chat: " + status;
+		statusNames.forEach((k, v) -> {
+			if (statusSeen.contains(k) && relayConnected(v)) live.add(v);
+		});
+		return "<col=9f9f9f>Anvil chat: " + (show < 2 ? "reconnecting" : statusNames.size() == 1 ? !live.isEmpty() ? "<col=00ff00>connected" : "<col=ff0000>disconnected"
+				: live.isEmpty() ? "<col=ff0000>none of these" : "<col=00ff00>" + String.join(", ", live.subList(0, min(3, live.size()))) + (live.size() > 3 ? " +" + (live.size() - 3) : ""));
 	}
 
 	/** Client thread: an answer came in while the menu is open: its line shows it at once. */
@@ -10751,7 +10715,7 @@ public class AnvilPlugin extends Plugin {
 		var name = own != null ? own : grad != null ? grad
 				: whoColor != null ? "<col=" + whoColor + ">" + clean(who) + "</col>" : clean(who);
 		var fe = own == null ? null : chatFlair.entry(clean(who));
-		var lead = who.isEmpty() ? null : (fe != null && fe.t != null ? tenureIcon(fe, lastChatboxOpaque, -1) : star ? chatStar() : "") + name;
+		var lead = who.isEmpty() ? null : (fe != null && fe.t != null ? tenureIcon(fe, lastChatboxOpaque, -1, 0) : star ? chatStar() : "") + name;
 		var tone = Tone.of(m.has("tone") ? m.get("tone").getAsString() : null);
 		sendChatLine(tag.isEmpty() ? "Anvil" : "Anvil \u00B7 " + tag, text, tone, lead);
 	}
