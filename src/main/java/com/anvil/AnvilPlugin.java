@@ -6089,7 +6089,7 @@ public class AnvilPlugin extends Plugin {
 	// config, so a fix survives a restart before the site answers.
 	boolean chatPatternsSeeded;
 	long chatPatternsFetchedAt;
-	ChatPatterns.OverridesResponse chatPatternsApplied;
+	OverridesResponse chatPatternsApplied;
 
 	final ChatFlair chatFlair = new ChatFlair();
 	long chatFlairFetchedAt;
@@ -6110,21 +6110,9 @@ public class AnvilPlugin extends Plugin {
 	volatile String chatFlairFile;
 	ScheduledFuture<?> chatFlairSave;
 	// Broadcasts whose text starts with a player's name ("Nisbro HCM has completed a quest: …").
-	static final Set<ChatMessageType> FLAIR_BROADCASTS = EnumSet.of(
-			CLAN_CHAT,
-			CLAN_MESSAGE,
-			CLAN_GIM_CHAT,
-			CLAN_GIM_MESSAGE,
-			CLAN_GUEST_CHAT,
-			CLAN_GUEST_MESSAGE,
-			BROADCAST,
-			FRIENDSCHATNOTIFICATION,
-			FRIENDNOTIFICATION,
-			TRADEREQ,
-			TRADE_SENT,
-			TRADE,
-			// "Drenvox has logged in." — a friend coming on or going off.
-			LOGINLOGOUTNOTIFICATION);
+	// LOGINLOGOUTNOTIFICATION: "Drenvox has logged in." — a friend coming on or going off.
+	static final Set<ChatMessageType> FLAIR_BROADCASTS = EnumSet.of(CLAN_CHAT, CLAN_MESSAGE, CLAN_GIM_CHAT, CLAN_GIM_MESSAGE, CLAN_GUEST_CHAT, CLAN_GUEST_MESSAGE,
+			BROADCAST, FRIENDSCHATNOTIFICATION, FRIENDNOTIFICATION, TRADEREQ, TRADE_SENT, TRADE, LOGINLOGOUTNOTIFICATION);
 	/** Client thread: keys (ChatFlair.key) of recent broadcasts that start with a Supporter's name. */
 	final Set<String> flairBroadcasts = newSetFromMap(capped(64, false));
 	/** Client thread: split-PM line texts already looked at (painted, or nothing to paint). */
@@ -6220,21 +6208,20 @@ public class AnvilPlugin extends Plugin {
 	 * new ones, then gone. The colour pickers moved to the site (Settings > In-game chat).
 	 */
 	void migrateChatSettings() {
-		var g = "osrsbingo";
+		// The new settings are written as their enum constants' names (AnvilConfig.Relay, AnvilConfig.Names), as the config manager stores an enum.
 		var show = cfgGet("relayShow");
 		var send = cfgGet("relaySend");
 		var pm = cfgGet("relayPm");
-		if (show != null || send != null || pm != null) configManager.setConfiguration(g, "anvilChat", "false".equals(show) ? AnvilConfig.Relay.Off : "true".equals(pm) ? AnvilConfig.Relay.See_send_PMs
-				: "true".equals(send) ? AnvilConfig.Relay.See_send : AnvilConfig.Relay.See_others);
+		if (show != null || send != null || pm != null) cfgSet("anvilChat", "false".equals(show) ? "Off" : "true".equals(pm) ? "See_send_PMs" : "true".equals(send) ? "See_send" : "See_others");
 		var chat = cfgGet("supporterChatFlair");
 		var menus = cfgGet("menuNameFlair");
 		var names = cfgGet("supporterNames");
 		if (names == null && (chat != null || menus != null)) names = "false".equals(chat) ? "Off" : "false".equals(menus) ? "Chat" : "Chat_menus";
 		if (names != null) {
-			configManager.setConfiguration(g, "chatNames", "Off".equals(names) ? AnvilConfig.Names.Off : AnvilConfig.Names.Animated);
-			configManager.setConfiguration(g, "menuNames", "Chat_menus".equals(names) ? AnvilConfig.Names.Animated : AnvilConfig.Names.Off);
+			cfgSet("chatNames", "Off".equals(names) ? "Off" : "Animated");
+			cfgSet("menuNames", "Chat_menus".equals(names) ? "Animated" : "Off");
 		}
-		for (var k : new String[]{"supporterNames", "relayShow", "relaySend", "relayPm", "supporterChatFlair", "menuNameFlair", "animatedNames", "menuFlairOverride", "chatPrefixColor", "chatTextColor"}) if (cfgGet(k) != null) configManager.unsetConfiguration(g, k);
+		for (var k : new String[]{"supporterNames", "relayShow", "relaySend", "relayPm", "supporterChatFlair", "menuNameFlair", "animatedNames", "menuFlairOverride", "chatPrefixColor", "chatTextColor"}) if (cfgGet(k) != null) configManager.unsetConfiguration("osrsbingo", k);
 	}
 
 	/** Supporter names off in game menus and interfaces (friends list, channel member lists). */
@@ -6263,12 +6250,25 @@ public class AnvilPlugin extends Plugin {
 		if (key != null) flairBroadcasts.add(key);
 	}
 
-	/** Client thread: per chatbox line widget (by index), the text it had when last looked at. */
-	String[] chatboxSeen = new String[0];
-	/** Plain source for a visible Patron sender; null for every static/non-sender widget. */
-	String[] chatboxMoving = new String[0];
-	/** A changed offscreen row waits here until it intersects the scroll area's viewport. */
-	boolean[] chatboxDeferred = new boolean[0];
+	/** Client thread: what was last seen and done to one chatbox line widget (by index). */
+	static class Slot {
+		/** seen: the text it had when last looked at. moving: plain source for a visible Patron sender; null for every static/non-sender widget. */
+		String seen, moving;
+		/** A changed offscreen row waits here until it intersects the scroll area's viewport. */
+		boolean deferred;
+		/** The x (or, for a sender, the width) we last set making room for a star, and the plain sender line it was set for. */
+		int room = Integer.MIN_VALUE;
+		String roomFor;
+		/**
+		 * A message widget we narrowed into an extra wrapped line: the height it was grown to and its text then. The game
+		 * lays the rows out again (a new message, a scroll) without asking us, so the rows below would slide back under
+		 * that extra line; each pass puts them right again.
+		 */
+		int grown;
+		String grownText;
+	}
+
+	Slot[] slots = new Slot[0];
 	/** Smooth game-widget motion without rebuilding strings on every render frame. */
 	static final long CHAT_NAME_FRAME_MS = 40;
 	long chatNameFrame = Long.MIN_VALUE;
@@ -6289,17 +6289,6 @@ public class AnvilPlugin extends Plugin {
 	static double nameShift(long frame, long cycleMs) {
 		return frame < 0 ? 0 : (frame * CHAT_NAME_FRAME_MS % cycleMs) / (double) cycleMs * 2;
 	}
-	/** Client thread: per widget, the x (or, for a sender, the width) we last set making room for a star. */
-	int[] chatboxRoom = new int[0];
-	/** Client thread: per chatbox slot, the plain sender line {@link #chatboxRoom} was set for. */
-	String[] chatboxRoomFor = new String[0];
-	/**
-	 * Client thread: per message widget we narrowed into an extra wrapped line, the height it was grown
-	 * to and its text then. The game lays the rows out again (a new message, a scroll) without asking us,
-	 * so the rows below would slide back under that extra line; each pass puts them right again.
-	 */
-	int[] chatboxGrown = new int[0];
-	String[] chatboxGrownText = new String[0];
 
 	/**
 	 * Client thread, right before each frame: each sender column ("Name:", "[Clan] <icons>Name:", "From
@@ -6315,16 +6304,10 @@ public class AnvilPlugin extends Plugin {
 		var area = client.getWidget(InterfaceID.Chatbox.SCROLLAREA);
 		var lines = area == null || area.isHidden() ? null : area.getDynamicChildren();
 		if (lines == null) return;
-		if (chatboxSeen.length < lines.length) {
-			int was = chatboxRoom.length;
-			chatboxSeen = Arrays.copyOf(chatboxSeen, lines.length);
-			chatboxMoving = Arrays.copyOf(chatboxMoving, lines.length);
-			chatboxDeferred = Arrays.copyOf(chatboxDeferred, lines.length);
-			chatboxRoom = Arrays.copyOf(chatboxRoom, lines.length);
-			chatboxRoomFor = Arrays.copyOf(chatboxRoomFor, lines.length);
-			chatboxGrown = Arrays.copyOf(chatboxGrown, lines.length);
-			chatboxGrownText = Arrays.copyOf(chatboxGrownText, lines.length);
-			Arrays.fill(chatboxRoom, was, lines.length, Integer.MIN_VALUE);
+		if (slots.length < lines.length) {
+			int was = slots.length;
+			slots = Arrays.copyOf(slots, lines.length);
+			for (int i = was; i < lines.length; i++) slots[i] = new Slot();
 		}
 		keepGrownRows(lines);
 		var frame = currentChatNameFrame();
@@ -6339,23 +6322,24 @@ public class AnvilPlugin extends Plugin {
 		Rectangle viewport = null;
 		for (int i = 0; i < lines.length; i++) {
 			var w = lines[i];
+			var c = slots[i];
 			var text = w == null ? null : w.getText();
-			var same = text != null && text == chatboxSeen[i];
-			var moving = same && chatboxMoving[i] != null;
-			if (w == null || w.isHidden() || empty(text) || same && !(move && (moving || chatboxDeferred[i]))) continue;
+			var same = text != null && text == c.seen;
+			var moving = same && c.moving != null;
+			if (w == null || w.isHidden() || empty(text) || same && !(move && (moving || c.deferred))) continue;
 			// The game replaced this slot while it was offscreen; its previous owner no longer applies.
-			if (!same) chatboxMoving[i] = null;
+			if (!same) c.moving = null;
 			if (viewport == null) viewport = area.getBounds();
 			var runway = new Rectangle(viewport);
 			runway.grow(0, 80);
 			if (!runway.intersects(w.getBounds())) {
-				chatboxSeen[i] = text;
-				chatboxDeferred[i] = true;
+				c.seen = text;
+				c.deferred = true;
 				continue;
 			}
-			chatboxDeferred[i] = false;
+			c.deferred = false;
 			// Repaint from the tag-free source, never by stripping or stacking our previous tags.
-			if (moving) text = chatboxMoving[i];
+			if (moving) text = c.moving;
 			if (star == null) {
 				star = chatStar();
 				opaque = opaqueChatbox();
@@ -6376,11 +6360,11 @@ public class AnvilPlugin extends Plugin {
 			if (ours) painted = chatFlair.paintNames(text, opaque, shift);
 			if (painted != null) {
 				w.setText(painted);
-				if (moving || (sender ? chatFlair.movingSender(text) : ours ? chatFlair.movingNames(text) : lead && chatFlair.movingLead(text))) chatboxMoving[i] = text;
+				if (moving || (sender ? chatFlair.movingSender(text) : ours ? chatFlair.movingNames(text) : lead && chatFlair.movingLead(text))) c.moving = text;
 				if (sender) makeRoom(lines, i, text, painted);
 				text = w.getText();
 			}
-			chatboxSeen[i] = text;
+			c.seen = text;
 		}
 	}
 
@@ -6397,16 +6381,16 @@ public class AnvilPlugin extends Plugin {
 		if (d <= 0) return;
 		// A position alone can't say "already moved": a longer name's plain layout can land exactly on the
 		// spot an earlier, shorter starred name in this slot was moved to, leaving its message overlapping.
-		if (!ChatFlair.alreadyRoomed(s.getOriginalWidth(), chatboxRoom[at], plain, chatboxRoomFor[at])) {
+		if (!ChatFlair.alreadyRoomed(s.getOriginalWidth(), slots[at].room, plain, slots[at].roomFor)) {
 			s.setOriginalWidth(s.getOriginalWidth() + d);
-			chatboxRoom[at] = s.getOriginalWidth();
-			chatboxRoomFor[at] = plain;
+			slots[at].room = s.getOriginalWidth();
+			slots[at].roomFor = plain;
 			s.revalidate();
 		}
 		for (int j = 0; j < lines.length; j++) {
 			var o = lines[j];
 			if (j == at || o == null || o.isHidden() || o.getOriginalY() != s.getOriginalY()
-					|| o.getOriginalX() <= s.getOriginalX() || ChatFlair.alreadyRoomed(o.getOriginalX(), chatboxRoom[j], plain, chatboxRoomFor[j])) continue;
+					|| o.getOriginalX() <= s.getOriginalX() || ChatFlair.alreadyRoomed(o.getOriginalX(), slots[j].room, plain, slots[j].roomFor)) continue;
 			int by = ChatFlair.shift(d, need, o.getOriginalX() - s.getOriginalX());
 			o.setOriginalX(o.getOriginalX() + by);
 			int w = max(1, o.getOriginalWidth() - by);
@@ -6416,12 +6400,12 @@ public class AnvilPlugin extends Plugin {
 			int before = f == null ? 1 : wrapLines(o.getText(), o.getOriginalWidth(), f), after = f == null ? 1 : wrapLines(o.getText(), w, f);
 			o.setOriginalWidth(w);
 			if (after > before) {
-				growRow(lines, o, (after - before) * max(1, o.getOriginalHeight() / before));
-				chatboxGrown[j] = o.getOriginalHeight();
-				chatboxGrownText[j] = o.getText();
+				growRow(lines, o, (after - before) * max(1, o.getOriginalHeight() / before), true);
+				slots[j].grown = o.getOriginalHeight();
+				slots[j].grownText = o.getText();
 			}
-			chatboxRoom[j] = o.getOriginalX();
-			chatboxRoomFor[j] = plain;
+			slots[j].room = o.getOriginalX();
+			slots[j].roomFor = plain;
 			o.revalidate();
 		}
 	}
@@ -6432,16 +6416,17 @@ public class AnvilPlugin extends Plugin {
 	 * it is forgotten. Otherwise its height comes back and anything that slid up under it is cleared by moving it and the rows above up.
 	 */
 	void keepGrownRows(Widget[] lines) {
-		for (int j = 0; j < min(lines.length, chatboxGrown.length); j++) {
-			if (chatboxGrown[j] <= 0) continue;
+		for (int j = 0; j < min(lines.length, slots.length); j++) {
+			var c = slots[j];
+			if (c.grown <= 0) continue;
 			var o = lines[j];
-			if (o == null || o.isHidden() || o.getText() != chatboxGrownText[j] || o.getOriginalX() != chatboxRoom[j]) {
-				chatboxGrown[j] = 0;
-				chatboxGrownText[j] = null;
+			if (o == null || o.isHidden() || o.getText() != c.grownText || o.getOriginalX() != c.room) {
+				c.grown = 0;
+				c.grownText = null;
 				continue;
 			}
-			if (o.getOriginalHeight() < chatboxGrown[j]) {
-				growRow(lines, o, chatboxGrown[j] - o.getOriginalHeight());
+			if (o.getOriginalHeight() < c.grown) {
+				growRow(lines, o, c.grown - o.getOriginalHeight(), true);
 				continue;
 			}
 			int y = o.getOriginalY(), next = Integer.MAX_VALUE;
@@ -6469,9 +6454,6 @@ public class AnvilPlugin extends Plugin {
 	 * below never move. The scroll is left alone: the game's mouse-over reads its own scroll, so changing
 	 * it put every row under a grown message one line below where it was drawn.
 	 */
-	void growRow(Widget[] lines, Widget o, int extra) {
-		growRow(lines, o, extra, true);
-	}
 
 	void growRow(Widget[] lines, Widget o, int extra, boolean grow) {
 		int y = o.getOriginalY();
@@ -6754,17 +6736,14 @@ public class AnvilPlugin extends Plugin {
 	static final List<String> CLAN_BOOST_MOVING = List.of("ffd27a", "ff7ab8", "7ae0ff");
 
 	/** A widget's text as the game wrote it and as we painted it; for a clan title also its name, suffix and boost. */
+	// opaque: drawn on parchment (dialogue), so the light look. suffix: what follows the name (the live member count), re-read
+	// whenever the game rewrites the title.
 	@AllArgsConstructor
 	static class Painted {
-		String plain;
-		String painted;
-		boolean moving;
-		/** Drawn on parchment (dialogue), so the light look. */
-		boolean opaque;
-		final String name;
-		/** What follows the name (the live member count): re-read whenever the game rewrites the title. */
-		String suffix;
-		final int level;
+		String plain, painted;
+		boolean moving, opaque;
+		String name, suffix;
+		int level;
 	}
 
 	final Map<Widget, Painted> clanTitleFlair = new WeakHashMap<>();
@@ -6775,21 +6754,19 @@ public class AnvilPlugin extends Plugin {
 		var clan = pluginConfig == null ? null : pluginConfig.activeClan;
 		// A boosted clan's look outside chat follows "Supporter & clan looks in game" (Off: the game's own).
 		if (clan == null || clan.boostLevel < 1 || !menusFlair()) return;
-		var name = clan.gameName == null || clan.gameName.trim().isEmpty() ? clan.name : clan.gameName;
-		if (name == null || name.trim().isEmpty()) return;
+		var n = clan.gameName == null || clan.gameName.trim().isEmpty() ? clan.name : clan.gameName;
 		var root = client.getWidget(group, 0);
-		if (root == null) return;
-		walk(root, w -> flairClanTitle(w, name.trim(), clan.boostLevel));
-	}
-
-	void flairClanTitle(Widget widget, String name, int level) {
-		var t = widget.getText();
-		var suffix = ChatFlair.clanTitleSuffix(t, name);
-		if (suffix != null) {
+		if (n == null || n.trim().isEmpty() || root == null) return;
+		var name = n.trim();
+		int level = clan.boostLevel;
+		walk(root, w -> {
+			var t = w.getText();
+			var suffix = ChatFlair.clanTitleSuffix(t, name);
+			if (suffix == null) return;
 			var painted = paintClanTitle(name, suffix, level, interfaceNameShift(currentChatNameFrame()));
-			widget.setText(painted);
-			clanTitleFlair.put(widget, new Painted(untagged(t), painted, false, false, name, suffix, level));
-		}
+			w.setText(painted);
+			clanTitleFlair.put(w, new Painted(untagged(t), painted, false, false, name, suffix, level));
+		});
 	}
 
 	static String untagged(String t) {
@@ -6867,39 +6844,18 @@ public class AnvilPlugin extends Plugin {
 	 * quest conversations and ordinary player dialogue without recolouring an RSN mentioned in prose.
 	 */
 	// A component id carries its interface group in the high 16 bits.
-	static final int[] FLAIR_ROOTS = {
-		InterfaceID.ChatLeft.NAME,
-		InterfaceID.ChatRight.NAME,
-		InterfaceID.ChatBoth.NAMES,
-		InterfaceID.MessageboxTitled.TITLE,
-		InterfaceID.Trademain.WHOLESCREEN,
-		InterfaceID.Tradeconfirm.ROOT_RECT0,
-		InterfaceID.BoardgamesChallenge.UNIVERSE,
-		InterfaceID.PvpArenaUnrankedduel.UNIVERSE,
-		InterfaceID.RaidsChallenge.UNIVERSE,
-		InterfaceID.RaidsLobbyPartylist.UNIVERSE,
-		InterfaceID.RaidsLobbyPartydetails.UNIVERSE,
-		InterfaceID.TobPartylist.UNIVERSE,
-		InterfaceID.TobPartydetails.UNIVERSE,
-		InterfaceID.TobScoreboard.UNIVERSE,
-		InterfaceID.TobInfoboard.UNIVERSE,
-		InterfaceID.ToaPartylist.UNIVERSE,
-		InterfaceID.ToaPartydetails.UNIVERSE,
-		InterfaceID.ToaScoreboard.UNIVERSE,
-		InterfaceID.TfaPartylist.UNIVERSE,
-		InterfaceID.TfaPartydetails.UNIVERSE
-	};
+	// The first four are drawn on parchment (dialogue, message boxes) whatever the chatbox setting; the rest on dark stone.
+	static final int[] FLAIR_ROOTS = {InterfaceID.ChatLeft.NAME, InterfaceID.ChatRight.NAME, InterfaceID.ChatBoth.NAMES, InterfaceID.MessageboxTitled.TITLE,
+		InterfaceID.Trademain.WHOLESCREEN, InterfaceID.Tradeconfirm.ROOT_RECT0, InterfaceID.BoardgamesChallenge.UNIVERSE, InterfaceID.PvpArenaUnrankedduel.UNIVERSE,
+		InterfaceID.RaidsChallenge.UNIVERSE, InterfaceID.RaidsLobbyPartylist.UNIVERSE, InterfaceID.RaidsLobbyPartydetails.UNIVERSE, InterfaceID.TobPartylist.UNIVERSE,
+		InterfaceID.TobPartydetails.UNIVERSE, InterfaceID.TobScoreboard.UNIVERSE, InterfaceID.TobInfoboard.UNIVERSE, InterfaceID.ToaPartylist.UNIVERSE,
+		InterfaceID.ToaPartydetails.UNIVERSE, InterfaceID.ToaScoreboard.UNIVERSE, InterfaceID.TfaPartylist.UNIVERSE, InterfaceID.TfaPartydetails.UNIVERSE};
 
 	static int flairInterfaceRoot(int group) {
 		for (int r : FLAIR_ROOTS) if (r >>> 16 == group) return r;
 		return -1;
 	}
 
-	/** Dialogue and message boxes are drawn on parchment whatever the chatbox setting; the rest are dark stone. */
-	static boolean onParchment(int rootId) {
-		return rootId == InterfaceID.ChatLeft.NAME || rootId == InterfaceID.ChatRight.NAME
-			|| rootId == InterfaceID.ChatBoth.NAMES || rootId == InterfaceID.MessageboxTitled.TITLE;
-	}
 
 	/** Only widgets in the explicitly allowed interfaces above; weak keys disappear with the UI. */
 	final Map<Widget, Painted> interfaceNameFlair = new WeakHashMap<>();
@@ -6912,7 +6868,8 @@ public class AnvilPlugin extends Plugin {
 		var frame = currentChatNameFrame();
 		interfaceNameFrame = frame;
 		var shift = interfaceNameShift(frame);
-		var opaque = onParchment(rootId);
+		// Dialogue and message boxes are drawn on parchment whatever the chatbox setting; the rest are dark stone.
+		var opaque = rootId == InterfaceID.ChatLeft.NAME || rootId == InterfaceID.ChatRight.NAME || rootId == InterfaceID.ChatBoth.NAMES || rootId == InterfaceID.MessageboxTitled.TITLE;
 		walk(root, widget -> {
 			var text = widget.getText();
 			var had = interfaceNameFlair.get(widget);
@@ -6997,11 +6954,11 @@ public class AnvilPlugin extends Plugin {
 		inputPlain = null;
 		inputPainted = null;
 		inputNameFrame = Long.MIN_VALUE;
-		Arrays.fill(chatboxSeen, null);
-		Arrays.fill(chatboxMoving, null);
-		Arrays.fill(chatboxDeferred, false);
-		Arrays.fill(chatboxRoom, Integer.MIN_VALUE);
-		Arrays.fill(chatboxRoomFor, null);
+		for (var c : slots) {
+			c.seen = c.moving = c.roomFor = null;
+			c.deferred = false;
+			c.room = Integer.MIN_VALUE;
+		}
 		chatNameFrame = Long.MIN_VALUE;
 		splitPmSeen.clear();
 		pmPainted.clear();
@@ -7150,9 +7107,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	int relayPresence() {
 		var p = pushSocket;
-		if (!config.relayWho() || config.anvilChat().compareTo(AnvilConfig.Relay.See_send) < 0) return 0;
-		if (p == null) return 1;
-		return p.live() && p.relayOk ? 2 : 1;
+		return !config.relayWho() || config.anvilChat().compareTo(AnvilConfig.Relay.See_send) < 0 ? 0 : p != null && p.live() && p.relayOk ? 2 : 1;
 	}
 
 	long relayRetried;
@@ -7200,8 +7155,7 @@ public class AnvilPlugin extends Plugin {
 		var rc = responseCache;
 		if (!chatPatternsSeeded && rc != null) {
 			chatPatternsSeeded = true;
-			adoptChatPatterns(apiClient.seedFromDisk(rc.load(ResponseDiskCache.CHAT_PATTERNS),
-					ChatPatterns.OverridesResponse.class));
+			adoptChatPatterns(apiClient.seedFromDisk(rc.load(ResponseDiskCache.CHAT_PATTERNS), OverridesResponse.class));
 		}
 		var at = now();
 		if (at - chatPatternsFetchedAt < (30 * 60_000L) /* CHAT_PATTERNS_EVERY_MS */) return;
@@ -7210,10 +7164,10 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/** Apply a fresh override set. A 304 hands back the same object, which is already live. */
-	void adoptChatPatterns(ChatPatterns.OverridesResponse res) {
+	void adoptChatPatterns(OverridesResponse res) {
 		if (res == null || res == chatPatternsApplied) return;
 		chatPatternsApplied = res;
-		for (var why : ChatPatterns.applyOverrides(res.overrides)) log.warn("Pattern override rejected: {}", why);
+		for (var why : applyOverrides(res.overrides)) log.warn("Pattern override rejected: {}", why);
 	}
 
 	void refreshConfig() {
@@ -7366,7 +7320,9 @@ public class AnvilPlugin extends Plugin {
 					gson.fromJson(m.get("progress"), TileTracker.Progress.class), myTeam);
 			return;
 		}
-		var ours = cfg != null && cfg.event != null && cfg.event.id == eventId && myTeam == m.get("teamId").getAsInt();
+		var held = cfg != null && cfg.event != null && cfg.event.id == eventId;
+		var ours = held && myTeam == m.get("teamId").getAsInt();
+
 		var panel = sidebarPanel;
 		var meKey = String.valueOf(me);
 		if ("counts".equals(kind)) {
@@ -7377,8 +7333,7 @@ public class AnvilPlugin extends Plugin {
 				var own = members.has(meKey) ? members.getAsJsonObject(meKey) : new JsonObject();
 				var counts = m.has("c") ? m.getAsJsonObject("c").deepCopy() : new JsonObject();
 				if (own.has("c")) own.getAsJsonObject("c").entrySet().forEach(e -> counts.add(e.getKey(), e.getValue()));
-				var mine = new JsonObject();
-				mine.add("c", counts);
+				var mine = obj("c", counts);
 				if (own.has("y")) mine.add("y", own.get("y"));
 				adoptPushed(cfg, PushMerge.merge(gson.toJsonTree(cfg).getAsJsonObject(), new JsonObject(), mine));
 			}
@@ -7388,21 +7343,16 @@ public class AnvilPlugin extends Plugin {
 		// A whole view for a different team of the event we hold: the site moved us (it re-scopes the
 		// socket on a team change). Fetch the config now instead of tracking the old team until the
 		// slow while-live poll.
-		if ("team".equals(kind) && cfg != null && cfg.event != null && cfg.event.id == eventId
-				&& m.get("teamId").getAsInt() != myTeam) {
-			refreshConfig();
-		}
+		if ("team".equals(kind) && held && m.get("teamId").getAsInt() != myTeam) refreshConfig();
 		// A team's view for a board our config doesn't hold: the site just seated us there (it re-tickets
 		// the socket on a new seat, and the ticket's first board is the seat's). Fetch the config now
 		// rather than at the next poll — once per board and team, so a config that settles elsewhere
 		// can't refetch on every view.
 		int pushedTeam = m.has("teamId") ? m.get("teamId").getAsInt() : 0;
-		if ("team".equals(kind) && pushedTeam != 0 && (cfg == null || cfg.event == null || cfg.event.id != eventId)) {
-			var seat = eventId + ":" + pushedTeam;
-			if (!seat.equals(seatRefetchedFor)) {
-				seatRefetchedFor = seat;
-				refreshConfig();
-			}
+		var seat = eventId + ":" + pushedTeam;
+		if ("team".equals(kind) && pushedTeam != 0 && !held && !seat.equals(seatRefetchedFor)) {
+			seatRefetchedFor = seat;
+			refreshConfig();
 		}
 		if (ours && m.has("config")) {
 			var members = m.has("members") ? m.getAsJsonObject("members") : new JsonObject();
