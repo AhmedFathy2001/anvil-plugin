@@ -102,18 +102,18 @@ class UiView extends JPanel {
 	static final String OFFLINE = "Couldn't reach Anvil — try again in a moment.";
 	static final Color DONE_DOT = new Color(0x6fdc6f);
 
-	final Host host;
-	final ItemManager items;
-	final SpriteManager sprites;
-	final SkillIconManager skills;
+	Host host;
+	ItemManager items;
+	SpriteManager sprites;
+	SkillIconManager skills;
 
-	final Map<String, Slot> slots = new HashMap<>();
-	final Map<String, List<Runnable>> toggles = new HashMap<>();
-	final Map<String, Supplier<String>> inputs = new LinkedHashMap<>();
+	Map<String, Slot> slots = new HashMap<>();
+	Map<String, List<Runnable>> toggles = new HashMap<>();
+	Map<String, Supplier<String>> inputs = new LinkedHashMap<>();
 	/** The last request for each place, for {@link #refresh}. */
-	final Map<String, Object[]> lastLoads = new LinkedHashMap<>();
+	Map<String, Object[]> lastLoads = new LinkedHashMap<>();
 	/** When each warmed load (view and args) was last fetched ahead, so a redraw doesn't ask again. The 64 most recent. */
-	final Map<String, Long> warmed = BingoApiClient.capped(64, true);
+	Map<String, Long> warmed = BingoApiClient.capped(64, true);
 	/** A clickable part's marker, so the row around it leaves its clicks to it. */
 	/** How long after a click a background refresh waits before redrawing. */
 	static final long CLICK_SETTLE_MS = 400;
@@ -121,24 +121,24 @@ class UiView extends JPanel {
 	long pressedAt;
 
 	/** What each place last drew, so an unchanged answer leaves it alone (its scroll, its open folds). */
-	final Map<String, JsonElement> drawn = new HashMap<>();
+	Map<String, JsonElement> drawn = new HashMap<>();
 	/**
 	 * The pane each slot was switched to, kept while the view refreshes so a new answer doesn't throw
 	 * the reader back to the first page. Going somewhere (a load, a new view) forgets them.
 	 */
-	final Map<String, String> openPanes = new HashMap<>();
+	Map<String, String> openPanes = new HashMap<>();
 	/** Countdowns on screen, run once a second while there are any. */
-	final List<Runnable> tickers = new ArrayList<>();
+	List<Runnable> tickers = new ArrayList<>();
 	/** The counts on screen that move without asking the site again ({@code live}), see {@link #tickLive}. */
-	final List<Runnable> lives = new ArrayList<>();
-	final Timer ticker = new Timer(1000, e -> tickers.forEach(Runnable::run));
+	List<Runnable> lives = new ArrayList<>();
+	Timer ticker = new Timer(1000, e -> tickers.forEach(Runnable::run));
 	/** Live lists on screen (node {@code feed}): push rows find them by id, see {@link #feedPush}. */
-	final List<FeedList> feeds = new ArrayList<>();
+	List<FeedList> feeds = new ArrayList<>();
 	/**
 	 * The latest request for each place (a slot's id, "null" for the whole view). An answer carrying
 	 * any other number is for something no longer there; numbers are never reused.
 	 */
-	final Map<String, Integer> seq = new HashMap<>();
+	Map<String, Integer> seq = new HashMap<>();
 	int requests;
 
 	@RequiredArgsConstructor
@@ -147,15 +147,14 @@ class UiView extends JPanel {
 		final JsonObject panes;
 		/** {@code nav}: a pane replaces the page; the panes left keep their build and the row clicked to leave. */
 		final String first;
-		final Map<String, JComponent> built = new HashMap<>();
-		final Map<String, JComponent> from = new HashMap<>();
+		Map<String, JComponent> built = new HashMap<>(), from = new HashMap<>();
 		Round marked;
 	}
 
 	/** The last thing clicked, so a nav slot can mark it when the reader comes back. */
 	JComponent lastClicked;
 	/** Where each nav pane was scrolled to ("slot:pane"), kept across redraws. */
-	final Map<String, Integer> scrolls = new HashMap<>();
+	Map<String, Integer> scrolls = new HashMap<>();
 	static final Color RAISED = new Color(0x3a3a3a);
 	static final Color INK = new Color(0x1e1e1e);
 	static final Color RAISED_HOVER = new Color(0x474747);
@@ -173,11 +172,8 @@ class UiView extends JPanel {
 	/** Fetch a view and show it in place of everything; {@code waiting} shows meanwhile. */
 	void show(String view, Map<String, String> args, String waiting) {
 		openPanes.clear();
-		if (waiting != null) {
-			drawn.remove("null");
-			replace(this, message(waiting));
-		}
-		fetch(null, view, args);
+		if (waiting != null) say(waiting);
+		fetch(null, view, args, false);
 	}
 
 	/**
@@ -215,11 +211,6 @@ class UiView extends JPanel {
 		fetch(place, (String) l[0], (Map<String, String>) l[1], true);
 	}
 
-	/** Force the next answers to rebuild their nodes, even when their JSON is structurally unchanged. */
-	void invalidateDrawn() {
-		drawn.clear();
-	}
-
 	/** Show a line of text in place of everything, dropping any answer still on its way. */
 	void say(String text) {
 		bump(null);
@@ -238,7 +229,8 @@ class UiView extends JPanel {
 		lives.clear();
 		// The slots are gone, so whatever they were waiting for is too.
 		for (var m : List.of(drawn, seq, lastLoads)) m.keySet().removeIf(k -> !"null".equals(k));
-		replace(this, view == null || !view.has("ui") ? message(OFFLINE) : node(view.getAsJsonObject("ui")));
+		var ui = obj(view, "ui");
+		replace(this, ui == null ? message(OFFLINE) : node(ui));
 		if (tickers.isEmpty()) ticker.stop();
 		else ticker.start();
 	}
@@ -252,7 +244,7 @@ class UiView extends JPanel {
 		feeds.removeIf(f -> !SwingUtilities.isDescendingFrom(f, this));
 		var fs = arr(m, "feeds");
 		if (feeds.isEmpty() || fs == null) return;
-		Set<String> named = new HashSet<>();
+		var named = new HashSet<String>();
 		for (var e : fs) named.add(e.getAsString());
 		var t = str(m, "t");
 		var rows = "rows".equals(t) ? arr(m, "rows") : null;
@@ -271,23 +263,9 @@ class UiView extends JPanel {
 		}
 	}
 
-	/** The panel went off screen (or the plugin stopped): no countdowns tick unseen. */
-	void stop() {
-		ticker.stop();
-	}
-
-	/** Back on screen: the countdowns drawn before resume. */
-	void resume() {
-		if (!tickers.isEmpty()) ticker.start();
-	}
-
 	int bump(String place) {
 		seq.put(String.valueOf(place), ++requests);
 		return requests;
-	}
-
-	void fetch(String into, String view, Map<String, String> args) {
-		fetch(into, view, args, false);
 	}
 
 	/** {@code background}: a refresh nobody clicked for, which waits for a click in progress to finish. */
@@ -332,23 +310,23 @@ class UiView extends JPanel {
 		}
 		// A slot only ever takes its own inner content: a whole page answered into it (one that carries
 		// this same slot) would stack the page's header again on every answer, so keep just that slot's part.
-		var own = into == null || view == null ? null : ownSlot(obj(view, "ui"), into);
+		var own = into == null ? null : ownSlot(obj(view, "ui"), into);
 		if (obj(own, "c") != null) {
 			view = view.deepCopy();
 			view.add("ui", own.get("c"));
 		}
-		var ui = view == null ? null : view.get("ui");
+		var ui = obj(view, "ui");
 		if (ui != null && ui.equals(drawn.get(key))) return; // the same answer: leave what's on screen alone
 		drawn.put(key, ui);
 		var slot = slots.get(into);
 		if (slot == null) {
 			render(view);
-		} else if (slot.first != null && view != null && view.has("ui")) {
+		} else if (slot.first != null && ui != null) {
 			// A page fetched into a nav slot is a page of its own: the pane left is kept for Back.
 			var vp = leave(slot, into, "~" + n);
-			replace(slot.holder, node(view.getAsJsonObject("ui")));
+			replace(slot.holder, node(ui));
 			if (vp != null) vp.setViewPosition(new Point(0, 0));
-		} else replace(slot.holder, view == null || !view.has("ui") ? small(OFFLINE, MUTED) : node(view.getAsJsonObject("ui")));
+		} else replace(slot.holder, ui == null ? small(OFFLINE, MUTED) : node(ui));
 	}
 
 	/** Runs {@code a} once on the EDT after {@code ms}. */
@@ -411,7 +389,7 @@ class UiView extends JPanel {
 					replace(busy.holder, small("Loading…", MUTED));
 				}
 				if ("trip".equals(str(a, "v"))) host.held();
-				fetch(place, str(a, "v"), strings(a.get("args")));
+				fetch(place, str(a, "v"), strings(a.get("args")), false);
 				break;
 			case "pane":
 				lastLoads.remove(into); // the reader is on a pane now, not on the page last fetched: a refresh must not replay it
@@ -432,7 +410,7 @@ class UiView extends JPanel {
 				toggles.getOrDefault(key, List.of()).forEach(Runnable::run);
 				break;
 			case "post":
-				Map<String, String> fields = new HashMap<>();
+				var fields = new HashMap<String, String>();
 				inputs.forEach((k, v) -> fields.put(k, v.get()));
 				if (a.has("ask")) {
 					var answer = JOptionPane.showInputDialog(this, plainText(str(a, "ask")), "Anvil", JOptionPane.PLAIN_MESSAGE, null, null, str(a, "askValue"));
@@ -538,34 +516,20 @@ class UiView extends JPanel {
 
 	JComponent part(JsonObject n, String t) {
 		switch (t) {
-			case "col":
-				return col(n);
-			case "row":
-				return row(n);
-			case "grid":
-				return grid(n);
-			case "text":
-				return text(n);
-			case "icon":
-				return icon(n);
-			case "img":
-				return img(n);
-			case "hero":
-				return hero(n);
-			case "bar":
-				return bar(n);
-			case "tabs":
-				return tabs(n);
-			case "fold":
-				return fold(n);
-			case "filter":
-				return filter(n);
-			case "slot":
-				return slot(n);
-			case "toggle":
-				return toggle(n);
-			case "input":
-				return input(n);
+			case "col": return col(n);
+			case "row": return row(n);
+			case "grid": return grid(n);
+			case "text": return text(n);
+			case "icon": return icon(n);
+			case "img": return img(n);
+			case "hero": return hero(n);
+			case "bar": return bar(n);
+			case "tabs": return tabs(n);
+			case "fold": return fold(n);
+			case "filter": return filter(n);
+			case "slot": return slot(n);
+			case "toggle": return toggle(n);
+			case "input": return input(n);
 			case "button":
 				var on = n.has("on") ? n.getAsJsonObject("on") : new JsonObject();
 				var label = plainText(str(n, "label"));
@@ -585,19 +549,14 @@ class UiView extends JPanel {
 				// A copy answers on the button itself: "Copied ✓" for a moment, then its own label.
 				if ("copy".equals(str(on, "a"))) b.addActionListener(e -> {
 					b.setText("Copied ✓");
-					var back = new Timer(1500, x -> b.setText(label));
-					back.setRepeats(false);
-					back.start();
+					once(1500, x -> b.setText(label));
 				});
 				return button;
 			case "gap":
 				return (JComponent) gap(num(n, "h", 0));
-			case "countdown":
-				return countdown(n);
-			case "segs":
-				return segs(n);
-			case "step":
-				return step(n);
+			case "countdown": return countdown(n);
+			case "segs": return segs(n);
+			case "step": return step(n);
 			case "warm":
 				warm(obj(n, "on"));
 				return new JPanel();
@@ -624,9 +583,8 @@ class UiView extends JPanel {
 	}
 
 	List<JComponent> children(JsonObject n, String key) {
-		List<JComponent> out = new ArrayList<>();
-		var a = arr(n, key);
-		if (a != null) for (var e : a) if (e.isJsonObject()) out.add(node(e.getAsJsonObject()));
+		var out = new ArrayList<JComponent>();
+		for (var e : all(n, key)) if (e.isJsonObject()) out.add(node(e.getAsJsonObject()));
 		return out;
 	}
 
@@ -642,10 +600,10 @@ class UiView extends JPanel {
 		if (fill == null && edge == null && !n.has("on")) {
 			var p = new JPanel(layout);
 			p.setOpaque(false);
-			return left(p);
+			return p;
 		}
-		return left(new Round(layout, card ? num(n, "rad", 6) : 4, fill, edge,
-			"raised".equals(bg) ? RAISED_HOVER : fill == DARKER_GRAY_COLOR ? new Color(0x262626) : null));
+		return new Round(layout, card ? num(n, "rad", 6) : 4, fill, edge,
+			"raised".equals(bg) ? RAISED_HOVER : fill == DARKER_GRAY_COLOR ? new Color(0x262626) : null);
 	}
 
 	JComponent col(JsonObject n) {
@@ -664,8 +622,7 @@ class UiView extends JPanel {
 
 	JComponent row(JsonObject n) {
 		var p = surface(n, new BorderLayout(num(n, "gap", 6), 0), false);
-		int pad = num(n, "pad", 0);
-		int inset = num(n, "inset", pad);
+		int pad = num(n, "pad", 0), inset = num(n, "inset", pad);
 		p.setBorder(createEmptyBorder(pad, inset, pad, pad));
 		for (var part : new String[][]{{"l", WEST}, {"c", CENTER}, {"r", EAST}}) {
 			var o = obj(n, part[0]);
@@ -713,8 +670,7 @@ class UiView extends JPanel {
 			}
 		}
 		// wrap: true, or the width in pt where the text sits deeper in than a card.
-		int ww = num(n, "wrap", 0);
-		int width = ww > 0 ? ww : WRAP_PT;
+		int ww = num(n, "wrap", 0), width = ww > 0 ? ww : WRAP_PT;
 		var runs = arr(n, "runs");
 		if (runs != null) {
 			// Runs in their own colours (names in team colours), always wrapped.
@@ -744,10 +700,8 @@ class UiView extends JPanel {
 
 	/** A Supporter's name: up to four "#rrggbb" stops ({@code move}: sliding); else the plain colour. */
 	static JLabel gradient(JsonArray grad, Color fallback, boolean move) {
-		List<Color> stops = new ArrayList<>();
-		for (var e : grad) {
-			if (stops.size() < 4 && e.isJsonPrimitive()) stops.add(ChatPalette.readableColor(e.getAsString(), false, fallback));
-		}
+		var stops = new ArrayList<Color>();
+		for (var e : grad) if (stops.size() < 4 && e.isJsonPrimitive()) stops.add(ChatPalette.readableColor(e.getAsString(), false, fallback));
 		return stops.size() < 2 ? new ClipLabel() : new GradientLabel(stops.toArray(new Color[0]), move);
 	}
 
@@ -840,13 +794,12 @@ class UiView extends JPanel {
 		card.setOpaque(false);
 		card.add(body); // first = painted last, over the strip
 		card.add(strip);
-		return capH(left(card));
+		return capH(card);
 	}
 
 	/** A site picture: it takes no room until a valid image has decoded. */
 	JComponent img(JsonObject n) {
-		int w = max(1, min(240, num(n, "w", 64)));
-		int h = max(1, min(240, num(n, "h", 40)));
+		int w = max(1, min(240, num(n, "w", 64))), h = max(1, min(240, num(n, "h", 40)));
 		var l = new JLabel("", JLabel.CENTER);
 		l.setOpaque(false);
 		l.setBackground(DARKER_GRAY_COLOR);
@@ -863,12 +816,6 @@ class UiView extends JPanel {
 			l.revalidate();
 		});
 		return l;
-	}
-
-	static void sizeTo(JComponent c, Dimension d) {
-		c.setPreferredSize(d);
-		c.setMinimumSize(d);
-		c.setMaximumSize(d);
 	}
 
 	/**
@@ -910,22 +857,16 @@ class UiView extends JPanel {
 					// frame goes into a buffer and is painted through the shape instead.
 					var raw = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
 					var rg = raw.createGraphics();
-					try {
-						image.paintIcon(c, rg, 0, 0); // a GifIcon registers c and repaints it per frame itself
-					} finally {
-						rg.dispose();
-					}
+					image.paintIcon(c, rg, 0, 0); // a GifIcon registers c and repaints it per frame itself
+					rg.dispose();
 					var copy = masked.createGraphics();
-					try {
-						copy.setComposite(AlphaComposite.Clear);
-						copy.fillRect(0, 0, w, h);
-						copy.setComposite(AlphaComposite.SrcOver);
-						copy.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-						copy.setPaint(new TexturePaint(raw, new Rectangle(0, 0, w, h)));
-						copy.fill(rad > 0 ? new RoundRectangle2D.Float(0, 0, w, h, rad * 2f, rad * 2f) : new Ellipse2D.Float(0, 0, w, h));
-					} finally {
-						copy.dispose();
-					}
+					copy.setComposite(AlphaComposite.Clear);
+					copy.fillRect(0, 0, w, h);
+					copy.setComposite(AlphaComposite.SrcOver);
+					copy.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+					copy.setPaint(new TexturePaint(raw, new Rectangle(0, 0, w, h)));
+					copy.fill(rad > 0 ? new RoundRectangle2D.Float(0, 0, w, h, rad * 2f, rad * 2f) : new Ellipse2D.Float(0, 0, w, h));
+					copy.dispose();
 					maskedFrame = frame;
 					maskedFor = c;
 				}
@@ -1026,9 +967,8 @@ class UiView extends JPanel {
 
 	/** A bar in segments, one colour each (a race's steps: done, here, still to come). */
 	static JComponent segs(JsonObject n) {
-		List<Color> cs = new ArrayList<>();
-		var a = arr(n, "c");
-		if (a != null) for (var e : a) cs.add(color(e.getAsString(), MUTED));
+		var cs = new ArrayList<Color>();
+		for (var e : all(n, "c")) cs.add(color(e.getAsString(), MUTED));
 		int h = num(n, "h", 6);
 		var bar = new JPanel() {
 			protected void paintComponent(Graphics g) {
@@ -1093,15 +1033,14 @@ class UiView extends JPanel {
 		};
 		gutter.setOpaque(false);
 		gutter.setPreferredSize(new Dimension(18, 18));
-		var body = new JPanel(new BorderLayout());
-		body.setOpaque(false);
+		var body = Ui.row(0);
 		body.setBorder(createEmptyBorder(0, 0, line != null ? 8 : 0, 0));
 		var c = obj(n, "c");
 		if (c != null) body.add(node(c), CENTER);
 		var p = new Round(new BorderLayout(6, 0), 4, null, null, null);
 		p.add(gutter, WEST);
 		p.add(body, CENTER);
-		return capH(left(p));
+		return capH(p);
 	}
 
 	/**
@@ -1111,24 +1050,24 @@ class UiView extends JPanel {
 	 */
 	JComponent tabs(JsonObject n) {
 		var key = str(n, "key");
-		var list = n.has("tabs") ? n.getAsJsonArray("tabs") : new JsonArray();
+		var list = all(n, "tabs");
 		if (list.size() == 0) return new JPanel();
 		// A tab with {@code on} and no body is a link (Feed | Chat): picking it runs the action, and the
 		// one marked {@code sel} is lit.
-		Map<String, JsonObject> bodies = new LinkedHashMap<>();
-		Map<String, JsonObject> links = new HashMap<>();
+		var bodies = new LinkedHashMap<String, JsonObject>();
+		var links = new HashMap<String, JsonObject>();
 		var wanted = TABS.getOrDefault(key, str(n, "open"));
 		for (var e : list) {
 			var t = e.getAsJsonObject();
 			var label = str(t, "label");
-			bodies.put(label, t.has("c") ? t.getAsJsonObject("c") : null);
+			bodies.put(label, obj(t, "c"));
 			if (t.has("on") && !t.has("c")) links.put(label, t.getAsJsonObject("on"));
 			if (bool(t, "sel")) wanted = label;
 		}
 		var first = bodies.containsKey(wanted) ? wanted : bodies.keySet().iterator().next();
 		var wrap = column();
 		var body = Ui.row(0);
-		Map<String, JComponent> built = new HashMap<>();
+		var built = new HashMap<String, JComponent>();
 		Consumer<String> open = name -> {
 			if (bodies.get(name) != null) replace(body, built.computeIfAbsent(name, k -> node(bodies.get(k))));
 		};
@@ -1151,7 +1090,7 @@ class UiView extends JPanel {
 	static JComponent segments(List<String> labels, String first, Consumer<String> picked) {
 		var strip = new Round(new GridLayout(1, labels.size(), 2, 0), 4, DARKER_GRAY_COLOR, null, null);
 		strip.setBorder(createEmptyBorder(2, 2, 2, 2));
-		Map<String, Round> segs = new LinkedHashMap<>();
+		var segs = new LinkedHashMap<String, Round>();
 		Consumer<String> paint = name -> segs.forEach((k, seg) -> {
 			var on = k.equals(name);
 			seg.setOpaque(on);
@@ -1208,21 +1147,19 @@ class UiView extends JPanel {
 		var wrap = column();
 		wrap.setOpaque(false);
 		var none = small(str(n, "none"), MUTED);
-		none.setVisible(false);
 		var more = small(str(n, "more"), MUTED);
-		more.setVisible(false);
 		int max = num(n, "max", Integer.MAX_VALUE);
-		List<Runnable> refills = new ArrayList<>();
+		var refills = new ArrayList<Runnable>();
 		String[] query = {""};
 		int[] shown = {0};
 
 		var lists = column();
 		lists.setOpaque(false);
-		for (var e : n.has("c") ? n.getAsJsonArray("c") : new JsonArray()) {
+		for (var e : all(n, "c")) {
 			var list = e.getAsJsonObject();
 			var box = node(list);
 			var rows = List.of(box.getComponents());
-			var specs = list.has("c") ? list.getAsJsonArray("c") : new JsonArray();
+			var specs = all(list, "c");
 			if (rows.size() != specs.size()) {
 				lists.add(box); // a list with gaps or extras between rows isn't searched
 				continue;
@@ -1248,7 +1185,7 @@ class UiView extends JPanel {
 		if (xs != null && xt != null) {
 			var box = column();
 			box.setOpaque(false);
-			Map<Integer, JComponent> built = new HashMap<>();
+			var built = new HashMap<Integer, JComponent>();
 			refills.add(() -> {
 				box.removeAll();
 				for (int i = 0; i < xs.size() && shown[0] < max && !query[0].isEmpty(); i++) {
@@ -1272,10 +1209,7 @@ class UiView extends JPanel {
 		refill.run();
 		if (bool(n, "box")) {
 			var search = new SearchField(str(n, "hint"), "");
-			styleSearch(search);
-			search.setFont(SMALL);
 			search.setBackground(DARK_GRAY_COLOR);
-			search.setBorder(createCompoundBorder(createLineBorder(RAISED_HOVER), createEmptyBorder(4, 6, 4, 6)));
 			onEdit(search, () -> {
 				query[0] = search.getText().trim();
 				refill.run();
@@ -1338,10 +1272,6 @@ class UiView extends JPanel {
 	 */
 	JComponent search(JsonObject n, String name, String value) {
 		var field = new SearchField(str(n, "label"), value);
-		styleSearch(field);
-		field.setFont(SMALL);
-		field.setBorder(createCompoundBorder(
-			createLineBorder(RAISED_HOVER), createEmptyBorder(4, 6, 4, 6)));
 		inputs.put(name, () -> field.getText().trim());
 		var on = obj(n, "on");
 		if (on != null) {
@@ -1416,7 +1346,7 @@ class UiView extends JPanel {
 		var load = obj(n, "load");
 		if (load != null) {
 			drawn.remove(id); // a new slot shows its placeholder: whatever answer comes must replace it
-			fetch(id, str(load, "v"), strings(load.get("args")));
+			fetch(id, str(load, "v"), strings(load.get("args")), false);
 		}
 		return holder;
 	}
@@ -1435,16 +1365,14 @@ class UiView extends JPanel {
 		var value = str(n, "value");
 		switch (str(n, "kind")) {
 			case "select":
-				List<String[]> options = new ArrayList<>();
-				for (var e : n.has("options") ? n.getAsJsonArray("options") : new JsonArray()) {
+				var options = new ArrayList<String[]>();
+				for (var e : all(n, "options")) {
 					var o = e.getAsJsonObject();
 					options.add(new String[]{str(o, "v"), plainText(str(o, "label"))});
 				}
 				var combo = new JComboBox<>(options.stream().map(o -> o[1]).toArray(String[]::new));
 				AnvilSidebarPanel.styleCombo(combo);
-				for (int i = 0; i < options.size(); i++) {
-					if (options.get(i)[0].equals(value)) combo.setSelectedIndex(i);
-				}
+				for (int i = 0; i < options.size(); i++) if (options.get(i)[0].equals(value)) combo.setSelectedIndex(i);
 				inputs.put(name, () -> combo.getSelectedIndex() < 0 ? "" : options.get(combo.getSelectedIndex())[0]);
 				var on = obj(n, "on");
 				if (on != null) combo.addActionListener(e -> fire(on));
@@ -1457,15 +1385,10 @@ class UiView extends JPanel {
 			case "search":
 				return search(n, name, value);
 			case "number":
-				int min = num(n, "min", 0);
-				int max = num(n, "max", Integer.MAX_VALUE);
-				int start = max(min, min(max, parseInt(value, min)));
+				int min = num(n, "min", 0), max = num(n, "max", Integer.MAX_VALUE), start = max(min, min(max, parseInt(value, min)));
 				var spinner = new JSpinner(new SpinnerNumberModel(start, min, max, max(1, num(n, "step", 1))));
 				spinner.setFont(SMALL);
-				var field = ((JSpinner.DefaultEditor) spinner.getEditor()).getTextField();
-				field.setBackground(DARKER_GRAY_COLOR);
-				field.setForeground(Color.WHITE);
-				field.setCaretColor(Color.WHITE);
+				darkInput(((JSpinner.DefaultEditor) spinner.getEditor()).getTextField());
 				inputs.put(name, () -> String.valueOf(spinner.getValue()));
 				var row = Ui.row(6);
 				row.add(small(str(n, "label"), MUTED), WEST);
@@ -1475,9 +1398,7 @@ class UiView extends JPanel {
 				// A typed answer (a sign-up question). One line; the site caps the length.
 				var box = new JTextField(value);
 				box.setFont(SMALL);
-				box.setBackground(DARKER_GRAY_COLOR);
-				box.setForeground(Color.WHITE);
-				box.setCaretColor(Color.WHITE);
+				darkInput(box);
 				inputs.put(name, box::getText);
 				return capH(box);
 			case "check":
@@ -1504,9 +1425,7 @@ class UiView extends JPanel {
 			var secs = max(0, (at - System.currentTimeMillis()) / 1000);
 			if (armed[0] && secs == 0) {
 				armed[0] = false;
-				var later = new Timer(3_000 /* DUE_REFRESH_MS */, e -> refresh(true));
-				later.setRepeats(false);
-				later.start();
+				once(3_000 /* DUE_REFRESH_MS */, e -> refresh(true));
 			}
 			// Past a day, "4d 4h" — "100:15:48" reads as a clock, not as four days.
 			var clock = secs >= 86400
@@ -1523,7 +1442,7 @@ class UiView extends JPanel {
 
 	/** A right-click menu on {@code c} and everything in it (Swing doesn't bubble a click up from a label). */
 	void menu(JComponent c, JsonArray items) {
-		AnvilSidebarPanel.addMouseListenerToTree(c, new MouseAdapter() {
+		listenAll(c, new MouseAdapter() {
 			public void mousePressed(MouseEvent e) {
 				show(e);
 			}
@@ -1554,10 +1473,10 @@ class UiView extends JPanel {
 	 */
 	void clickable(JComponent c, Runnable action) {
 		var r = c instanceof Round ? (Round) c : null;
-		var opaque = r != null ? r.filled() : c.isOpaque();
+		var opaque = r != null ? r.filled : c.isOpaque();
 		var base = c.getBackground();
 		var hover = r != null && r.hover != null ? r.hover : DARK_GRAY_HOVER_COLOR;
-		AnvilSidebarPanel.addMouseListenerToTree(c, new MouseAdapter() {
+		listenAll(c, new MouseAdapter() {
 			public void mousePressed(MouseEvent e) {
 				if (SwingUtilities.isLeftMouseButton(e) && ownClick(c, e)) pressing = true;
 			}
@@ -1682,6 +1601,11 @@ class UiView extends JPanel {
 		return e != null && e.isJsonArray() ? e.getAsJsonArray() : null;
 	}
 
+	/** {@link #arr}, or an empty array. */
+	static JsonArray all(JsonObject o, String key) {
+		return Objects.requireNonNullElseGet(arr(o, key), JsonArray::new);
+	}
+
 	static int num(JsonObject o, String key, int fallback) {
 		var e = o.get(key);
 		return e != null && e.isJsonPrimitive() && e.getAsJsonPrimitive().isNumber() ? e.getAsInt() : fallback;
@@ -1701,10 +1625,8 @@ class UiView extends JPanel {
 	}
 
 	static Map<String, String> strings(JsonElement e) {
-		Map<String, String> out = new LinkedHashMap<>();
-		if (e != null && e.isJsonObject()) {
-			for (var x : e.getAsJsonObject().entrySet()) if (x.getValue().isJsonPrimitive()) out.put(x.getKey(), x.getValue().getAsString());
-		}
+		var out = new LinkedHashMap<String, String>();
+		if (e != null && e.isJsonObject()) for (var x : e.getAsJsonObject().entrySet()) if (x.getValue().isJsonPrimitive()) out.put(x.getKey(), x.getValue().getAsString());
 		return out;
 	}
 

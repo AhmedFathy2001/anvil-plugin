@@ -26,8 +26,8 @@ class RetryPolicy {
 		if (failures <= 0) return 0;
 		var base = firstMs;
 		for (int i = 1; i < failures && base < capMs; i++) base *= 2;
-		base = Math.min(base, capMs);
-		var j = Math.max(0, Math.min(1, jitter));
-		return Math.min(capMs, Math.round(base * (0.8 + 0.4 * j)));
+		base = min(base, capMs);
+		var j = max(0, min(1, jitter));
+		return min(capMs, round(base * (0.8 + 0.4 * j)));
 	}
 }

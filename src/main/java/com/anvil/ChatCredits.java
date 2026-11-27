@@ -16,8 +16,7 @@ class ChatCredits {
 	static final long WINDOW_MS = 30 * 60_000;
 
 	/** itemId → {quantity still owed, when it was credited}. */
-	final Map<Integer, long[]> owed = new HashMap<>();
-
+	Map<Integer, long[]> owed = new HashMap<>();
 
 	synchronized void note(Collection<ItemStack> credited, long now) {
 		for (var s : credited) {
@@ -32,7 +31,7 @@ class ChatCredits {
 	/** {@code items} less whatever a chat line already credited; consumes those claims. */
 	synchronized List<ItemStack> unclaimed(Collection<ItemStack> items, long now) {
 		owed.values().removeIf(o -> now - o[1] > WINDOW_MS);
-		List<ItemStack> out = new ArrayList<>(items.size());
+		var out = new ArrayList<ItemStack>(items.size());
 		for (var s : items) {
 			var o = owed.get(s.getId());
 			int left = s.getQuantity();

@@ -11,7 +11,7 @@ class ModeLines {
 	static final int MAX_BATCH = 20;
 	static final long FLUSH_MS = 5_000;
 
-	final List<String> pending = new ArrayList<>();
+	List<String> pending = new ArrayList<>();
 	long firstAt;
 	String last;
 
@@ -32,7 +32,7 @@ class ModeLines {
 	/** The batch once it has waited FLUSH_MS, else null. */
 	synchronized List<String> drain(long nowMs) {
 		if (pending.isEmpty() || nowMs - firstAt < FLUSH_MS) return null;
-		List<String> out = new ArrayList<>(pending);
+		var out = new ArrayList<>(pending);
 		pending.clear();
 		return out;
 	}

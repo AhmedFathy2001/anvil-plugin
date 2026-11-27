@@ -2,6 +2,7 @@ package com.anvil;
 
 import lombok.*;
 import java.util.*;
+import java.util.stream.*;
 
 /**
  * The queue behind the clan's highlight feed: pets, uniques, big hauls and deaths, held until the
@@ -100,7 +101,7 @@ class AnvilMoments {
 	}
 
 	/** Keyed so a duplicate observation replaces rather than repeats; insertion-ordered for the batch. */
-	final Map<String, Moment> pending = new LinkedHashMap<>();
+	Map<String, Moment> pending = new LinkedHashMap<>();
 
 	/**
 	 * Queue one. A repeat of a key already waiting REPLACES it — the second sighting of the same pet
@@ -154,12 +155,7 @@ class AnvilMoments {
 
 	/** The next batch to send. Stays queued until {@link #onSent} confirms it — a failed push retries. */
 	synchronized List<Moment> nextBatch() {
-		var batch = new ArrayList<Moment>();
-		for (var m : pending.values()) {
-			batch.add(m);
-			if (batch.size() >= BATCH) break;
-		}
-		return batch;
+		return pending.values().stream().limit(BATCH).collect(Collectors.toList());
 	}
 
 	/** Drop what the site has taken. */
@@ -206,6 +202,5 @@ class AnvilMoments {
 	static String keyFor(String kind, String source, Integer itemId, long at) {
 		return kind + "|" + (source == null ? "" : source.toLowerCase(Locale.ROOT)) + "|"
 			+ (itemId == null ? "" : itemId) + "|" + at / 10_000L;
-
 	}
 }

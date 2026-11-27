@@ -29,7 +29,7 @@ public class ClogSyncTest
 		assertTrue(sync.offer(page("Abyssal Sire", 2, 4151, 7979), 0));
 		// The same page redrawn — scrolling, clicking away and back — is not news.
 		assertFalse(sync.offer(page("Abyssal Sire", 2, 4151, 7979), 10));
-		assertEquals(1, sync.pendingCount());
+		assertEquals(1, sync.pending.size());
 	}
 
 	@Test
@@ -38,10 +38,10 @@ public class ClogSyncTest
 		ClogSync sync = new ClogSync();
 		sync.offer(page("Abyssal Sire", 2, 4151, 7979), 0);
 		sync.onSent(sync.nextBatch());
-		assertEquals(0, sync.pendingCount());
+		assertEquals(0, sync.pending.size());
 		// Third item drops: same page, different contents, must go again.
 		assertTrue(sync.offer(page("Abyssal Sire", 3, 4151, 7979, 13262), 100));
-		assertEquals(1, sync.pendingCount());
+		assertEquals(1, sync.pending.size());
 	}
 
 	@Test
@@ -88,7 +88,7 @@ public class ClogSyncTest
 		List<ClogPage> first = sync.nextBatch();
 		assertEquals(ClogSync.BATCH_PAGES, first.size());
 		sync.onSent(first);
-		assertEquals(7, sync.pendingCount());
+		assertEquals(7, sync.pending.size());
 	}
 
 	@Test
@@ -98,9 +98,9 @@ public class ClogSyncTest
 		sync.offer(page("Vorkath", 1, 22106), 0);
 		List<ClogPage> batch = sync.nextBatch();
 		// onSent is only called on success, so a failure is simply not calling it.
-		assertEquals(1, sync.pendingCount());
+		assertEquals(1, sync.pending.size());
 		sync.onSent(batch);
-		assertEquals(0, sync.pendingCount());
+		assertEquals(0, sync.pending.size());
 	}
 
 	@Test
@@ -112,7 +112,7 @@ public class ClogSyncTest
 		// The drop lands while the request is on the wire.
 		sync.offer(page("Vorkath", 2, 22106, 22109), 10);
 		sync.onSent(inFlight);
-		assertEquals("the newer version must still go", 1, sync.pendingCount());
+		assertEquals("the newer version must still go", 1, sync.pending.size());
 	}
 
 	@Test

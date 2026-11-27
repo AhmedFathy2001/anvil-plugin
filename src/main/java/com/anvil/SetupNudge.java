@@ -37,8 +37,7 @@ public class SetupNudge {
 	 * @param firstRunShown how many times the first-run line has already been printed on this install
 	 */
 	static Kind decide(String token, int firstRunShown) {
-		if (token != null && !token.trim().isEmpty()) return Kind.NONE;
-		return firstRunShown < FIRST_RUN_NUDGES ? Kind.FIRST_RUN : Kind.NONE;
+		return (token == null || token.trim().isEmpty()) && firstRunShown < FIRST_RUN_NUDGES ? Kind.FIRST_RUN : Kind.NONE;
 	}
 
 	/**
@@ -50,17 +49,10 @@ public class SetupNudge {
 	 * anywhere but the one site this plugin talks to.</p>
 	 */
 	static String[] lines(Kind kind) {
-		switch (kind) {
-			case FIRST_RUN:
-				return new String[]{
-					"Not connected yet — open the Anvil panel (the anvil icon on the right) and press \"Sign in with Discord\".",
-					"A free account on " + SITE_HOST + " tracks your collection log, personal bests and records. No clan needed — and starting one is free.",
-				};
-			default:
-				return new String[0];
-		}
+		return kind == Kind.FIRST_RUN ? new String[]{
+			"Not connected yet — open the Anvil panel (the anvil icon on the right) and press \"Sign in with Discord\".",
+			"A free account on " + SITE_HOST + " tracks your collection log, personal bests and records. No clan needed — and starting one is free.",
+		} : new String[0];
 	}
 
-	SetupNudge() {
-	}
 }

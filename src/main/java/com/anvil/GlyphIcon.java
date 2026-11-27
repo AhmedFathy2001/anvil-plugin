@@ -43,93 +43,90 @@ class GlyphIcon implements Icon {
 
 	public void paintIcon(Component c, Graphics graphics, int x, int y) {
 		var g = Ui.smooth(graphics);
-		try {
-			g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
-			var ink = color != null ? color : (c != null ? c.getForeground() : Color.WHITE);
-			if (c != null && !c.isEnabled()) ink = ink.darker();
-			g.setColor(ink);
-			float s = size;
-			g.setStroke(new BasicStroke(max(1.4f, s / 7f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-			g.translate(x, y);
-			var p = new Path2D.Float();
-			switch (shape) {
-				case CHEVRON_LEFT:
-					g.draw(stroke(p, s, 0.62, 0.22, 0.34, 0.5, 0.62, 0.78));
-					break;
-				case CHEVRON_RIGHT:
-					g.draw(stroke(p, s, 0.38, 0.22, 0.66, 0.5, 0.38, 0.78));
-					break;
-				case CHEVRON_DOWN:
-					g.draw(stroke(p, s, 0.22, 0.38, 0.5, 0.66, 0.78, 0.38));
-					break;
-				case EXTERNAL:
-					stroke(p, s, 0.28, 0.72, 0.72, 0.28);
-					g.draw(stroke(p, s, 0.4, 0.28, 0.72, 0.28, 0.72, 0.6));
-					break;
-				case CHECK:
-					g.draw(stroke(p, s, 0.2, 0.52, 0.42, 0.74, 0.8, 0.28));
-					break;
-				case CLOSE:
-					stroke(p, s, 0.28, 0.28, 0.72, 0.72);
-					g.draw(stroke(p, s, 0.72, 0.28, 0.28, 0.72));
-					break;
-				case ELLIPSIS:
-					var d = max(2f, s / 6f);
-					for (int i = 0; i < 3; i++) {
-						var cx = s * (0.25f + 0.25f * i);
-						g.fill(new Ellipse2D.Float(cx - d / 2, s * 0.5f - d / 2, d, d));
-					}
-					break;
-				case GEAR:
-					// A ring with eight short teeth — the settings mark everyone reads without a label.
-					var cx = s / 2f;
-					var r = s * 0.24f;
-					g.draw(new Ellipse2D.Float(cx - r, cx - r, r * 2, r * 2));
-					for (int i = 0; i < 8; i++) {
-						var a = PI / 4 * i;
-						p.moveTo(cx + cos(a) * s * 0.33, cx + sin(a) * s * 0.33);
-						p.lineTo(cx + cos(a) * s * 0.44, cx + sin(a) * s * 0.44);
-					}
-					g.draw(p);
-					break;
-				case STAR:
-					// Filled five points: an Anvil Supporter, beside their name.
-					g.fill(star(p, s, 1));
-					break;
-				case QUILL_STAR:
-					// A Supporter writer: the gold star with a dark quill across it.
-					g.fill(star(new Path2D.Float(), s, 1));
-					g.setColor(new Color(0x7a4f12));
-				case QUILL:
-					// A writer's rank: a feather leaning right, its colour the rank's.
-					p.moveTo(s * .88, s * .08);
-					p.quadTo(s * .22, s * .2, s * .18, s * .92);
-					p.quadTo(s * .74, s * .62, s * .88, s * .08);
-					g.fill(p);
-					break;
-				case LOCK:
-				case UNLOCK:
-					// A padlock: a trip held on one boss (closed) or free to follow the bank (open, shackle lifted).
-					g.fill(new java.awt.geom.RoundRectangle2D.Double(s * .18, s * .46, s * .64, s * .46, s * .12, s * .12));
-					var lift = shape == Shape.UNLOCK ? .14 : 0;
-					p.moveTo(s * .32, s * (.46 - lift));
-					p.lineTo(s * .32, s * (.3 - lift));
-					p.quadTo(s * .32, s * (.08 - lift), s * .5, s * (.08 - lift));
-					p.quadTo(s * .68, s * (.08 - lift), s * .68, s * (.3 - lift));
-					if (lift == 0) p.lineTo(s * .68, s * .46);
-					g.draw(p);
-					break;
-				case UP:
-				case DOWN:
-					// A filled triangle: a rank moving up or down since the start of the day.
-					var up = shape == Shape.UP;
-					g.fill(stroke(p, s, 0.12, up ? 0.78 : 0.22, 0.5, up ? 0.22 : 0.78, 0.88, up ? 0.78 : 0.22));
-					break;
-			}
-
-		} finally {
-			g.dispose();
+		g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+		var ink = color != null ? color : (c != null ? c.getForeground() : Color.WHITE);
+		if (c != null && !c.isEnabled()) ink = ink.darker();
+		g.setColor(ink);
+		float s = size;
+		g.setStroke(new BasicStroke(max(1.4f, s / 7f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+		g.translate(x, y);
+		var p = new Path2D.Float();
+		switch (shape) {
+			case CHEVRON_LEFT:
+				g.draw(stroke(p, s, 0.62, 0.22, 0.34, 0.5, 0.62, 0.78));
+				break;
+			case CHEVRON_RIGHT:
+				g.draw(stroke(p, s, 0.38, 0.22, 0.66, 0.5, 0.38, 0.78));
+				break;
+			case CHEVRON_DOWN:
+				g.draw(stroke(p, s, 0.22, 0.38, 0.5, 0.66, 0.78, 0.38));
+				break;
+			case EXTERNAL:
+				stroke(p, s, 0.28, 0.72, 0.72, 0.28);
+				g.draw(stroke(p, s, 0.4, 0.28, 0.72, 0.28, 0.72, 0.6));
+				break;
+			case CHECK:
+				g.draw(stroke(p, s, 0.2, 0.52, 0.42, 0.74, 0.8, 0.28));
+				break;
+			case CLOSE:
+				stroke(p, s, 0.28, 0.28, 0.72, 0.72);
+				g.draw(stroke(p, s, 0.72, 0.28, 0.28, 0.72));
+				break;
+			case ELLIPSIS:
+				var d = max(2f, s / 6f);
+				for (int i = 0; i < 3; i++) {
+					var cx = s * (0.25f + 0.25f * i);
+					g.fill(new Ellipse2D.Float(cx - d / 2, s * 0.5f - d / 2, d, d));
+				}
+				break;
+			case GEAR:
+				// A ring with eight short teeth — the settings mark everyone reads without a label.
+				var cx = s / 2f;
+				var r = s * 0.24f;
+				g.draw(new Ellipse2D.Float(cx - r, cx - r, r * 2, r * 2));
+				for (int i = 0; i < 8; i++) {
+					var a = PI / 4 * i;
+					p.moveTo(cx + cos(a) * s * 0.33, cx + sin(a) * s * 0.33);
+					p.lineTo(cx + cos(a) * s * 0.44, cx + sin(a) * s * 0.44);
+				}
+				g.draw(p);
+				break;
+			case STAR:
+				// Filled five points: an Anvil Supporter, beside their name.
+				g.fill(star(p, s, 1));
+				break;
+			case QUILL_STAR:
+				// A Supporter writer: the gold star with a dark quill across it.
+				g.fill(star(new Path2D.Float(), s, 1));
+				g.setColor(new Color(0x7a4f12));
+			case QUILL:
+				// A writer's rank: a feather leaning right, its colour the rank's.
+				p.moveTo(s * .88, s * .08);
+				p.quadTo(s * .22, s * .2, s * .18, s * .92);
+				p.quadTo(s * .74, s * .62, s * .88, s * .08);
+				g.fill(p);
+				break;
+			case LOCK:
+			case UNLOCK:
+				// A padlock: a trip held on one boss (closed) or free to follow the bank (open, shackle lifted).
+				g.fill(new RoundRectangle2D.Double(s * .18, s * .46, s * .64, s * .46, s * .12, s * .12));
+				var lift = shape == Shape.UNLOCK ? .14 : 0;
+				p.moveTo(s * .32, s * (.46 - lift));
+				p.lineTo(s * .32, s * (.3 - lift));
+				p.quadTo(s * .32, s * (.08 - lift), s * .5, s * (.08 - lift));
+				p.quadTo(s * .68, s * (.08 - lift), s * .68, s * (.3 - lift));
+				if (lift == 0) p.lineTo(s * .68, s * .46);
+				g.draw(p);
+				break;
+			case UP:
+			case DOWN:
+				// A filled triangle: a rank moving up or down since the start of the day.
+				var up = shape == Shape.UP;
+				g.fill(stroke(p, s, 0.12, up ? 0.78 : 0.22, 0.5, up ? 0.22 : 0.78, 0.88, up ? 0.78 : 0.22));
+				break;
 		}
+
+		g.dispose();
 	}
 
 	/** A five-point star {@code k} of the icon's size, centred. */

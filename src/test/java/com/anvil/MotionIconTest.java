@@ -58,7 +58,7 @@ public class MotionIconTest
 	@Test
 	public void anAnimatedGifDecodesEveryFrameAndLoopsForever() throws Exception
 	{
-		Icon icon = BingoApiClient.animatedIcon(gif(48, 48, 3, 10), 48, 48);
+		Icon icon = GifIcon.decode(gif(48, 48, 3, 10), 48, 48);
 		assertTrue(icon instanceof GifIcon);
 		GifIcon g = (GifIcon) icon;
 		assertEquals(3, g.frames.length);
@@ -76,7 +76,7 @@ public class MotionIconTest
 	@Test
 	public void eachLabelGetsItsOwnClockOverSharedFrames() throws Exception
 	{
-		GifIcon first = (GifIcon) BingoApiClient.animatedIcon(gif(48, 48, 2, 10), 48, 48);
+		GifIcon first = (GifIcon) GifIcon.decode(gif(48, 48, 2, 10), 48, 48);
 		GifIcon second = first.copy();
 		assertNotSame(first, second);
 		first.advance(150);
@@ -87,20 +87,20 @@ public class MotionIconTest
 	@Test
 	public void aOneFrameGifIsAPlainStill() throws Exception
 	{
-		assertTrue(BingoApiClient.animatedIcon(gif(48, 48, 1, 0), 48, 48) instanceof ImageIcon);
+		assertTrue(GifIcon.decode(gif(48, 48, 1, 0), 48, 48) instanceof ImageIcon);
 	}
 
 	@Test
 	public void unsafeOrForeignFilesAreRefused() throws Exception
 	{
-		assertNull("too big for the slot", BingoApiClient.animatedIcon(gif(96, 96, 2, 10), 48, 48));
+		assertNull("too big for the slot", GifIcon.decode(gif(96, 96, 2, 10), 48, 48));
 		byte[] huge = gif(48, 48, 2, 10);
 		// Logical screen 4096x4096 behind 48x48 frames.
 		huge[6] = 0; huge[7] = 0x10; huge[8] = 0; huge[9] = 0x10;
-		assertNull(BingoApiClient.animatedIcon(huge, 48, 48));
+		assertNull(GifIcon.decode(huge, 48, 48));
 		ByteArrayOutputStream jpeg = new ByteArrayOutputStream();
 		ImageIO.write(new BufferedImage(48, 48, BufferedImage.TYPE_INT_RGB), "jpg", jpeg);
-		assertNull("a still answer is decoded as a still by the caller", BingoApiClient.animatedIcon(jpeg.toByteArray(), 48, 48));
+		assertNull("a still answer is decoded as a still by the caller", GifIcon.decode(jpeg.toByteArray(), 48, 48));
 		assertNotNull(BingoApiClient.decodeSmall(jpeg.toByteArray(), 48, 48));
 	}
 }

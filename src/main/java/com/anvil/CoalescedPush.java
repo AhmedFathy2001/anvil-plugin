@@ -30,8 +30,7 @@ class CoalescedPush {
 	final Sender sender;
 	final Runnable afterSend;
 	/** What the site last accepted, when only a RISE is worth sending; null to send every value. */
-	final Map<String, Integer> sent;
-	final Map<String, Integer> pending = new HashMap<>();
+	Map<String, Integer> sent, pending = new HashMap<>();
 	ScheduledFuture<?> task;
 	/** Failed sends since the last success; 0 = healthy. Drives the retry wait. */
 	int failures;
@@ -62,10 +61,9 @@ class CoalescedPush {
 
 	/** Buffer {@code values} and restart the settle timer — unless nothing in them is new. */
 	synchronized void queue(Map<String, Integer> values) {
-		var ex = executor.get();
-		if (ex == null || ex.isShutdown()) return;
+		if (live() == null) return;
 		var queued = false;
-		for (Map.Entry<String, Integer> e : values.entrySet()) {
+		for (var e : values.entrySet()) {
 			var last = sent == null ? null : sent.get(e.getKey());
 			if (last == null || last < e.getValue()) {
 				pending.put(e.getKey(), e.getValue());
@@ -75,7 +73,7 @@ class CoalescedPush {
 		// While backing off, new values ride the retry that's already waiting rather than pulling it
 		// forward to the settle delay — a training session would otherwise retry every 15s regardless.
 		if (queued && holdingSince == 0) holdingSince = System.currentTimeMillis();
-		if (queued && !(failures > 0 && task != null && !task.isDone())) schedule(ex, settleWait(System.currentTimeMillis(), holdingSince, delayMs));
+		if (queued && !(failures > 0 && task != null && !task.isDone())) schedule(settleWait(System.currentTimeMillis(), holdingSince, delayMs));
 	}
 
 	/** What's waiting to go — for saving across a logout or restart. */
@@ -92,23 +90,19 @@ class CoalescedPush {
 		values.forEach((k, v) -> {
 			if (k != null && v != null) pending.merge(k, v, Integer::max);
 		});
-		var ex = executor.get();
-		if (ex != null && !ex.isShutdown()) schedule(ex, delayMs);
+		schedule(delayMs);
 	}
 
 	/** Send what's waiting now (a value that completes a tile) — unless backing off a failing site. */
 	synchronized void sendNow() {
-		var ex = executor.get();
-		if (pending.isEmpty() || failures > 0 || ex == null || ex.isShutdown()) return;
-		schedule(ex, 0);
+		if (!pending.isEmpty() && failures == 0) schedule(0);
 	}
 
 	/** The site is reachable again: send what's waiting now instead of sitting out the backoff. */
 	synchronized void kick() {
 		if (failures == 0 || pending.isEmpty()) return;
 		failures = 0;
-		var ex = executor.get();
-		if (ex != null && !ex.isShutdown()) schedule(ex, 0);
+		schedule(0);
 	}
 
 	/** Forget everything queued (and sent) — a new account, or the plugin stopping. */
@@ -123,7 +117,16 @@ class CoalescedPush {
 		}
 	}
 
-	void schedule(ScheduledExecutorService ex, long waitMs) {
+	/** The executor, or null once it is gone or shutting down. */
+	ScheduledExecutorService live() {
+		var ex = executor.get();
+		return ex == null || ex.isShutdown() ? null : ex;
+	}
+
+	/** (Re)start the timer; nothing when the executor is gone. */
+	void schedule(long waitMs) {
+		var ex = live();
+		if (ex == null) return;
 		if (task != null) task.cancel(false);
 		task = ex.schedule(this::flush, waitMs, TimeUnit.MILLISECONDS);
 	}
@@ -166,8 +169,7 @@ class CoalescedPush {
 				batch.forEach((k, v) -> pending.merge(k, v, Integer::max));
 				var wait = retryDelayMs(failures, delayMs, Math.random());
 				log.warn("{} push failed, retry in {}s: {}", what, wait / 1000, e.getMessage());
-				var ex = executor.get();
-				if (ex != null && !ex.isShutdown()) schedule(ex, wait);
+				schedule(wait);
 			}
 			return;
 		}

@@ -78,10 +78,19 @@ public class TileNotesTest
 	@Test
 	public void plurals()
 	{
-		assertEquals("searches", TileNotes.plural("search"));
-		assertEquals("kills", TileNotes.plural("kill"));
-		assertEquals("bodies", TileNotes.plural("body"));
-		assertEquals("days", TileNotes.plural("day"));
-		assertEquals("boxes", TileNotes.plural("box"));
+		assertEquals("searches", plural("search"));
+		assertEquals("kills", plural("kill"));
+		assertEquals("bodies", plural("body"));
+		assertEquals("days", plural("day"));
+		assertEquals("boxes", plural("box"));
+	}
+
+	// No longer used by the plugin; kept with its test.
+	static String plural(String noun)
+	{
+		String n = noun.toLowerCase(java.util.Locale.ROOT);
+		if (n.endsWith("s") || n.endsWith("x") || n.endsWith("z") || n.endsWith("sh") || n.endsWith("ch")) return noun + "es";
+		if (n.length() > 1 && n.endsWith("y") && "aeiou".indexOf(n.charAt(n.length() - 2)) < 0) return noun.substring(0, noun.length() - 1) + "ies";
+		return noun + "s";
 	}
 }

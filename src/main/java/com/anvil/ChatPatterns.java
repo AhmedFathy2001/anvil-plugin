@@ -215,9 +215,19 @@ class ChatPatterns {
 				throw new IllegalArgumentException("missing named group (?<" + g + ">…)");
 			}
 		}
-		for (var input : stressInputs(e)) {
+		// Stress inputs: every sample, each also four times over, then 500 a's and 500 spaces and a "!".
+		var inputs = new ArrayList<String>();
+		if (e.samples != null) {
+			for (var s : e.samples) {
+				inputs.add(s.line);
+				inputs.add(s.line.repeat(4));
+			}
+		}
+		inputs.add("a".repeat(MAX_LENGTH));
+		inputs.add(" ".repeat(MAX_LENGTH) + "!");
+		for (var input : inputs) {
 			try {
-				p.matcher(new Budgeted(input)).find();
+				p.matcher(new Budgeted(input, 2_000_000L /* STEP_BUDGET */)).find();
 			} catch (BudgetExceeded ex) {
 				throw new IllegalArgumentException("too slow (catastrophic backtracking)");
 			}
@@ -225,36 +235,15 @@ class ChatPatterns {
 		return p;
 	}
 
-	static List<String> stressInputs(Entry e) {
-		var out = new ArrayList<String>();
-		if (e.samples != null) {
-			for (var s : e.samples) {
-				out.add(s.line);
-				out.add(s.line + s.line + s.line + s.line);
-			}
-		}
-		char[] a = new char[MAX_LENGTH];
-		Arrays.fill(a, 'a');
-		out.add(new String(a));
-		Arrays.fill(a, ' ');
-		out.add(new String(a) + "!");
-		return out;
-	}
-
 	static int flagsOf(Entry e) {
 		int f = 0;
 		if (e.flags != null) {
 			for (var s : e.flags) {
 				if ("CASE_INSENSITIVE".equals(s)) f |= Pattern.CASE_INSENSITIVE;
-				else if
- ("DOTALL".equals(s)) f |= Pattern.DOTALL;
+				else if ("DOTALL".equals(s)) f |= Pattern.DOTALL;
 			}
 		}
 		return f;
-	}
-
-	static Map<String, Entry> entries() {
-		return entries;
 	}
 
 	static class BudgetExceeded extends RuntimeException {
@@ -269,14 +258,9 @@ class ChatPatterns {
 		final String s;
 		final long[] left;
 
-		Budgeted(String s) {
-			this(s, 2_000_000L /* STEP_BUDGET */);
-		}
-
 		Budgeted(String s, long budget) {
 			this(s, new long[]{budget});
 		}
-
 
 		public char charAt(int i) {
 			if (--left[0] < 0) throw new BudgetExceeded();

@@ -24,9 +24,9 @@ class ClogSync {
 	static final int BATCH_PAGES = 25;
 
 	/** Last hash we successfully sent, per page name. The persisted half of the state. */
-	final Map<String, Long> sent = new HashMap<>();
+	Map<String, Long> sent = new HashMap<>();
 	/** Changed pages awaiting a push, newest write wins. Insertion-ordered so batches are stable. */
-	final Map<String, ClogPage> pending = new LinkedHashMap<>();
+	Map<String, ClogPage> pending = new LinkedHashMap<>();
 
 	long lastChangeAt;
 
@@ -54,12 +54,7 @@ class ClogSync {
 
 	/** Pages to send in the next request, oldest first. Does NOT clear them — see {@link #onSent}. */
 	List<ClogPage> nextBatch() {
-		List<ClogPage> batch = new ArrayList<>(Math.min(BATCH_PAGES, pending.size()));
-		for (var page : pending.values()) {
-			batch.add(page);
-			if (batch.size() >= BATCH_PAGES) break;
-		}
-		return batch;
+		return new ArrayList<>(pending.values()).subList(0, Math.min(BATCH_PAGES, pending.size()));
 	}
 
 	/**
@@ -73,10 +68,6 @@ class ClogSync {
 			if (queued != null && queued.hash == page.hash) pending.remove(page.name);
 			sent.put(page.name, page.hash);
 		}
-	}
-
-	int pendingCount() {
-		return pending.size();
 	}
 
 	/** How many distinct pages we've delivered — the numerator of the "68% synced" nudge. */
@@ -104,12 +95,10 @@ class ClogSync {
 
 	/** {@code <value>|<name>} per line — the shape this and {@link PersonalBests} persist. */
 	static <V> String writeLines(Map<String, V> map, Function<V, String> value) {
-		var out = new StringBuilder(map.size() * 24);
-		for (var e : map.entrySet()) {
-			if (e.getKey() == null || e.getKey().indexOf('\n') >= 0) continue;
-			if (out.length() > 0) out.append('\n');
-			out.append(value.apply(e.getValue())).append('|').append(e.getKey());
-		}
+		var out = new StringJoiner("\n");
+		map.forEach((k, v) -> {
+			if (k != null && k.indexOf('\n') < 0) out.add(value.apply(v) + "|" + k);
+		});
 		return out.toString();
 	}
 

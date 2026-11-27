@@ -38,8 +38,7 @@ class ClogPageReader {
 		if (header == null || items == null) return null;
 
 		String name = null;
-		int obtained = -1;
-		int total = -1;
+		int obtained = -1, total = -1;
 		// Allocated only if the page actually prints counters — most don't, and this runs on every
 		// redraw of every page the player scrolls past.
 		Map<String, Integer> counts = null;

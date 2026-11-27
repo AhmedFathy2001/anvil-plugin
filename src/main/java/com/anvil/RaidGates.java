@@ -38,7 +38,6 @@ class RaidGates {
 			if (!team.contains(n)) return name + " isn't on your team";
 			named++;
 		}
-		if (partySize > named) return "only saw " + named + " of the party of " + partySize;
-		return null;
+		return partySize > named ? "only saw " + named + " of the party of " + partySize : null;
 	}
 }

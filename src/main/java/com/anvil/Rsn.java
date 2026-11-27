@@ -34,12 +34,8 @@ import java.util.*;
  * player would silently stop matching their own roster row.</p>
  */
 public class Rsn {
-	Rsn() {
-	}
-
 	/** Whitespace-or-underscore runs. U+00A0 is named explicitly — Java's {@code \s} omits it. */
-	static final java.util.regex.Pattern FOLD =
-		java.util.regex.Pattern.compile("[\\s\\u00a0_]+");
+	static final java.util.regex.Pattern FOLD = java.util.regex.Pattern.compile("[\\s\\u00a0_]+");
 
 	/**
 	 * The comparison key for a name, or "" when there is no name.

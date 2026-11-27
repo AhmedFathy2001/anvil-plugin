@@ -54,9 +54,6 @@ class AccountProgress {
 		"diaryWilderness", "diaryKaramja",
 	};
 
-	AccountProgress() {
-	}
-
 	/**
 	 * Sample everything, right now. Client thread only.
 	 *
@@ -66,7 +63,7 @@ class AccountProgress {
 	 * first one.
 	 */
 	static Map<String, Integer> sample(Client client) {
-		Map<String, Integer> out = new LinkedHashMap<>();
+		var out = new LinkedHashMap<String, Integer>();
 		if (client == null) return out;
 
 		int questPoints = client.getVarpValue(VarPlayerID.QP);
@@ -79,10 +76,11 @@ class AccountProgress {
 		int[] masks = new int[DIARY_VARBITS.length];
 		int[] diaries = new int[DIARY_KEYS.length];
 		int diaryTotal = 0;
+		// One region's four tiers, as a mask: easy 1, medium 2, hard 4, elite 8 — the site's numbering.
 		for (int region = 0; region < masks.length; region++) {
-			masks[region] = regionMask(client, DIARY_VARBITS[region]);
 			for (int tier = 0; tier < diaries.length; tier++) {
-				if ((masks[region] & 1 << tier) != 0) {
+				if (client.getVarbitValue(DIARY_VARBITS[region][tier]) > 0) {
+					masks[region] |= 1 << tier;
 					diaries[tier]++;
 					diaryTotal++;
 				}
@@ -91,11 +89,23 @@ class AccountProgress {
 		if (questPoints <= 0 && caPoints <= 0 && diaryTotal <= 0) return out;
 
 		out.put("questPoints", questPoints);
-		out.put("questsCompleted", countQuests(client));
+		// Quests finished, out of everything this client build knows about. An enum walk of ~200 quests,
+		// each a varp read — cheap enough for the half-minute tick that calls it, and the only way to the
+		// number: the game keeps no "quests completed" counter, only quest points, and those weight
+		// quests differently.
+		out.put("questsCompleted", (int) Arrays.stream(Quest.values()).filter(q -> q.getState(client) == QuestState.FINISHED).count());
 		out.put("caPoints", caPoints);
 		// Every tier cleared rather than only the highest, so a profile can light them cumulatively.
 		// The highest is 0 (none) through 6 (Grandmaster): the top bit's position.
-		int caTiers = tierMask(client, caPoints);
+		// Bit per tier cleared: bit 0 Easy … bit 5 Grandmaster. Read from POINTS against each tier's
+		// threshold varbit rather than from the tier-status varbits: the thresholds are what the game
+		// itself compares, they're the same numbers the completion post already uses, and a tier the
+		// player cleared but never claimed the reward for still counts as cleared.
+		int caTiers = 0;
+		for (var t : CombatAchievementTier.values()) {
+			int threshold = client.getVarbitValue(t.getThresholdVarbitId());
+			if (threshold > 0 && caPoints >= threshold) caTiers |= 1 << t.ordinal();
+		}
 		out.put("caTier", 32 - Integer.numberOfLeadingZeros(caTiers));
 		out.put("caTiers", caTiers);
 		for (int tier = 0; tier < DIARY_KEYS.length; tier++) out.put(DIARY_KEYS[tier], diaries[tier]);
@@ -116,30 +126,6 @@ class AccountProgress {
 	/** The map key the game mode rides under; pulled out into its own field when pushed. */
 	static final String ACCOUNT_TYPE_KEY = "accountType";
 
-	/** One region's four tiers, as a mask: easy 1, medium 2, hard 4, elite 8 — the site's numbering. */
-	static int regionMask(Client client, int[] region) {
-		int mask = 0;
-		for (int tier = 0; tier < region.length; tier++) {
-			if (client.getVarbitValue(region[tier]) > 0) mask |= 1 << tier;
-		}
-		return mask;
-	}
-
-	/**
-	 * Quests finished, out of everything this client build knows about.
-	 *
-	 * <p>An enum walk of ~200 quests, each a varp read — cheap enough for the half-minute tick that
-	 * calls it, and the only way to the number: the game keeps no "quests completed" counter, only
-	 * quest points, and those weight quests differently.
-	 */
-	static int countQuests(Client client) {
-		int done = 0;
-		for (Quest quest : Quest.values()) {
-			if (quest.getState(client) == QuestState.FINISHED) done++;
-		}
-		return done;
-	}
-
 	/**
 	 * The raw combat-achievement varps, exactly as the game holds them.
 	 *
@@ -151,12 +137,8 @@ class AccountProgress {
 	 * <p>Client thread.
 	 */
 	static Map<Integer, Integer> combatVarps(Client client, List<Integer> varps) {
-		Map<Integer, Integer> out = new LinkedHashMap<>();
-		if (client == null || varps == null) return out;
-		for (Integer varpId : varps) {
-			if (varpId == null || varpId <= 0) continue;
-			out.put(varpId, client.getVarpValue(varpId));
-		}
+		var out = new LinkedHashMap<Integer, Integer>();
+		if (client != null && varps != null) for (var id : varps) if (id != null && id > 0) out.put(id, client.getVarpValue(id));
 		return out;
 	}
 
@@ -166,7 +148,6 @@ class AccountProgress {
 		final int id;
 		final String name;
 		final int state;
-
 	}
 
 	/**
@@ -179,32 +160,13 @@ class AccountProgress {
 	 * <p>Client thread, like everything else here.
 	 */
 	static List<Item> quests(Client client) {
-		List<Item> out = new ArrayList<>();
+		var out = new ArrayList<Item>();
 		if (client == null) return out;
-		for (Quest quest : Quest.values()) {
+		for (var quest : Quest.values()) {
 			var state = quest.getState(client);
 			int code = state == QuestState.FINISHED ? 2 : state == QuestState.IN_PROGRESS ? 1 : 0;
 			out.add(new Item(quest.getId(), quest.getName(), code));
 		}
 		return out;
-	}
-
-	/**
-	 * Bit per combat-achievement tier cleared: bit 0 Easy … bit 5 Grandmaster.
-	 *
-	 * <p>Read from POINTS against each tier's threshold varbit rather than from the tier-status
-	 * varbits: the thresholds are what the game itself compares, they're the same numbers the
-	 * completion post already uses, and a tier the player cleared but never claimed the reward for
-	 * still counts as cleared.
-	 */
-	static int tierMask(Client client, int caPoints) {
-		int mask = 0;
-		int index = 0;
-		for (CombatAchievementTier t : CombatAchievementTier.values()) {
-			int threshold = client.getVarbitValue(t.getThresholdVarbitId());
-			if (threshold > 0 && caPoints >= threshold) mask |= 1 << index;
-			index++;
-		}
-		return mask;
 	}
 }

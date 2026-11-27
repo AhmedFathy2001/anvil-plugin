@@ -44,7 +44,7 @@ public class TileTracker {
 	final BingoApiClient apiClient;
 
 	/** tileId → its pin, in pin order. Guarded by {@code this}. */
-	final Map<Integer, Widget> pins = new LinkedHashMap<>();
+	Map<Integer, Widget> pins = new LinkedHashMap<>();
 	/** The logged-in account's hash, or -1 at the login screen: pins are saved per account. */
 	long account = -1;
 	/**
@@ -61,7 +61,7 @@ public class TileTracker {
 	volatile Supplier<List<Integer>> boards = Collections::emptyList;
 	/** Says why a pin came down (a chat line). */
 	volatile Consumer<String> told = m -> { };
-	final Combined combined = new Combined();
+	Combined combined = new Combined();
 	/**
 	 * The pins as the frame draw sees them: replaced whole on every change, read without a lock.
 	 * The shared panel renders on the client thread every frame, which must never wait on a lock.
@@ -74,9 +74,9 @@ public class TileTracker {
 	 * linger, so it comes down on time instead of on the next 30s poll. {@code unpinned}: a finished pin
 	 * came down, so whatever lists the pins (the panel's "Tracked on screen") asks again.
 	 */
-	void setDoneHooks(IntConsumer doneSeen, Runnable unpinned) {
-		this.doneSeen = doneSeen;
-		this.unpinned = unpinned;
+	void setDoneHooks(IntConsumer seen, Runnable down) {
+		doneSeen = seen;
+		unpinned = down;
 	}
 
 	volatile IntConsumer doneSeen = id -> { };
@@ -87,19 +87,15 @@ public class TileTracker {
 		told = tell;
 	}
 
-	Widget removePin(int tileId) {
-		var w = pins.remove(tileId);
+	/** Unpin one, and take the panel down with the last pin. */
+	void unpin(int tileId) {
+		pins.remove(tileId);
 		redraw();
-		return w;
+		if (pins.isEmpty()) overlayManager.remove(combined);
 	}
 
 	void redraw() {
 		drawn = new ArrayList<>(pins.values());
-	}
-
-	/** Take the panel down with the last pin. */
-	void hide(Widget w) {
-		if (pins.isEmpty()) overlayManager.remove(combined);
 	}
 
 	/** Pins saved before they were kept per account, handed to the first account that logs in. */
@@ -167,7 +163,7 @@ public class TileTracker {
 	/** Pin or unpin. */
 	synchronized void toggle(int eventId, int tileId) {
 		if (!TileNotes.pinnable(tileId)) return; // a cap counter's virtual entry is never pinned
-		if (isPinned(eventId, tileId)) hide(removePin(tileId));
+		if (isPinned(eventId, tileId)) unpin(tileId);
 		else {
 			if (pins.size() >= MAX_PINS) {
 				told.accept("You can pin 3 tiles. Unpin one first.");
@@ -234,7 +230,7 @@ public class TileTracker {
 
 	synchronized void drop(Widget w, String why) {
 		if (pins.get(w.tileId) != w) return;
-		hide(removePin(w.tileId));
+		unpin(w.tileId);
 		save();
 		told.accept("Stopped tracking " + (w.label != null ? w.label : "a tile") + " (" + why + ")");
 	}
@@ -255,8 +251,13 @@ public class TileTracker {
 		w.progress = p;
 		w.label = p.label;
 		int step = afterFetch(w, p, System.currentTimeMillis());
-		if (step == UNPIN) unpinDone(event, tileId, w);
-		else if (step == DONE_SHOWN) doneSeen.accept(tileId);
+		if (step == UNPIN) synchronized (this) {
+			if (pins.get(tileId) == w) {
+				unpin(tileId);
+				save();
+				unpinned.run();
+			}
+		} else if (step == DONE_SHOWN) doneSeen.accept(tileId);
 	}
 
 	static final int KEEP = 0, DONE_SHOWN = 1, UNPIN = 2;
@@ -274,7 +275,13 @@ public class TileTracker {
 	 * {@link #DONE_LINGER_MS}.
 	 */
 	static boolean finishedAndShown(Widget w, Progress p, long now) {
-		var done = ownTeamDone(p);
+		var done = false;
+		if (p.teams != null && !"upcoming".equals(p.phase)) for (var t : p.teams) {
+			if (t.mine) {
+				done = t.complete;
+				break;
+			}
+		}
 		if (w.keepWhenDone == null) w.keepWhenDone = done;
 		if (!done || w.keepWhenDone) return false;
 		if (w.doneSinceMs == 0) {
@@ -282,21 +289,6 @@ public class TileTracker {
 			return false;
 		}
 		return now - w.doneSinceMs >= DONE_LINGER_MS;
-	}
-
-	static boolean ownTeamDone(Progress p) {
-		if (p.teams == null || "upcoming".equals(p.phase)) return false;
-		for (var t : p.teams) {
-			if (t.mine) return t.complete;
-		}
-		return false;
-	}
-
-	synchronized void unpinDone(int event, int tileId, Widget w) {
-		if (pins.get(tileId) != w) return;
-		hide(removePin(tileId));
-		save();
-		unpinned.run();
 	}
 
 	/** The tiles pinned for this event, in pin order. */
@@ -318,7 +310,7 @@ public class TileTracker {
 
 	/** Take every pin for this event down. */
 	synchronized void clear(int eventId) {
-		for (int id : pinned(eventId)) hide(removePin(id));
+		for (int id : pinned(eventId)) unpin(id);
 		save();
 	}
 
@@ -429,6 +421,7 @@ public class TileTracker {
 	}
 
 	/** One pinned tile: its name, any notes, and your team's bar (or the countdown before the start). */
+	@RequiredArgsConstructor
 	static class Widget {
 		final int tileId;
 		/** The board it's on. */
@@ -452,18 +445,13 @@ public class TileTracker {
 		 * The lines drawn every frame, built once per fetch on the client thread — the frame only moves
 		 * your team's bar and the countdown, and only when they change.
 		 */
-		final List<LayoutableRenderableEntity> lines = new ArrayList<>();
+		List<LayoutableRenderableEntity> lines = new ArrayList<>();
 		Progress builtFor;
 		Team mine;
 		ProgressBarComponent bar;
 		LineComponent startsIn;
 		Instant startsAt;
 		long shownSecs;
-
-		Widget(int tileId, ToLongBiFunction<Integer, Long> shown) {
-			this.tileId = tileId;
-			this.shown = shown;
-		}
 
 		void drawInto(PanelComponent panelComponent) {
 			var p = progress;

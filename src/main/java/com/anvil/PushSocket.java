@@ -19,9 +19,8 @@ import okhttp3.*;
 @Slf4j
 @RequiredArgsConstructor
 class PushSocket extends WebSocketListener {
-	static final long FIRST_RETRY_MS = 2_000;
-	/** Chat rides this socket, so a drop is retried within half a minute, never left for five. */
-	static final long MAX_RETRY_MS = 30_000;
+	/** MAX_RETRY_MS: chat rides this socket, so a drop is retried within half a minute, never left for five. */
+	static final long FIRST_RETRY_MS = 2_000, MAX_RETRY_MS = 30_000;
 
 	final BingoApiClient api;
 	final ScheduledExecutorService executor;
@@ -32,9 +31,8 @@ class PushSocket extends WebSocketListener {
 	volatile WebSocket socket;
 	ScheduledFuture<?> pending;
 	int failures;
-	volatile boolean live;
-	/** The site said this socket may relay chat ({"t":"hello","relay":1}); any other closes on a message. */
-	volatile boolean relayOk;
+	/** relayOk: the site said this socket may relay chat ({"t":"hello","relay":1}); any other closes on a message. */
+	volatile boolean live, relayOk;
 
 	/** Up and hearing changes, so polls may slow down. */
 	boolean live() {

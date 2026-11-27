@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static com.anvil.DiskFiles.*;
 import static java.lang.Math.*;
 import lombok.*;
 import com.google.gson.*;
@@ -34,9 +35,7 @@ import net.runelite.client.util.*;
 @Slf4j
 class NotifyOutbox {
 	static final int MAX_ITEMS = 100;
-	static final long MAX_AGE_MS = 24L * 60 * 60 * 1000;
-	static final long FIRST_RETRY_MS = 15_000L;
-	static final long MAX_RETRY_MS = 300_000L;
+	static final long MAX_AGE_MS = 24L * 60 * 60 * 1000, FIRST_RETRY_MS = 15_000L, MAX_RETRY_MS = 300_000L;
 
 	enum Result {
 		SENT, PERMANENT, RETRY
@@ -48,20 +47,13 @@ class NotifyOutbox {
 
 	/** One queued notification. Serialized as-is; the PNG lives beside it. */
 	static class Item {
-		String id;
-		String url;
-		String channel;
-		/** The payload_json exactly as first sent. */
-		String payload;
-		String filename;
-		String rsn;
-		String accountHash;
-		/** Fingerprint of the token it was sent with: another account's sign-in doesn't send it. */
-		String account;
-		int pngBytes;
-		long createdAt;
-		int attempts;
-		long nextAttemptAt;
+		/**
+		 * {@code payload}: the payload_json exactly as first sent. {@code account}: fingerprint of the
+		 * token it was sent with: another account's sign-in doesn't send it.
+		 */
+		String id, url, channel, payload, filename, rsn, accountHash, account;
+		int pngBytes, attempts;
+		long createdAt, nextAttemptAt;
 		/** The screenshot, held in memory only when there is no directory to write it to. */
 		transient byte[] png;
 	}
@@ -71,14 +63,9 @@ class NotifyOutbox {
 	final Supplier<ExecutorService> sendPool;
 	@Setter volatile Filepath dir;
 	@Setter volatile Sender sender;
-	final List<Item> items = new ArrayList<>();
+	List<Item> items = new ArrayList<>();
 	ScheduledFuture<?> task;
 	boolean pumping;
-
-
-	synchronized int size() {
-		return items.size();
-	}
 
 	/** A fresh entry: first retry after {@link #FIRST_RETRY_MS} (jittered). */
 	static Item newItem(long now) {
@@ -118,20 +105,20 @@ class NotifyOutbox {
 	void load() {
 		var found = new ArrayList<Item>();
 		var pngs = new ArrayList<Filepath>();
-		for (var f : DiskFiles.listFiles(DiskFiles.ensureDir(dir), n -> n.endsWith(".json") || n.endsWith(".png"))) {
+		for (var f : listFiles(ensureDir(dir), n -> n.endsWith(".json") || n.endsWith(".png"))) {
 			if (f.getFileName().endsWith(".png")) {
 				pngs.add(f);
 				continue;
 			}
-			var it = DiskFiles.readJson(gson, f, Item.class);
+			var it = readJson(gson, f, Item.class);
 			if (it != null && it.id != null && it.url != null && it.payload != null && f.getFileName().equals(it.id + ".json")) found.add(it);
-			else DiskFiles.deleteQuietly(f);
+			else deleteQuietly(f);
 		}
 		// A screenshot whose entry never made it to disk is an orphan nothing will read.
 		for (var png : pngs) {
 			var n = png.getFileName();
 			var id = n.substring(0, n.length() - 4);
-			if (found.stream().noneMatch(it -> it.id.equals(id))) DiskFiles.deleteQuietly(png);
+			if (found.stream().noneMatch(it -> it.id.equals(id))) deleteQuietly(png);
 		}
 		if (found.isEmpty()) return;
 		synchronized (this) {
@@ -145,13 +132,13 @@ class NotifyOutbox {
 
 	/** Keep a notification that just failed to send. Blocking (disk); never on the client thread. */
 	void enqueue(Item item, byte[] png) {
-		var d = DiskFiles.ensureDir(dir);
+		var d = ensureDir(dir);
 		item.pngBytes = png == null ? 0 : png.length;
 		if (d == null) item.png = png;
 		else {
 			try {
-				if (png != null && png.length > 0) DiskFiles.writeAtomic(d.joinSegment(item.id + ".png"), png);
-				DiskFiles.writeAtomic(d.joinSegment(item.id + ".json"), gson.toJson(item));
+				if (png != null && png.length > 0) writeAtomic(d.joinSegment(item.id + ".png"), png);
+				writeAtomic(d.joinSegment(item.id + ".json"), gson.toJson(item));
 			} catch (Exception e) {
 				item.png = png; // keep it for this session at least
 			}
@@ -207,12 +194,8 @@ class NotifyOutbox {
 		var ex = scheduler.get();
 		if (ex == null || ex.isShutdown()) return;
 		cancel();
-		task = ex.schedule(this::handOff, max(0, waitMs), TimeUnit.MILLISECONDS);
-	}
-
-	/** On the timer: run the pass on the HTTP pool, never the plugin's one thread. */
-	void handOff() {
-		onPool(this::pump);
+		// On the timer: run the pass on the HTTP pool, never the plugin's one thread.
+		task = ex.schedule(() -> onPool(this::pump), max(0, waitMs), TimeUnit.MILLISECONDS);
 	}
 
 	void onPool(Runnable r) {
@@ -251,7 +234,13 @@ class NotifyOutbox {
 					var next = now + RetryPolicy.backoffMs(++it.attempts, FIRST_RETRY_MS, MAX_RETRY_MS, random());
 					for (var x : due.subList(i, due.size())) x.nextAttemptAt = max(x.nextAttemptAt, next);
 				}
-				rewrite(it);
+				var d = dir;
+				if (d != null) {
+					try {
+						writeAtomic(d.joinSegment(it.id + ".json"), gson.toJson(it));
+					} catch (Exception e) {
+					}
+				}
 				break;
 			}
 		} finally {
@@ -266,7 +255,7 @@ class NotifyOutbox {
 	byte[] screenshot(Item it) {
 		if (it.png != null) return it.png;
 		var d = dir;
-		return d == null ? null : DiskFiles.read(d.joinSegment(it.id + ".png"));
+		return d == null ? null : read(d.joinSegment(it.id + ".png"));
 	}
 
 	void remove(Item it) {
@@ -276,21 +265,12 @@ class NotifyOutbox {
 		deleteFiles(it);
 	}
 
-	void rewrite(Item it) {
-		var d = dir;
-		if (d == null) return;
-		try {
-			DiskFiles.writeAtomic(d.joinSegment(it.id + ".json"), gson.toJson(it));
-		} catch (Exception e) {
-		}
-	}
-
 	void deleteFiles(Item it) {
 		var d = dir;
 		if (d == null || it.id == null) return;
 		try {
-			DiskFiles.deleteQuietly(d.joinSegment(it.id + ".json"));
-			DiskFiles.deleteQuietly(d.joinSegment(it.id + ".png"));
+			deleteQuietly(d.joinSegment(it.id + ".json"));
+			deleteQuietly(d.joinSegment(it.id + ".png"));
 		} catch (RuntimeException ignored) {
 			// joinSegment refusing a name read back from disk: nothing of ours to delete.
 		}

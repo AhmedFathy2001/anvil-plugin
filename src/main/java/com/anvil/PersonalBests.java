@@ -32,11 +32,11 @@ class PersonalBests {
 	static final long QUIET_MS = 3_000;
 
 	/** Best known time per activity, keyed lowercase. Lower is better; that's the whole model. */
-	final Map<String, Integer> best = new HashMap<>();
+	Map<String, Integer> best = new HashMap<>();
 	/** What the server already has, so an unchanged PB is never re-sent. */
-	final Map<String, Integer> sent = new HashMap<>();
+	Map<String, Integer> sent = new HashMap<>();
 	/** Activities whose best has moved since the last successful push. */
-	final Set<String> dirty = new LinkedHashSet<>();
+	Set<String> dirty = new LinkedHashSet<>();
 
 	/** The most recent activity name from a kill-count line, and when we saw it. */
 	String recentActivity;
@@ -107,7 +107,7 @@ class PersonalBests {
 
 	/** The pending bests, activity → centiseconds. */
 	Map<String, Integer> nextBatch() {
-		Map<String, Integer> batch = new LinkedHashMap<>(dirty.size());
+		var batch = new LinkedHashMap<String, Integer>();
 		for (var activity : dirty) {
 			var centis = best.get(activity);
 			if (centis != null) batch.put(activity, centis);
@@ -125,10 +125,6 @@ class PersonalBests {
 			var current = best.get(e.getKey());
 			if (current != null && current.equals(e.getValue())) dirty.remove(e.getKey());
 		}
-	}
-
-	int pendingCount() {
-		return dirty.size();
 	}
 
 	/** Forget everything — the next account's bests are not this one's. */

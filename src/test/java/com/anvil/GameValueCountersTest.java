@@ -16,18 +16,36 @@ public class GameValueCountersTest
 	private final GameValueCounters.Reader reader = (varp, id) -> vars.getOrDefault((varp ? "p" : "b") + id, 0);
 	private GameValueCounters counters;
 
+	private static GameValueCounters.Source source(String type, int id)
+	{
+		GameValueCounters.Source s = new GameValueCounters.Source();
+		s.type = type;
+		s.id = id;
+		return s;
+	}
+
 	private static GameValueCounters.Source varbit(int id)
 	{
-		return new GameValueCounters.Source("varbit", id);
+		return source("varbit", id);
 	}
 
 	private static GameValueCounters.Source varp(int id)
 	{
-		return new GameValueCounters.Source("varp", id);
+		return source("varp", id);
 	}
 
-	private final GameValueCounters.Entry tithe = new GameValueCounters.Entry("Tithe Farm points", true, 0, varbit(4893));
-	private final GameValueCounters.Entry foundry = new GameValueCounters.Entry("Giants' Foundry reputation", true, 500, varp(3436));
+	private static GameValueCounters.Entry entry(String name, boolean confirmed, int maxDelta, GameValueCounters.Source... sources)
+	{
+		GameValueCounters.Entry e = new GameValueCounters.Entry();
+		e.name = name;
+		e.confirmed = confirmed;
+		e.maxDelta = maxDelta;
+		e.sources = Arrays.asList(sources);
+		return e;
+	}
+
+	private final GameValueCounters.Entry tithe = entry("Tithe Farm points", true, 0, varbit(4893));
+	private final GameValueCounters.Entry foundry = entry("Giants' Foundry reputation", true, 500, varp(3436));
 
 	@Before
 	public void setUp()
@@ -94,9 +112,9 @@ public class GameValueCountersTest
 	@Test
 	public void decreaseDirectionCountsSpendingOnly()
 	{
-		GameValueCounters.Entry claimed = new GameValueCounters.Entry("Wintertodt rewards claimed", false, 0, varbit(11435));
+		GameValueCounters.Entry claimed = entry("Wintertodt rewards claimed", false, 0, varbit(11435));
 		claimed.direction = "decrease";
-		GameValueCounters.Entry earned = new GameValueCounters.Entry("Wintertodt rewards earned", false, 0, varbit(11435));
+		GameValueCounters.Entry earned = entry("Wintertodt rewards earned", false, 0, varbit(11435));
 		counters.configure(Arrays.asList(claimed, earned));
 		vars.put("b11435", 10);
 		settle();
@@ -163,7 +181,7 @@ public class GameValueCountersTest
 	@Test
 	public void severalSourcesSum()
 	{
-		GameValueCounters.Entry delves = new GameValueCounters.Entry("Doom of Mokhaiotl delves", false, 0,
+		GameValueCounters.Entry delves = entry("Doom of Mokhaiotl delves", false, 0,
 			varp(4808), varp(4809), varp(4816));
 		counters.configure(Arrays.asList(delves));
 		settle();
@@ -176,12 +194,12 @@ public class GameValueCountersTest
 	@Test
 	public void slayerSplitCreditsOneTaskOnce()
 	{
-		GameValueCounters.Entry any = new GameValueCounters.Entry("Slayer tasks: any master", false, 0,
+		GameValueCounters.Entry any = entry("Slayer tasks: any master", false, 0,
 			varp(5720), varbit(5617), varbit(4069));
 		any.changes = true;
-		GameValueCounters.Entry mortimer = new GameValueCounters.Entry("Slayer tasks: Mortimer", false, 0, varp(5720));
-		GameValueCounters.Entry krystilia = new GameValueCounters.Entry("Slayer tasks: Krystilia", false, 0, varbit(5617));
-		GameValueCounters.Entry other = new GameValueCounters.Entry("Slayer tasks: other masters", false, 0, varbit(4069));
+		GameValueCounters.Entry mortimer = entry("Slayer tasks: Mortimer", false, 0, varp(5720));
+		GameValueCounters.Entry krystilia = entry("Slayer tasks: Krystilia", false, 0, varbit(5617));
+		GameValueCounters.Entry other = entry("Slayer tasks: other masters", false, 0, varbit(4069));
 		other.unless = Arrays.asList(varp(5720), varbit(5617));
 		counters.configure(Arrays.asList(any, mortimer, krystilia, other));
 		vars.put("b4069", 40);
@@ -221,10 +239,10 @@ public class GameValueCountersTest
 	public void badEntriesAreDropped()
 	{
 		counters.configure(Arrays.asList(null,
-			new GameValueCounters.Entry("", true, 0, varp(1)),
-			new GameValueCounters.Entry("X", true, 0, new GameValueCounters.Source("widget", 1)),
-			new GameValueCounters.Entry("Y", true, 0, varp(0)),
-			new GameValueCounters.Entry("Z", true, 0),
+			entry("", true, 0, varp(1)),
+			entry("X", true, 0, source("widget", 1)),
+			entry("Y", true, 0, varp(0)),
+			entry("Z", true, 0),
 			tithe));
 		assertEquals(1, counters.entries().size());
 	}
@@ -232,7 +250,7 @@ public class GameValueCountersTest
 	@Test
 	public void lateBalanceArrivalNeverCredits()
 	{
-		GameValueCounters.Entry balance = new GameValueCounters.Entry("Tithe Farm points", true, 40, varbit(4893));
+		GameValueCounters.Entry balance = entry("Tithe Farm points", true, 40, varbit(4893));
 		balance.balance = true;
 		counters.configure(Arrays.asList(balance));
 		settle();
@@ -252,7 +270,7 @@ public class GameValueCountersTest
 	@Test
 	public void lateArrivalOverTheActionCeilingReBaselines()
 	{
-		GameValueCounters.Entry pool = new GameValueCounters.Entry("Wintertodt rewards earned", false, 30, varbit(11435));
+		GameValueCounters.Entry pool = entry("Wintertodt rewards earned", false, 30, varbit(11435));
 		counters.configure(Arrays.asList(pool));
 		settle();
 		tick();

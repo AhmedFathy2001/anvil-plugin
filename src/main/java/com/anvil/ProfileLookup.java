@@ -50,21 +50,13 @@ class ProfileLookup {
 	/** Opens a name in the side panel's Lookup tab; false when it can't (no card support), and we browse. */
 	@Setter volatile Predicate<String> panelOpener;
 
-	/** {@code rsn} as a path segment, or null when there is no name to look up. */
-	static String pathName(String rsn) {
-		if (rsn == null) return null;
-		// The game pads names with U+00A0; the site folds case and spacing itself, so only the
-		// padding has to go. Path-encoded, not form-encoded: '+' in a path is a literal plus.
-		var name = rsn.replace(' ', ' ').trim();
-		return name.isEmpty() ? null : URLEncoder.encode(name, StandardCharsets.UTF_8).replace("+", "%20");
-	}
-
 	/** The character page for {@code rsn}, or null when there is no name to look up. */
 	static String profileUrl(String rsn) {
-		var name = pathName(rsn);
-		return name == null ? null : BingoApiClient.site() + "/p/" + name;
+		// The game pads names with U+00A0; the site folds case and spacing itself, so only the
+		// padding has to go. Path-encoded, not form-encoded: '+' in a path is a literal plus.
+		var name = rsn == null ? "" : rsn.replace(' ', ' ').trim();
+		return name.isEmpty() ? null : BingoApiClient.site() + "/p/" + URLEncoder.encode(name, StandardCharsets.UTF_8).replace("+", "%20");
 	}
-
 
 	/** Open {@code rsn}'s character page in the system browser. False when there was no name. */
 	static boolean open(String rsn) {
@@ -144,9 +136,8 @@ class ProfileLookup {
 	void syncPlayerItem() {
 		var want = config.profileLookupMenu() && config.lookupPlayers();
 		if (want == playerItemShown) return;
-		if (want) {
-			menuManager.addPlayerMenuItem(OPTION);
-		} else menuManager.removePlayerMenuItem(OPTION);
+		if (want) menuManager.addPlayerMenuItem(OPTION);
+		else menuManager.removePlayerMenuItem(OPTION);
 		playerItemShown = want;
 	}
 
@@ -158,9 +149,7 @@ class ProfileLookup {
 		if (placement == 0 || !surfaceOn(groupId)) return;
 		// One per name. A name's menu often carries two of the options we sit beside ("Add friend" and
 		// "Add ignore" on a stranger in chat), and each used to add its own "Anvil".
-		for (MenuEntry existing : client.getMenu().getMenuEntries()) {
-			if (OPTION.equals(existing.getOption()) && sameTarget(existing.getTarget(), event.getTarget())) return;
-		}
+		for (var existing : client.getMenu().getMenuEntries()) if (OPTION.equals(existing.getOption()) && sameTarget(existing.getTarget(), event.getTarget())) return;
 		client.getMenu().createMenuEntry(menuIndex(groupId, placement))
 			.setOption(OPTION)
 			.setTarget(event.getTarget())

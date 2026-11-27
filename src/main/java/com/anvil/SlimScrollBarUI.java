@@ -13,15 +13,10 @@ import javax.swing.plaf.basic.*;
 class SlimScrollBarUI extends BasicScrollBarUI {
 	static final int WIDTH = 7;
 
-	static final Color THUMB = MEDIUM_GRAY_COLOR;
-	static final Color THUMB_HOVER = LIGHT_GRAY_COLOR;
-
 	/** Restyle every scroll pane directly under {@code root} (the PluginPanel's wrapper). */
 	static void applyTo(Container root) {
 		if (root == null) return;
-		for (var c : root.getComponents()) {
-			if (c instanceof JScrollPane) style(((JScrollPane) c).getVerticalScrollBar());
-		}
+		for (var c : root.getComponents()) if (c instanceof JScrollPane) style(((JScrollPane) c).getVerticalScrollBar());
 	}
 
 	static void style(JScrollBar bar) {
@@ -43,10 +38,7 @@ class SlimScrollBarUI extends BasicScrollBarUI {
 
 	static JButton zeroButton() {
 		var b = new JButton();
-		var none = new Dimension(0, 0);
-		b.setPreferredSize(none);
-		b.setMinimumSize(none);
-		b.setMaximumSize(none);
+		Ui.sizeTo(b, new Dimension(0, 0));
 		return b;
 	}
 
@@ -58,9 +50,8 @@ class SlimScrollBarUI extends BasicScrollBarUI {
 	protected void paintThumb(Graphics g, JComponent c, Rectangle r) {
 		if (r.isEmpty() || !scrollbar.isEnabled()) return;
 		var g2 = Ui.smooth(g);
-		g2.setColor(isThumbRollover() || isDragging ? THUMB_HOVER : THUMB);
-		int inset = 1;
-		g2.fillRoundRect(r.x + inset, r.y + inset, r.width - inset * 2, r.height - inset * 2, WIDTH, WIDTH);
+		g2.setColor(isThumbRollover() || isDragging ? LIGHT_GRAY_COLOR : MEDIUM_GRAY_COLOR);
+		g2.fillRoundRect(r.x + 1, r.y + 1, r.width - 2, r.height - 2, WIDTH, WIDTH); // 1px in
 		g2.dispose();
 	}
 

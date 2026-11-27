@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.*;
 import java.awt.event.*;
 import java.util.*;
 import java.util.function.*;
@@ -17,25 +18,17 @@ import javax.swing.text.*;
  * has nothing completed, the same letters are tried again — someone who has only just walked into
  * view is picked up without typing another letter.</p>
  */
+@RequiredArgsConstructor
 class LookupSuggestions extends KeyAdapter {
 	/** The game's name lists at one moment. Each list may be empty, never null. */
 	static class Names {
 		static final Names EMPTY = new Names(null, null, null, null);
 
-		final List<String> clanOnline;
-		final List<String> friends;
-		final List<String> nearby;
-		final List<String> clan;
+		/** Friends, clan members online, players nearby, then the rest of the clan: the order they're offered in. */
+		List<List<String>> lists = new ArrayList<>();
 
 		Names(Collection<String> clanOnline, Collection<String> friends, Collection<String> nearby, Collection<String> clan) {
-			this.clanOnline = copy(clanOnline);
-			this.friends = copy(friends);
-			this.nearby = copy(nearby);
-			this.clan = copy(clan);
-		}
-
-		static List<String> copy(Collection<String> names) {
-			return names == null ? Collections.emptyList() : new ArrayList<>(names);
+			for (var c : Arrays.asList(friends, clanOnline, nearby, clan)) lists.add(c == null ? List.of() : new ArrayList<>(c));
 		}
 	}
 
@@ -47,7 +40,9 @@ class LookupSuggestions extends KeyAdapter {
 		var q = Rsn.normalize(typed);
 		if (q.isEmpty()) return null;
 		var mine = Rsn.normalize(me);
-		for (var list : Arrays.asList(recent, names.friends, names.clanOnline, names.nearby, names.clan)) {
+		var lists = new ArrayList<>(names.lists);
+		lists.add(0, recent);
+		for (var list : lists) {
 			if (list == null) continue;
 			for (var raw : list) {
 				if (raw == null) continue;
@@ -59,25 +54,14 @@ class LookupSuggestions extends KeyAdapter {
 		return null;
 	}
 
+	/** The box; the panel adds this as its key listener. */
 	final JTextComponent field;
 	final BooleanSupplier enabled;
 	final Supplier<List<String>> recent;
 	final Supplier<String> me;
+	/** Reads the game's lists and hands them back on any thread (the client thread, live). */
 	final Consumer<Consumer<Names>> fetch;
 	volatile Names names = Names.EMPTY;
-
-	/**
-	 * @param fetch reads the game's lists and hands them back on any thread (the client thread, live)
-	 */
-	LookupSuggestions(JTextComponent field, BooleanSupplier enabled, Supplier<List<String>> recent,
-		Supplier<String> me, Consumer<Consumer<Names>> fetch) {
-		this.field = field;
-		this.enabled = enabled;
-		this.recent = recent;
-		this.me = me;
-		this.fetch = fetch;
-		field.addKeyListener(this);
-	}
 
 	/** Read the game's lists again, then retry the box if it is waiting on a name. */
 	void refresh() {
@@ -98,8 +82,7 @@ class LookupSuggestions extends KeyAdapter {
 			|| field.getSelectionEnd() != field.getText().length()) {
 			return;
 		}
-		int start = field.getSelectionStart();
-		int end = field.getSelectionEnd();
+		int start = field.getSelectionStart(), end = field.getSelectionEnd();
 		// The letter typed is the next one of the name already filled in: keep the name, move past it.
 		if (start < end && Rsn.normalize(field.getText().substring(start, start + 1)).equals(Rsn.normalize(String.valueOf(c)))) {
 			e.consume();

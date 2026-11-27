@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static javax.swing.BorderFactory.*;
 import static net.runelite.client.ui.ColorScheme.*;
 import java.awt.*;
 import java.awt.event.*;
@@ -31,7 +32,7 @@ class Ui {
 	static final Font SMALL = FontManager.getRunescapeSmallFont();
 	static final Font REGULAR = FontManager.getRunescapeFont();
 	static final Font BOLD = FontManager.getRunescapeBoldFont();
-	static final java.util.Map<Font, Font> FALLBACK = new java.util.concurrent.ConcurrentHashMap<>();
+	static final Map<Font, Font> FALLBACK = new java.util.concurrent.ConcurrentHashMap<>();
 
 	/** {@code f}, or the system font at its size and style when {@code f} lacks a glyph of {@code t} (a Mac draws a box for ✓ → … in the RS fonts). */
 	static Font fit(Font f, String t) {
@@ -102,6 +103,13 @@ class Ui {
 		return c;
 	}
 
+	/** Pins {@code c} at {@code d}: preferred, minimum and maximum alike. */
+	static void sizeTo(JComponent c, Dimension d) {
+		c.setPreferredSize(d);
+		c.setMinimumSize(d);
+		c.setMaximumSize(d);
+	}
+
 	static <T extends JComponent> T left(T c) {
 		c.setAlignmentX(Component.LEFT_ALIGNMENT);
 		return c;
@@ -118,7 +126,7 @@ class Ui {
 	static <T extends JComponent> T onClick(T c, Runnable action) {
 		c.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 		c.putClientProperty(CLICKS, Boolean.TRUE);
-		AnvilSidebarPanel.addMouseListenerToTree(c, new MouseAdapter() {
+		listenAll(c, new MouseAdapter() {
 			boolean down;
 
 			public void mousePressed(MouseEvent e) {
@@ -133,26 +141,17 @@ class Ui {
 		return c;
 	}
 
+	/** Install one listener on {@code c} and every component nested inside it. */
+	static void listenAll(Component c, MouseAdapter listener) {
+		c.addMouseListener(listener);
+		if (c instanceof Container) for (var child : ((Container) c).getComponents()) listenAll(child, listener);
+	}
+
 	/** Whether the press is {@code c}'s: no clickable part inside it is nearer the pointer. */
 	static boolean ownClick(JComponent c, MouseEvent e) {
 		for (Component at = e.getComponent(); at != null && at != c; at = at.getParent())
 			if (at instanceof JComponent && ((JComponent) at).getClientProperty(CLICKS) != null) return false;
 		return true;
-	}
-
-	/** Lights up under the mouse and does {@code onClick} — so a row or tile says it can be opened. */
-	static void hoverable(JComponent c, Color base, Runnable onClick) {
-		c.setOpaque(true);
-		c.setBackground(base);
-		onClick(c, onClick).addMouseListener(new MouseAdapter() {
-			public void mouseEntered(MouseEvent e) {
-				c.setBackground(DARK_GRAY_HOVER_COLOR);
-			}
-
-			public void mouseExited(MouseEvent e) {
-				if (c.getMousePosition(true) == null) c.setBackground(base); // into a child is still inside
-			}
-		});
 	}
 
 	/** A left-aligned vertical stack on the panel background. */
@@ -167,7 +166,7 @@ class Ui {
 	static JPanel block() {
 		var p = column();
 		p.setBackground(DARKER_GRAY_COLOR);
-		p.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+		p.setBorder(createEmptyBorder(8, 8, 8, 8));
 		return p;
 	}
 
@@ -184,12 +183,17 @@ class Ui {
 
 	/** The search fields' look: white text and caret on the darker surface, an orange selection. */
 	static void styleSearch(JTextField f) {
-		f.setBackground(DARKER_GRAY_COLOR);
-		f.setForeground(Color.WHITE);
-		f.setCaretColor(Color.WHITE);
+		darkInput(f);
 		f.setSelectionColor(BRAND_ORANGE);
 		f.setSelectedTextColor(Color.BLACK);
 		f.setFont(REGULAR);
+	}
+
+	/** White text and caret on the darker surface. */
+	static void darkInput(JTextComponent f) {
+		f.setBackground(DARKER_GRAY_COLOR);
+		f.setForeground(Color.WHITE);
+		f.setCaretColor(Color.WHITE);
 	}
 
 	/** Runs {@code changed} on every edit of the field's text. */
@@ -273,11 +277,15 @@ class Ui {
 
 	/** JTextField has no placeholder API; paint one without putting fake text into the query. */
 	static class SearchField extends JTextField {
-		final String placeholder;
+		String placeholder;
 
+		/** The panel's search boxes all look alike: {@link #styleSearch}, small type, a grey outline. */
 		SearchField(String placeholder, String value) {
-			super(value == null ? "" : value);
+			super(value);
 			this.placeholder = placeholder;
+			styleSearch(this);
+			setFont(SMALL);
+			setBorder(createCompoundBorder(createLineBorder(UiView.RAISED_HOVER), createEmptyBorder(4, 6, 4, 6)));
 		}
 
 		/** The hint stays until something is typed: a box that takes focus on its own showed none. */

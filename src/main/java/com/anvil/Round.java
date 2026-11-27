@@ -9,8 +9,8 @@ import javax.swing.*;
  * Never opaque to Swing, so the corners show what's behind; "opaque" only switches the fill on.
  */
 class Round extends JPanel {
-	final int arc;
-	final Color hover;
+	int arc;
+	Color hover;
 	Color edge;
 	boolean filled;
 
@@ -22,10 +22,6 @@ class Round extends JPanel {
 		if (fill != null) setBackground(fill);
 		filled = fill != null;
 		super.setOpaque(false);
-	}
-
-	boolean filled() {
-		return filled;
 	}
 
 	public void setOpaque(boolean on) {

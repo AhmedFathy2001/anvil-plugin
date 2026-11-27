@@ -203,9 +203,9 @@ public class OutageResilienceTest
 		{
 			outbox.enqueue(item(System.currentTimeMillis(), 0), null);
 		}
-		assertEquals(NotifyOutbox.MAX_ITEMS, outbox.size());
+		assertEquals(NotifyOutbox.MAX_ITEMS, outbox.items.size());
 		outbox.clear();
-		assertEquals(0, outbox.size());
+		assertEquals(0, outbox.items.size());
 	}
 
 	@Test
@@ -235,7 +235,7 @@ public class OutageResilienceTest
 		}
 		outbox.pump();
 		assertEquals("one failure ends the pass", Arrays.asList("sent", "refused", "down"), tried);
-		assertEquals("the failed one and the untried one wait", 2, outbox.size());
+		assertEquals("the failed one and the untried one wait", 2, outbox.items.size());
 		outbox.stop();
 	}
 

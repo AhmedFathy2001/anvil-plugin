@@ -47,7 +47,18 @@ public class BannerSoundService {
 
 	void setRoot(Filepath dir) {
 		root = dir;
-		migrateLooseClips();
+		// Clips added before the folders existed sat loose in {@code sounds/}, where nothing looks any
+		// more. They are banner clips — that is all there was — so they are moved once, quietly. Doing it
+		// here rather than asking means nobody's sounds stop working because the layout changed under
+		// them.
+		var loose = dir == null || !dir.isDirectory() ? List.<Filepath>of() : wavsIn(dir);
+		var banner = loose.isEmpty() ? null : dir(Kind.BANNER);
+		if (banner != null) for (var f : loose) {
+			try {
+				f.moveTo(banner.joinSegment(f.getFileName()), StandardCopyOption.REPLACE_EXISTING);
+			} catch (Exception e) {
+			}
+		}
 		for (var kind : Kind.values()) relist(kind);
 	}
 
@@ -63,7 +74,7 @@ public class BannerSoundService {
 	enum Kind {
 		BANNER, MISSION;
 
-		final String folder = name().toLowerCase(Locale.ROOT);
+		String folder = name().toLowerCase(Locale.ROOT);
 	}
 
 	/** One kind's directory, created on demand, or null when there is nowhere to read or write. */
@@ -77,25 +88,6 @@ public class BannerSoundService {
 		} catch (IOException e) {
 			log.warn("No {} sounds directory: {}", kind.folder, e.getMessage());
 			return null;
-		}
-	}
-
-	/**
-	 * Clips added before the folders existed sat loose in {@code sounds/}, where nothing looks any
-	 * more. They are banner clips — that is all there was — so they are moved once, quietly. Doing it
-	 * here rather than asking means nobody's sounds stop working because the layout changed under
-	 * them.
-	 */
-	void migrateLooseClips() {
-		var d = root;
-		List<Filepath> loose = d == null || !d.isDirectory() ? new ArrayList<>() : wavsIn(d);
-		var banner = loose.isEmpty() ? null : dir(Kind.BANNER);
-		if (banner == null) return;
-		for (var f : loose) {
-			try {
-				f.moveTo(banner.joinSegment(f.getFileName()), StandardCopyOption.REPLACE_EXISTING);
-			} catch (Exception e) {
-			}
 		}
 	}
 
@@ -123,9 +115,9 @@ public class BannerSoundService {
 	 * so it is always answered from memory and the re-read happens on {@link #audioExecutor}; a clip
 	 * dropped into the folder by hand shows up this much later at worst (Add sounds re-reads at once).
 	 */
-	final Map<Kind, List<String>> listed = new EnumMap<>(Kind.class);
-	final Map<Kind, Long> listedAt = new EnumMap<>(Kind.class);
-	final Set<Kind> relisting = EnumSet.noneOf(Kind.class);
+	Map<Kind, List<String>> listed = new EnumMap<>(Kind.class);
+	Map<Kind, Long> listedAt = new EnumMap<>(Kind.class);
+	Set<Kind> relisting = EnumSet.noneOf(Kind.class);
 	/** Told (on the audio thread) when a re-read finds the clips changed, so the panel can redraw. */
 	volatile Runnable onClipsChanged = () -> { };
 
@@ -238,32 +230,23 @@ public class BannerSoundService {
 	void playBlocking(Kind kind) {
 		try {
 			var files = wavFiles(kind);
-			if (files.isEmpty()) return;
 
 			// The cycle is the allowlist (comma-separated filenames); empty = every clip is eligible.
 			// Each banner plays one at random from the eligible set, so a multi-clip cycle varies.
 			// Mission clips have no allowlist: the folder is already the choice of what plays.
 			var selected = kind == Kind.BANNER ? parseSelected(config.bannerSoundClip()) : Set.<String>of();
-			var candidates = new ArrayList<Filepath>();
-			for (var f : files) {
-				if (selected.isEmpty() || selected.contains(f.getFileName().toLowerCase())) candidates.add(f);
-			}
-			if (candidates.isEmpty()) return;
+			files.removeIf(f -> !selected.isEmpty() && !selected.contains(f.getFileName().toLowerCase()));
+			if (files.isEmpty()) return;
 
+			// The 0–100 volume as a MASTER_GAIN decibel value AudioPlayer applies. 100 → 0 dB
+			// (unattenuated); lower volumes attenuate logarithmically; 0 → effectively silent. AudioPlayer
+			// clamps to the line's supported range.
+			int vol = Math.max(0, Math.min(100, config.bannerSoundVolume()));
+			var gain = vol <= 0 ? -80f : (float) (20.0 * Math.log10(vol / 100.0));
 			// AudioPlayer takes a Filepath directly as of 1.12.39, so the clip never leaves the sandbox.
-			audioPlayer.play(candidates.get(ThreadLocalRandom.current().nextInt(candidates.size())), gainDb());
+			audioPlayer.play(files.get(ThreadLocalRandom.current().nextInt(files.size())), gain);
 		} catch (Exception e) {
 		}
-	}
-
-	/**
-	 * Convert the 0–100 volume config to a MASTER_GAIN decibel value AudioPlayer applies. 100 → 0 dB
-	 * (unattenuated); lower volumes attenuate logarithmically; 0 → effectively silent. AudioPlayer
-	 * clamps to the line's supported range.
-	 */
-	float gainDb() {
-		int vol = Math.max(0, Math.min(100, config.bannerSoundVolume()));
-		return vol <= 0 ? -80f : (float) (20.0 * Math.log10(vol / 100.0));
 	}
 
 	/**

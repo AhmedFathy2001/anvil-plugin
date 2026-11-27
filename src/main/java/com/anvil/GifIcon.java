@@ -26,10 +26,10 @@ class GifIcon implements Icon {
 	static long lastTick;
 	static final Timer TICK = new Timer(20, e -> tick());
 
-	final BufferedImage[] frames;
-	final int[] ends;
-	final int total;
-	final Map<Component, Boolean> hosts = new WeakHashMap<>();
+	BufferedImage[] frames;
+	int[] ends;
+	int total;
+	Map<Component, Boolean> hosts = new WeakHashMap<>();
 	long playedMs;
 	int shown;
 
@@ -81,7 +81,7 @@ class GifIcon implements Icon {
 			TICK.stop();
 			return;
 		}
-		var active = GradientLabel.clientActive();
+		var active = GradientLabel.active;
 		for (var it = LIVE.iterator(); it.hasNext(); ) {
 			var icon = it.next();
 			if (icon.hosts.isEmpty()) {
@@ -122,8 +122,7 @@ class GifIcon implements Icon {
 	 */
 	static Icon decode(byte[] bytes, int w, int h) {
 		if (bytes == null || bytes.length < 10 || bytes[0] != 'G' || bytes[1] != 'I' || bytes[2] != 'F') return null;
-		int lw = (bytes[6] & 0xff) | (bytes[7] & 0xff) << 8;
-		int lh = (bytes[8] & 0xff) | (bytes[9] & 0xff) << 8;
+		int lw = (bytes[6] & 0xff) | (bytes[7] & 0xff) << 8, lh = (bytes[8] & 0xff) | (bytes[9] & 0xff) << 8;
 		if (lw <= 0 || lh <= 0 || lw > w || lh > h) return null;
 		try (var in = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
 			var readers = in == null ? null : ImageIO.getImageReaders(in);
@@ -134,7 +133,7 @@ class GifIcon implements Icon {
 				int n = reader.getNumImages(true);
 				if (n <= 0 || n > 300 /* MAX_FRAMES */ || (long) lw * lh * n > 6_000_000L /* MAX_PIXELS */) return null;
 				var frames = new BufferedImage[n];
-				int[] ends = new int[n];
+				var ends = new int[n];
 				var canvas = new BufferedImage(lw, lh, BufferedImage.TYPE_INT_ARGB);
 				int at = 0;
 				for (int i = 0; i < n; i++) {
@@ -166,9 +165,7 @@ class GifIcon implements Icon {
 	}
 
 	static class Frame {
-		int x;
-		int y;
-		int delayMs = FALLBACK_DELAY_MS;
+		int x, y, delayMs = FALLBACK_DELAY_MS;
 		String disposal = "none";
 	}
 
@@ -196,8 +193,7 @@ class GifIcon implements Icon {
 		return a.getNamedItem(k).getNodeValue();
 	}
 
-	static BufferedImage copyOf(
-BufferedImage src) {
+	static BufferedImage copyOf(BufferedImage src) {
 		var out = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_ARGB);
 		var g = out.createGraphics();
 		g.setComposite(AlphaComposite.Src);

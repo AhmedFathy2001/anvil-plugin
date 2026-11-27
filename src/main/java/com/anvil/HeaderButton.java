@@ -5,6 +5,7 @@ import java.util.function.*;
 
 import net.runelite.api.*;
 import net.runelite.api.gameval.SpriteID;
+import net.runelite.api.gameval.SpriteID.*;
 import net.runelite.api.widgets.*;
 
 /**
@@ -46,28 +47,14 @@ class HeaderButton {
 
 	/** The stone button as it sits: raised, on the light backing. */
 	static final int[] SPRITES_IDLE = {
-		SpriteID.TRADEBACKING,
-		SpriteID.V2StoneButtonOut.A_TOP_LEFT,
-		SpriteID.V2StoneButtonOut.A_TOP_RIGHT,
-		SpriteID.V2StoneButtonOut.A_BOTTOM_LEFT,
-		SpriteID.V2StoneButtonOut.A_BOTTOM_RIGHT,
-		SpriteID.V2StoneButtonOut.A_MAP_EDGE_LEFT,
-		SpriteID.V2StoneButtonOut.A_MAP_EDGE_TOP,
-		SpriteID.V2StoneButtonOut.A_MAP_EDGE_RIGHT,
-		SpriteID.V2StoneButtonOut.A_MAP_EDGE_BOTTOM,
+		SpriteID.TRADEBACKING, V2StoneButtonOut.A_TOP_LEFT, V2StoneButtonOut.A_TOP_RIGHT, V2StoneButtonOut.A_BOTTOM_LEFT, V2StoneButtonOut.A_BOTTOM_RIGHT,
+		V2StoneButtonOut.A_MAP_EDGE_LEFT, V2StoneButtonOut.A_MAP_EDGE_TOP, V2StoneButtonOut.A_MAP_EDGE_RIGHT, V2StoneButtonOut.A_MAP_EDGE_BOTTOM
 	};
 
 	/** The same button pressed in, on the dark backing — the game's own hover state for it. */
 	static final int[] SPRITES_HOVERED = {
-		SpriteID.TRADEBACKING_DARK,
-		SpriteID.V2StoneButtonIn.A_TOP_LEFT,
-		SpriteID.V2StoneButtonIn.A_TOP_RIGHT,
-		SpriteID.V2StoneButtonIn.A_BOTTOM_LEFT,
-		SpriteID.V2StoneButtonIn.A_BOTTOM_RIGHT,
-		SpriteID.V2StoneButtonIn.A_LEFT,
-		SpriteID.V2StoneButtonIn.A_TOP,
-		SpriteID.V2StoneButtonIn.A_RIGHT,
-		SpriteID.V2StoneButtonIn.A_BOTTOM,
+		SpriteID.TRADEBACKING_DARK, V2StoneButtonIn.A_TOP_LEFT, V2StoneButtonIn.A_TOP_RIGHT, V2StoneButtonIn.A_BOTTOM_LEFT, V2StoneButtonIn.A_BOTTOM_RIGHT,
+		V2StoneButtonIn.A_LEFT, V2StoneButtonIn.A_TOP, V2StoneButtonIn.A_RIGHT, V2StoneButtonIn.A_BOTTOM
 	};
 
 	/** The frame's nine pieces, then the text on top. */
@@ -139,9 +126,7 @@ class HeaderButton {
 			return;
 		}
 		if (stillAttached(parent)) {
-			if (drawnAt == x) {
-				return; // ours, intact, in the right slot — drawing again would only make a second one
-			}
+			if (drawnAt == x) return; // ours, intact, in the right slot — drawing again would only make a second one
 			// THE NEIGHBOURS MOVED. Enabling WikiSync mid-session fills the slot we took while it was
 			// away, and returning early here left the two buttons stacked on the same spot: ours was
 			// still attached, so nothing ever reconsidered where it should be. Hide the old copy and
@@ -149,22 +134,14 @@ class HeaderButton {
 			hideParts();
 		}
 
-		int h = anchor.getOriginalHeight() > 0 ? anchor.getOriginalHeight() : 20 /* FALLBACK_HEIGHT */;
-		int y = anchor.getOriginalY();
-		int yMode = anchor.getYPositionMode();
-		int span = WIDTH - (CORNER * 2);
+		int h = anchor.getOriginalHeight() > 0 ? anchor.getOriginalHeight() : 20 /* FALLBACK_HEIGHT */, y = anchor.getOriginalY(), yMode = anchor.getYPositionMode(), span = WIDTH - (CORNER * 2), c = CORNER, r = x + WIDTH - c, b = y + h - c;
 		var made = new Widget[PARTS];
 
 		// Background first so every edge draws over it, then the corners, then the edges between.
-		made[0] = piece(parent, 0, x, y, WIDTH, h, yMode);
-		made[1] = piece(parent, 1, x + WIDTH - CORNER, y, CORNER, CORNER, yMode);
-		made[2] = piece(parent, 2, x, y, CORNER, CORNER, yMode);
-		made[3] = piece(parent, 3, x + WIDTH - CORNER, y + h - CORNER, CORNER, CORNER, yMode);
-		made[4] = piece(parent, 4, x, y + h - CORNER, CORNER, CORNER, yMode);
-		made[5] = piece(parent, 5, x + WIDTH - CORNER, y + CORNER, CORNER, EDGE, yMode);
-		made[7] = piece(parent, 7, x, y + CORNER, CORNER, EDGE, yMode);
-		made[6] = piece(parent, 6, x + CORNER, y, span, CORNER, yMode);
-		made[8] = piece(parent, 8, x + CORNER, y + h - CORNER, span, CORNER, yMode);
+		// Each piece's place and size, by its index into the sprite sets; drawn in this order: 0-5, 7, 6, 8.
+		int[] xs = {x, r, x, r, x, r, x + c, x, x + c}, ys = {y, y, y, b, b, y + c, y, y + c, b},
+			ws = {WIDTH, c, c, c, c, c, span, c, span}, hs = {h, c, c, c, c, EDGE, c, EDGE, c};
+		for (int i : new int[]{0, 1, 2, 3, 4, 5, 7, 6, 8}) made[i] = piece(parent, i, xs[i], ys[i], ws[i], hs[i], yMode);
 
 		// The text covers the whole button, so it is what the mouse actually meets: one layer owns
 		// the click, the hover and the label, and the nine underneath are decoration.
@@ -192,23 +169,21 @@ class HeaderButton {
 	boolean covers(Widget parent, int x) {
 		var frame = frameId == 0 ? null : client.getWidget(frameId);
 		var kids = frame == null ? null : frame.getDynamicChildren();
-		if (kids != null) {
-			for (var k : kids) {
-				// The frame's one line of text is its title.
-				if (k == null || k.getType() != WidgetType.TEXT || k.getFont() == null || k.getText().isEmpty()) continue;
-				var t = k.getBounds();
-				var bar = parent.getBounds();
-				// Not laid out yet (the window just opened, was resized or was rebuilt; a widget the client
-				// has not placed reports x = -1): no reading to act on. Keep whatever was decided last, so
-				// the button neither appears on the title for a moment nor blinks out during a resize, and
-				// ask again next frame. Before any reading at all, that is "not shown".
-				if (t.width <= 0 || bar.width <= 0 || t.x < 0 || bar.x < 0) {
-					unsure = true;
-					return covered;
-				}
-				unsure = false;
-				return covered = overlaps(t.x, t.width, k.getFont().getTextWidth(k.getText()), bar.x + bar.width, x);
+		if (kids != null) for (var k : kids) {
+			// The frame's one line of text is its title.
+			if (k == null || k.getType() != WidgetType.TEXT || k.getFont() == null || k.getText().isEmpty()) continue;
+			var t = k.getBounds();
+			var bar = parent.getBounds();
+			// Not laid out yet (the window just opened, was resized or was rebuilt; a widget the client
+			// has not placed reports x = -1): no reading to act on. Keep whatever was decided last, so
+			// the button neither appears on the title for a moment nor blinks out during a resize, and
+			// ask again next frame. Before any reading at all, that is "not shown".
+			if (t.width <= 0 || bar.width <= 0 || t.x < 0 || bar.x < 0) {
+				unsure = true;
+				return covered;
 			}
+			unsure = false;
+			return covered = overlaps(t.x, t.width, k.getFont().getTextWidth(k.getText()), bar.x + bar.width, x);
 		}
 		return false;
 	}
@@ -233,17 +208,11 @@ class HeaderButton {
 	int slotFor(Widget parent) {
 		if (nearOffset >= rightOffset) return rightOffset;
 		var children = parent.getDynamicChildren();
-		if (children != null) {
-			for (var child : children) {
-				if (child == null || NAME.equals(child.getName())) {
-					continue; // ours, from a previous render we are about to replace
-				}
-				if (child.getXPositionMode() != WidgetPositionMode.ABSOLUTE_RIGHT) continue;
-				int childX = child.getOriginalX();
-				if (childX >= nearOffset && childX < rightOffset) {
-					return rightOffset; // somebody is in the near slot; take the one beyond it
-				}
-			}
+		if (children != null) for (var child : children) {
+			if (child == null || NAME.equals(child.getName())) continue; // ours, from a previous render we are about to replace
+			if (child.getXPositionMode() != WidgetPositionMode.ABSOLUTE_RIGHT) continue;
+			int childX = child.getOriginalX();
+			if (childX >= nearOffset && childX < rightOffset) return rightOffset; // somebody is in the near slot; take the one beyond it
 		}
 		return nearOffset;
 	}
@@ -305,20 +274,14 @@ class HeaderButton {
 	}
 
 	void hideParts() {
-		if (parts != null) {
-			for (var w : parts) {
-				if (w != null) w.setHidden(true);
-			}
-		}
+		if (parts != null) for (var w : parts) if (w != null) w.setHidden(true);
 		parts = null;
 		drawnAt = Integer.MIN_VALUE;
 	}
 
 	/** Swap the frame between its idle and hovered sprite sets. */
 	static void paint(Widget[] made, int[] sprites, int textColour) {
-		for (int i = 0; i < TEXT; i++) {
-			if (made[i] != null) made[i].setSpriteId(sprites[i]);
-		}
+		for (int i = 0; i < TEXT; i++) if (made[i] != null) made[i].setSpriteId(sprites[i]);
 		if (made[TEXT] != null) made[TEXT].setTextColor(textColour);
 	}
 
@@ -334,9 +297,7 @@ class HeaderButton {
 		if (parts == null || parts[TEXT] == null) return false;
 		var children = parent.getDynamicChildren();
 		if (children == null) return false;
-		for (var w : children) {
-			if (w == parts[TEXT]) return true;
-		}
+		for (var w : children) if (w == parts[TEXT]) return true;
 		return false;
 	}
 }

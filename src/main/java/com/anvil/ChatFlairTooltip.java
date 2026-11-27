@@ -2,6 +2,7 @@ package com.anvil;
 
 import java.awt.*;
 import java.util.function.*;
+import lombok.*;
 import net.runelite.api.*;
 import net.runelite.api.gameval.*;
 import net.runelite.client.ui.overlay.*;
@@ -11,6 +12,7 @@ import net.runelite.client.ui.overlay.tooltip.*;
  * Hover a Supporter's name in the chatbox: "Anvil Patron" (Champion, Supporter). Draws nothing; per
  * frame it only reads the mouse, and walks the chat lines only while the mouse is over them.
  */
+@RequiredArgsConstructor
 class ChatFlairTooltip extends Overlay {
 	final Client client;
 	final TooltipManager tooltips;
@@ -19,11 +21,7 @@ class ChatFlairTooltip extends Overlay {
 	/** One chat line's height. */
 	static final int LINE_H = 14;
 
-	ChatFlairTooltip(Client client, TooltipManager tooltips, ChatFlair flair, BooleanSupplier on) {
-		this.client = client;
-		this.tooltips = tooltips;
-		this.flair = flair;
-		this.on = on;
+	{
 		setPosition(OverlayPosition.DYNAMIC);
 		setLayer(OverlayLayer.ABOVE_WIDGETS);
 	}

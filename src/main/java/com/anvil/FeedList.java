@@ -3,6 +3,7 @@ package com.anvil;
 import static java.lang.Math.*;
 import static java.awt.BorderLayout.*;
 import static javax.swing.SwingUtilities.invokeLater;
+import static javax.swing.BorderFactory.*;
 import static net.runelite.client.ui.ColorScheme.*;
 import static com.anvil.UiView.*;
 import lombok.*;
@@ -43,8 +44,7 @@ import net.runelite.api.*;
 class FeedList extends JPanel {
 	/** "...+02:00" at the end of a timestamp. Compiled once: it runs for every row on each paint. */
 
-	static final int FLUSH_MS = 400;
-	static final int ICON_W = 24, ICON_H = 21;
+	static final int FLUSH_MS = 400, ICON_W = 24, ICON_H = 21;
 	static final Color GOLD = new Color(0xFF_D3_5C), MINE_BG = new Color(0x2E_2A_22), CORAL = new Color(0xFF_7A_6B),
 		SEG_BG = new Color(0x1E_1E_1E), SEG_ON = new Color(0x3A_3A_3A);
 
@@ -55,8 +55,8 @@ class FeedList extends JPanel {
 	final SkillIconManager skills;
 	final Consumer<JsonObject> act;
 	final int cap;
-	final RowModel model = new RowModel();
-	final JList<JsonObject> list = new JList<JsonObject>(model) {
+	RowModel model = new RowModel();
+	JList<JsonObject> list = new JList<JsonObject>(model) {
 		public boolean getScrollableTracksViewportWidth() {
 			return true;
 		}
@@ -79,16 +79,12 @@ class FeedList extends JPanel {
 		}
 	};
 	final JScrollPane scroll;
-	final JLabel empty;
-	final JLabel newPill = new ClipLabel("", SwingConstants.CENTER);
-	final JLabel error = new ClipLabel();
-	final JLabel lockLine = new ClipLabel();
-	final JLabel lockSub = new ClipLabel();
+	JLabel empty, newPill = new ClipLabel("", SwingConstants.CENTER), error = new ClipLabel(), lockLine = new ClipLabel(), lockSub = new ClipLabel();
 	/** In place of the message box while locked: the reason, coral when it's the viewer's own timeout. */
-	final JPanel lockBox = clear(2);
+	JPanel lockBox = clear(2);
 	JPanel boxPanel;
 	/** Chat: the channel switch over the list (My team | All teams | Announcements). */
-	final List<Seg> segs = new ArrayList<>();
+	List<Seg> segs = new ArrayList<>();
 	JTextField input;
 	JsonObject send;
 	/** A chat (it has a message box): oldest at the top, newest at the bottom, pinned to the latest. */
@@ -98,19 +94,17 @@ class FeedList extends JPanel {
 	/** Whose lines are the viewer's own, re-read at each flush. */
 	String me;
 	/** Chat: every name the viewer's own lines carry (the site's `mine`: their characters and host name), per person. */
-	final Set<String> mineNames = new HashSet<>();
+	Set<String> mineNames = new HashSet<>();
 	/** Arrived since the last flush, oldest first. */
-	final List<JsonObject> pending = new ArrayList<>();
-	final Set<String> pendingDel = new HashSet<>();
+	List<JsonObject> pending = new ArrayList<>();
+	Set<String> pendingDel = new HashSet<>();
 	/** Rows whose reaction chip this viewer just pressed: their pushes wait (see {@link #reaction}). */
-	final Map<String, Held> held = new HashMap<>();
-	final Timer flush = new Timer(FLUSH_MS, e -> flush());
-	/** Repaints only the visible rows with a sliding name, ~25 times a second, and only while there are any. */
-	final Timer slide = new Timer(40, e -> slideVisible());
+	Map<String, Held> held = new HashMap<>();
+	/** slide: repaints only the visible rows with a sliding name, ~25 times a second, and only while there are any. */
+	Timer flush = new Timer(FLUSH_MS, e -> flush()), slide = new Timer(40, e -> slideVisible());
 	int unseen;
-	final Map<Integer, Icon> icons = new HashMap<>();
-	final Map<Integer, Icon> spriteIcons = new HashMap<>();
-	final Map<String, Icon> skillIcons = new HashMap<>();
+	Map<Integer, Icon> icons = new HashMap<>(), spriteIcons = new HashMap<>();
+	Map<String, Icon> skillIcons = new HashMap<>();
 
 	FeedList(JsonObject n, Host host, ItemManager items, SpriteManager sprites, SkillIconManager skills, Consumer<JsonObject> act) {
 		super(new BorderLayout(0, 4));
@@ -124,16 +118,12 @@ class FeedList extends JPanel {
 		int h = max(120, intOr(n, "h", 420));
 		flush.setRepeats(false);
 		setOpaque(false);
-		chat = isObj(n, "send");
+		chat = (send = obj(n, "send")) != null;
 		me = host == null ? null : host.myName();
-		if (isArr(n, "mine")) {
-			for (var e : n.getAsJsonArray("mine")) if (e.isJsonPrimitive()) mineNames.add(ChatFlair.normalize(e.getAsString()));
-		}
+		if (arr(n, "mine") != null) for (var e : arr(n, "mine")) if (e.isJsonPrimitive()) mineNames.add(ChatFlair.normalize(e.getAsString()));
 
 		List<JsonObject> kept = new ArrayList<>();
-		if (isArr(n, "rows")) {
-			for (var e : n.getAsJsonArray("rows")) if (e.isJsonObject() && kept.size() < cap) kept.add(e.getAsJsonObject());
-		}
+		if (arr(n, "rows") != null) for (var e : arr(n, "rows")) if (e.isJsonObject() && kept.size() < cap) kept.add(e.getAsJsonObject());
 		// The site sends newest first; a chat reads top to bottom.
 		if (chat) Collections.reverse(kept);
 		model.reset(kept);
@@ -184,7 +174,7 @@ class FeedList extends JPanel {
 		});
 
 		scroll = new JScrollPane(list, ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED, ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-		scroll.setBorder(BorderFactory.createEmptyBorder());
+		scroll.setBorder(createEmptyBorder());
 		scroll.getVerticalScrollBar().setUnitIncrement(16);
 		scroll.getViewport().addChangeListener(e -> {
 			var atLatest = atLatest();
@@ -202,7 +192,7 @@ class FeedList extends JPanel {
 		newPill.setOpaque(true);
 		newPill.setBackground(BRAND_ORANGE);
 		newPill.setForeground(Color.BLACK);
-		newPill.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
+		newPill.setBorder(createEmptyBorder(2, 6, 2, 6));
 		newPill.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 		newPill.setVisible(false);
 		newPill.addMouseListener(new MouseAdapter() {
@@ -218,13 +208,26 @@ class FeedList extends JPanel {
 
 		var top = clear(4);
 		if (!chat) top.add(newPill, NORTH);
-		else if (isArr(n, "chans")) top.add(switchOf(n.getAsJsonArray("chans")), NORTH);
+		else if (arr(n, "chans") != null) {
+			// The channel switch: one Seg per channel.
+			var bar = new JPanel(new GridLayout(1, 0, 2, 0));
+			bar.setBackground(SEG_BG);
+			bar.setBorder(createEmptyBorder(2, 2, 2, 2));
+			for (var e : arr(n, "chans")) {
+				if (!e.isJsonObject()) continue;
+				var c = e.getAsJsonObject();
+				var g = new Seg(c);
+				segs.add(g);
+				if (!g.on && obj(c, "act") != null) onClick(g, () -> act.accept(obj(c, "act")));
+				bar.add(g);
+			}
+			top.add(bar, NORTH);
+		}
 		top.add(empty, SOUTH);
 		add(top, NORTH);
 		add(scroll, CENTER);
 
 		if (chat) {
-			send = n.getAsJsonObject("send");
 			var bottom = clear(4);
 			bottom.add(newPill, NORTH);
 			bottom.add(boxPanel = sendBox(), CENTER);
@@ -282,54 +285,33 @@ class FeedList extends JPanel {
 	/** Lays one push over a row's chips; true when any chip changed. Kinds the row has no chip for are ignored. */
 	static boolean applyReaction(JsonObject row, JsonObject update) {
 		// The plain GZ chip carries no kind of its own.
-		if (!isArr(row, "reacts")) return isObj(row, "gz") && applyChip(row.getAsJsonObject("gz"), "gz", update);
+		if (arr(row, "reacts") == null) return obj(row, "gz") != null && applyChip(obj(row, "gz"), "gz", update);
 		var changed = false;
-		for (var e : row.getAsJsonArray("reacts")) if (e.isJsonObject()) changed |= applyChip(e.getAsJsonObject(), str(e.getAsJsonObject(), "kind"), update);
+		for (var e : arr(row, "reacts")) if (e.isJsonObject()) changed |= applyChip(e.getAsJsonObject(), str(e.getAsJsonObject(), "kind"), update);
 		return changed;
 	}
 
 	static boolean applyChip(JsonObject chip, String kind, JsonObject update) {
 		if (kind.isEmpty()) return false;
 		var changed = false;
-		if (update.has(kind) && update.get(kind).isJsonPrimitive()) {
-			int n = max(0, update.get(kind).getAsInt());
-			if (!chip.has("n") || chip.get("n").getAsInt() != n) {
-				chip.addProperty("n", n);
-				changed = true;
-			}
-		}
+		if (update.has(kind) && update.get(kind).isJsonPrimitive()) changed = setIf(chip, "n", new JsonPrimitive(max(0, update.get(kind).getAsInt())));
 		var mineKey = "mine" + Character.toUpperCase(kind.charAt(0)) + kind.substring(1);
-		if (update.has(mineKey) && update.get(mineKey).isJsonPrimitive()) {
-			var mine = update.get(mineKey).getAsBoolean();
-			if (!chip.has("mine") || chip.get("mine").getAsBoolean() != mine) {
-				chip.addProperty("mine", mine);
-				changed = true;
-			}
-		}
-		var who = isObj(update, "who") ? update.getAsJsonObject("who") : null;
+		if (update.has(mineKey) && update.get(mineKey).isJsonPrimitive()) changed |= setIf(chip, "mine", new JsonPrimitive(update.get(mineKey).getAsBoolean()));
+		var who = obj(update, "who");
 		if (who != null && who.has(kind)) {
 			var line = str(who, kind);
-			if (line.isEmpty()) {
-				changed |= chip.remove("who") != null;
-			} else if (!line.equals(str(chip, "who"))) {
-				chip.addProperty("who", line);
-				changed = true;
-			}
+			changed |= line.isEmpty() ? chip.remove("who") != null : setIf(chip, "who", new JsonPrimitive(line));
 		}
-
 		return changed;
 	}
 
-
-	/** One of the row's posts answered: once none are out, wait {@link #SETTLE_MS} and replay what was held. */
-	void unhold(String rowId) {
-		var h = held.get(rowId);
-		if (h == null) return;
-		h.posts = max(0, h.posts - 1);
-		if (h.posts > 0) return;
-		int gen = ++h.gen;
-		UiView.once(1500 /* SETTLE_MS */, e -> settle(rowId, gen));
+	/** {@code k} set to {@code v}; true when that changed it. */
+	static boolean setIf(JsonObject o, String k, JsonPrimitive v) {
+		if (v.equals(o.get(k))) return false;
+		o.add(k, v);
+		return true;
 	}
+
 
 	void settle(String rowId, int gen) {
 		var h = held.get(rowId);
@@ -341,7 +323,7 @@ class FeedList extends JPanel {
 	/** Pushes for a row whose chip this viewer just pressed. */
 	static class Held {
 		int posts, gen;
-		final List<JsonObject> queued = new ArrayList<>();
+		List<JsonObject> queued = new ArrayList<>();
 	}
 
 	/**
@@ -358,14 +340,10 @@ class FeedList extends JPanel {
 		lockLine.setForeground(warn ? CORAL : Color.WHITE);
 		lockSub.setText(plainText(sub));
 		lockSub.setVisible(sub != null && !sub.isEmpty());
-		lockBox.setBorder(BorderFactory.createCompoundBorder(
-			BorderFactory.createLineBorder(warn ? new Color(0x6A_3A_34) : new Color(0x4A_4A_4A)),
-			BorderFactory.createEmptyBorder(6, 8, 6, 8)));
+		lockBox.setBorder(createCompoundBorder(
+			createLineBorder(warn ? new Color(0x6A_3A_34) : new Color(0x4A_4A_4A)),
+			createEmptyBorder(6, 8, 6, 8)));
 		revalidate();
-	}
-
-	boolean locked() {
-		return lockBox.isVisible();
 	}
 
 	/** Lines arrived for these lists: a channel segment that names one, and isn't open, counts them. */
@@ -381,21 +359,6 @@ class FeedList extends JPanel {
 	int unread(String feed) {
 		for (var g : segs) if (g.feed.equals(feed)) return g.n;
 		return -1;
-	}
-
-	JPanel switchOf(JsonArray chans) {
-		var bar = new JPanel(new GridLayout(1, 0, 2, 0));
-		bar.setBackground(SEG_BG);
-		bar.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
-		for (var e : chans) {
-			if (!e.isJsonObject()) continue;
-			var c = e.getAsJsonObject();
-			var g = new Seg(c);
-			segs.add(g);
-			if (!g.on && isObj(c, "act")) onClick(g, () -> act.accept(c.getAsJsonObject("act")));
-			bar.add(g);
-		}
-		return bar;
 	}
 
 	/** One channel on the switch: its name, lit when open, and an unread pill when not. */
@@ -428,8 +391,7 @@ class FeedList extends JPanel {
 			}
 			g.setFont(getFont());
 			var fm = g.getFontMetrics();
-			var pill
- = !on && n > 0 ? (n > 99 ? "99+" : String.valueOf(n)) : null;
+			var pill = !on && n > 0 ? (n > 99 ? "99+" : String.valueOf(n)) : null;
 			int pw = pill == null ? 0 : max(14, fm.stringWidth(pill) + 8);
 			var text = label;
 			while (text.length() > 1 && fm.stringWidth(text) + pw + (pw > 0 ? 3 : 0) > w - 4) text = text.substring(0, text.length() - 1);
@@ -512,12 +474,12 @@ class FeedList extends JPanel {
 			// Oldest first at the bottom; follow it down unless the reader has scrolled up.
 			var stick = following;
 			Collections.reverse(fresh);
-			model.append(fresh, cap);
+			model.insert(fresh, cap, true);
 			if (stick) invokeLater(this::toLatest);
 			else more("↓ ", fresh.size());
 		} else {
 			int y = scroll.getViewport().getViewPosition().y;
-			model.prepend(fresh, cap);
+			model.insert(fresh, cap, false);
 			if (y > 2) {
 				// Reading further down: keep the same rows under their eyes and say what's above.
 				var added = list.getCellBounds(0, fresh.size() - 1);
@@ -610,7 +572,7 @@ class FeedList extends JPanel {
 		var text = input.getText().trim();
 		if (text.isEmpty() || !input.isEnabled() || sending) return;
 		sending = true;
-		host.post(str(send, "act"), strings(send.get("args")), Map.of("msg", text), v -> {
+		post(send, Map.of("msg", text), v -> {
 			sending = false;
 			var err = errorOf(v);
 			showError(err);
@@ -629,8 +591,8 @@ class FeedList extends JPanel {
 
 	/** An action's answer: null when it went through, else the line to show. */
 	static String errorOf(JsonObject v) {
-		if (v == null || !isObj(v, "ui")) return "Couldn't reach Anvil — try again in a moment.";
-		var ui = v.getAsJsonObject("ui");
+		var ui = obj(v, "ui");
+		if (ui == null) return "Couldn't reach Anvil — try again in a moment.";
 		return "text".equals(str(ui, "t")) && "error".equals(str(ui, "color")) ? str(ui, "s") : null;
 	}
 
@@ -643,10 +605,8 @@ class FeedList extends JPanel {
 		}
 
 		public void replace(FilterBypass fb, int offset, int length, String s, AttributeSet a) throws BadLocationException {
-			var add = s == null ? "" : s;
 			int room = max - (fb.getDocument().getLength() - length);
-			if (room <= 0) return;
-			super.replace(fb, offset, length, add.length() > room ? add.substring(0, room) : add, a);
+			if (room > 0) super.replace(fb, offset, length, s == null || s.length() <= room ? s : s.substring(0, room), a);
 		}
 	}
 
@@ -664,15 +624,15 @@ class FeedList extends JPanel {
 		boolean popup(MouseEvent e) {
 			if (!e.isPopupTrigger()) return false;
 			int i = rowAt(e);
-			if (i < 0 || !isArr(model.getElementAt(i), "menu")) return true;
+			var rows = i < 0 ? null : arr(model.getElementAt(i), "menu");
+			if (rows == null) return true;
 			var menu = new JPopupMenu();
-			for (var el : model.getElementAt(i).getAsJsonArray("menu")) {
-
+			for (var el : rows) {
 				var item = el.getAsJsonObject();
 				var mi = new JMenuItem(plainText(str(item, "label")));
-				var on = isObj(item, "on") ? item.getAsJsonObject("on") : null;
+				var on = obj(item, "on");
 				if (on == null) mi.setEnabled(false);
-				else mi.addActionListener(ev -> quietly(on));
+				else mi.addActionListener(ev -> quietly(on, null));
 				menu.add(mi);
 			}
 			menu.show(list, e.getX(), e.getY());
@@ -685,7 +645,7 @@ class FeedList extends JPanel {
 			var r = model.getElementAt(i);
 			var chip = chipAt(r, list.getFontMetrics(SMALL), fromRight(i, e));
 			if (chip != null) press(i, chip);
-			else if (isObj(r, "on")) act.accept(r.getAsJsonObject("on"));
+			else if (obj(r, "on") != null) act.accept(obj(r, "on"));
 		}
 	}
 
@@ -695,34 +655,43 @@ class FeedList extends JPanel {
 		chip.addProperty("mine", !mine);
 		chip.addProperty("n", max(0, intOr(chip, "n", 0) + (mine ? -1 : 1)));
 		model.changed(i);
-		if (!isObj(chip, "on")) return;
-		var on = chip.getAsJsonObject("on");
+		var on = obj(chip, "on");
+		if (on == null) return;
 		var rowId = str(model.getElementAt(i), "id");
-		if (rowId.isEmpty() || !"post".equals(str(on, "a"))) {
-			quietly(on);
-			return;
-		}
-		held.computeIfAbsent(rowId, k -> new Held()).posts++;
-		host.post(str(on, "act"), strings(on.get("args")), Collections.emptyMap(), v -> {
-			unhold(rowId);
-			showError(errorOf(v));
-		});
+		quietly(on, rowId.isEmpty() ? null : rowId);
 	}
 
-	/** A post that must not redraw the view: only an error line comes back. */
-	void quietly(JsonObject on) {
+	/**
+	 * A post that must not redraw the view: only an error line comes back. With {@code rowId}, the row's
+	 * pushes are held until it answers (see {@link #reaction}).
+	 */
+	void quietly(JsonObject on, String rowId) {
 		if (!"post".equals(str(on, "a"))) {
 			act.accept(on);
 			return;
 		}
-		host.post(str(on, "act"), strings(on.get("args")), Collections.emptyMap(), v -> showError(errorOf(v)));
+		if (rowId != null) held.computeIfAbsent(rowId, k -> new Held()).posts++;
+		post(on, Map.of(), v -> {
+			// Once none of the row's posts are out, wait SETTLE_MS and replay what was held.
+			var h = rowId == null ? null : held.get(rowId);
+			if (h != null && --h.posts <= 0) {
+				h.posts = 0;
+				int gen = ++h.gen;
+				once(1500 /* SETTLE_MS */, e -> settle(rowId, gen));
+			}
+			showError(errorOf(v));
+		});
+	}
+
+	void post(JsonObject on, Map<String, String> fields, Consumer<JsonObject> done) {
+		host.post(str(on, "act"), strings(on.get("args")), fields, done);
 	}
 
 	// ---- The model: one list, changed in batches -------------------------------------------------
 
 	static class RowModel extends AbstractListModel<JsonObject> {
-		final List<JsonObject> rows = new ArrayList<>();
-		final Set<String> ids = new HashSet<>();
+		List<JsonObject> rows = new ArrayList<>();
+		Set<String> ids = new HashSet<>();
 
 		public int getSize() {
 			return rows.size();
@@ -745,32 +714,21 @@ class FeedList extends JPanel {
 			if (!rows.isEmpty()) fireIntervalAdded(this, 0, rows.size() - 1);
 		}
 
-		/** A chat's new lines at the bottom; the oldest past {@code cap} go from the top. */
-		void append(List<JsonObject> fresh, int cap) {
-			int at = rows.size();
+		/**
+		 * New rows: a chat's at the bottom, the oldest past {@code cap} going from the top; else newest
+		 * first at the top, the oldest past {@code cap} going from the bottom. Two events however many rows.
+		 */
+		void insert(List<JsonObject> fresh, int cap, boolean bottom) {
+			int at = bottom ? rows.size() : 0;
 			for (var r : fresh) ids.add(str(r, "id"));
-			rows.addAll(fresh);
-			fireIntervalAdded(this, at, rows.size() - 1);
+			rows.addAll(at, fresh);
+			fireIntervalAdded(this, at, at + fresh.size() - 1);
 			if (rows.size() > cap) {
-				var gone = rows.subList(0, rows.size() - cap);
-				int n = gone.size();
+				int from = bottom ? 0 : cap, n = rows.size() - cap;
+				var gone = rows.subList(from, from + n);
 				for (var r : gone) ids.remove(str(r, "id"));
 				gone.clear();
-				fireIntervalRemoved(this, 0, n - 1);
-			}
-		}
-
-		/** Newest first; the oldest past {@code cap} go. Two events however many rows. */
-		void prepend(List<JsonObject> fresh, int cap) {
-			for (var r : fresh) ids.add(str(r, "id"));
-			rows.addAll(0, fresh);
-			fireIntervalAdded(this, 0, fresh.size() - 1);
-			if (rows.size() > cap) {
-				int to = rows.size() - 1;
-				var gone = rows.subList(cap, rows.size());
-				for (var r : gone) ids.remove(str(r, "id"));
-				gone.clear();
-				fireIntervalRemoved(this, cap, to);
+				fireIntervalRemoved(this, from, from + n - 1);
 			}
 		}
 
@@ -806,17 +764,12 @@ class FeedList extends JPanel {
 			});
 		}
 		if (r.has("sprite") && sprites != null) {
-			int sprite = spriteId(str(r, "sprite"));
+			int sprite = SPRITES.getOrDefault(str(r, "sprite"), -1);
 			return sprite < 0 ? null : load(spriteIcons, sprite, f -> sprites.getSpriteAsync(sprite, 0, f));
 		}
 		if (r.has("skill") && skills != null) {
-			var name = str(r, "skill").toUpperCase(Locale.ROOT);
-			var cached = skillIcons.get(name);
-			if (cached != null) return cached;
 			try {
-				var icon = resized(skills.getSkillImage(Skill.valueOf(name), true));
-				skillIcons.put(name, icon);
-				return icon;
+				return skillIcons.computeIfAbsent(str(r, "skill").toUpperCase(Locale.ROOT), k -> resized(skills.getSkillImage(Skill.valueOf(k), true)));
 			} catch (IllegalArgumentException ignored) {
 				return null;
 			}
@@ -833,7 +786,7 @@ class FeedList extends JPanel {
 	<K> Icon load(Map<K, Icon> cache, K k, Consumer<Consumer<BufferedImage>> fetch) {
 		var c = cache.get(k);
 		if (c == null) {
-			cache.put(k, c = new BlankIcon());
+			cache.put(k, c = BLANK);
 			fetch.accept(img -> invokeLater(() -> {
 				if (img != null) {
 					cache.put(k, resized(img));
@@ -848,22 +801,8 @@ class FeedList extends JPanel {
 		return new ImageIcon(ImageUtil.resizeImage(img, ICON_W, ICON_H, true));
 	}
 
-	static int spriteId(String name) {
-		switch (name) {
-			case "quest":
-				return SpriteID.QUESTS_PAGE_ICON_BLUE_QUESTS;
-			case "diary":
-				return SpriteID.QUESTS_PAGE_ICON_GREEN_ACHIEVEMENT_DIARIES;
-			case "combat":
-				return SpriteID.TAB_COMBAT;
-			case "collection-log":
-				return SpriteID.HISCORE_COLLECTIONS_LOGGED;
-			case "total":
-				return SpriteID.SKILL_TOTAL;
-			default:
-				return -1;
-		}
-	}
+	static final Map<String, Integer> SPRITES = Map.of("quest", SpriteID.QUESTS_PAGE_ICON_BLUE_QUESTS, "diary", SpriteID.QUESTS_PAGE_ICON_GREEN_ACHIEVEMENT_DIARIES,
+		"combat", SpriteID.TAB_COMBAT, "collection-log", SpriteID.HISCORE_COLLECTIONS_LOGGED, "total", SpriteID.SKILL_TOTAL);
 
 	/** A row's picture on a rounded tile of its kind's colour (purple rare, green done, coral death). */
 	@RequiredArgsConstructor
@@ -872,7 +811,7 @@ class FeedList extends JPanel {
 		final Color tint;
 
 		public void paintIcon(Component c, Graphics g, int x, int y) {
-			var g2 = Ui.smooth(g);
+			var g2 = smooth(g);
 			g2.setColor(tint);
 			g2.fillRoundRect(x, y, ICON_W, ICON_W - 2, 6, 6);
 			g2.dispose();
@@ -888,20 +827,10 @@ class FeedList extends JPanel {
 		}
 	}
 
-		static class BlankIcon implements Icon {
-		public void paintIcon(Component c, Graphics g, int x, int y) {
-		}
+	/** A blank icon the size of a row's picture. */
+	static final Icon BLANK = new ImageIcon(new BufferedImage(ICON_W, ICON_H, BufferedImage.TYPE_INT_ARGB));
 
-		public int getIconWidth() {
-			return ICON_W;
-		}
-
-		public int getIconHeight() {
-			return ICON_H;
-		}
-	}
-
-	final ChatCell chatCell = new ChatCell();
+	ChatCell chatCell = new ChatCell();
 
 	/**
 	 * One chat line, painted straight onto the list: the name (and team, or HOST / MOD / TEAM) with
@@ -914,15 +843,15 @@ class FeedList extends JPanel {
 	 */
 	class ChatCell extends JComponent {
 		static final int PAD_X = 8;
-		final Map<String, List<String>> wraps = new HashMap<>();
+		Map<String, List<String>> wraps = new HashMap<>();
 		int wrapWidth = -1;
 		JsonObject r;
 		boolean grouped;
 		boolean mine;
-		List<String> lines = Collections.emptyList();
+		List<String> lines = List.of();
 		int height;
 
-		ChatCell() {
+		{
 			setOpaque(true);
 		}
 
@@ -958,7 +887,7 @@ class FeedList extends JPanel {
 			int y = 0;
 			if (!grouped) {
 				y = 6;
-				int x = PAD_X;
+				int x = PAD_X, base = y + fm.getAscent();
 				// A name in its team's colour; a Supporter keeps their own colour or gradient (their perk) with
 				// a dot of their team's colour in front. Only a role (HOST / MOD / TEAM-only) is spelled out.
 				var tag = fontSafe(str(r, "tag"));
@@ -969,14 +898,14 @@ class FeedList extends JPanel {
 				var supporter = grad != null || (!whoColor.isEmpty() && !"white".equals(whoColor));
 				if (supporter && team) {
 					g.setColor(color(str(r, "tagColor"), MUTED));
-					g.fillOval(x, y + fm.getAscent() - 7, 6, 6);
+					g.fillOval(x, base - 7, 6, 6);
 					x += 10;
 				}
 				// A Supporter's tenure badge in front of the name, in their colour.
 				int step = tenureStep(str(r, "whoGlyph"));
 				if (step > 0 && supporter) {
 					// Centred on the name's capitals, measured off the font: the 13px badge's middle on theirs.
-					badge(g, BOLD, step, grad, color(whoColor, Color.WHITE), x, y + fm.getAscent());
+					badge(g, BOLD, step, grad, color(whoColor, Color.WHITE), x, base);
 					x += 15;
 				}
 				g.setFont(BOLD);
@@ -990,16 +919,16 @@ class FeedList extends JPanel {
 					var shift = phase(r) * max(1, nameW);
 					g.setPaint(new LinearGradientPaint(x - shift, 0, x - shift + max(1, nameW), 0, at, grad, MultipleGradientPaint.CycleMethod.REFLECT));
 				} else g.setColor(supporter || !team ? color(whoColor, Color.WHITE) : color(str(r, "tagColor"), Color.WHITE));
-				g.drawString(who, x, y + fm.getAscent());
+				g.drawString(who, x, base);
 				x += nameW + 6;
 				g.setFont(SMALL);
 				if (role) {
 					g.setColor(color(str(r, "tagColor"), MUTED));
-					g.drawString(tag, x, y + fm.getAscent());
+					g.drawString(tag, x, base);
 				}
 				var when = when(r);
 				g.setColor(MUTED);
-				g.drawString(when, getWidth() - PAD_X - g.getFontMetrics().stringWidth(when), y + fm.getAscent());
+				g.drawString(when, getWidth() - PAD_X - g.getFontMetrics().stringWidth(when), base);
 				y += fm.getHeight();
 			}
 			g.setFont(REGULAR);
@@ -1051,18 +980,8 @@ class FeedList extends JPanel {
 	 * moving row; drawing the same letters in the same colours costs only the drawString calls.
 	 */
 	static class WhoLine extends JComponent {
+		/** The row, whose name, team and the colours the site picked for them are drawn. */
 		JsonObject r;
-		String who = "", tag = "";
-		Color whoInk = Color.WHITE, tagInk = MUTED;
-
-
-		void show(JsonObject r, String who, String tag, Color whoInk, Color tagInk) {
-			this.r = r;
-			this.who = who;
-			this.tag = tag;
-			this.whoInk = whoInk;
-			this.tagInk = tagInk;
-		}
 
 		public Dimension getPreferredSize() {
 			var fm = getFontMetrics(SMALL);
@@ -1080,9 +999,10 @@ class FeedList extends JPanel {
 			int max = getWidth();
 			// A Supporter's tenure badge in front of the name, at the art's own 13px.
 			int step = tenureStep(str(r, "whoGlyph"));
+			var whoInk = color(str(r, "whoColor"), Color.WHITE);
 			// Centred on the name's capitals, measured off the font (its box has leading on top).
 			if (step > 0) x[0] = badge(g, g.getFont(), step, stops(r), whoInk, 0, y);
-			whoRuns(r, who, tag, whoInk, tagInk, (text, ink) -> {
+			whoRuns(r, str(r, "who"), str(r, "tag"), whoInk, color(str(r, "tagColor"), MUTED), (text, ink) -> {
 				if (x[0] >= max) return;
 				g.setColor(ink);
 				g.drawString(text, x[0], y);
@@ -1099,9 +1019,10 @@ class FeedList extends JPanel {
 
 	/** A Supporter's name gradient ({@code grad}: 2+ "#rrggbb"), or null. */
 	static Color[] stops(JsonObject r) {
-		if (!isArr(r, "grad") || r.getAsJsonArray("grad").size() < 2) return null;
+		var a = arr(r, "grad");
+		if (a == null || a.size() < 2) return null;
 		List<Color> out = new ArrayList<>();
-		for (var e : r.getAsJsonArray("grad")) {
+		for (var e : a) {
 			var hex = ChatPalette.nameColor(e.isJsonPrimitive() ? e.getAsString() : null);
 			if (hex == null) return null;
 			out.add(new Color(Integer.parseInt(hex, 16)));
@@ -1125,15 +1046,6 @@ class FeedList extends JPanel {
 		var p = new JPanel(new BorderLayout(0, vgap));
 		p.setOpaque(false);
 		return p;
-	}
-
-	static boolean isObj(
-JsonObject o, String k) {
-		return o.has(k) && o.get(k).isJsonObject();
-	}
-
-	static boolean isArr(JsonObject o, String k) {
-		return o.has(k) && o.get(k).isJsonArray();
 	}
 
 	/** {@code k}'s boolean, false when it's absent. */
@@ -1165,7 +1077,7 @@ JsonObject o, String k) {
 
 	/** HOST / MOD / TEAM: a role worth spelling out. Anything else in a row's tag is its team's name. */
 	static boolean isRole(String tag) {
-		return "HOST".equals(tag) || "MOD".equals(tag) || "TEAM".equals(tag);
+		return tag.matches("HOST|MOD|TEAM");
 	}
 
 	/** Words into lines no wider than {@code width}; a word longer than a line is broken where it must be. */
@@ -1197,23 +1109,22 @@ JsonObject o, String k) {
 	}
 
 	class RowRenderer extends JPanel implements ListCellRenderer<JsonObject> {
-		final JLabel icon = new ClipLabel(), line1 = new ClipLabel(), value = new ClipLabel(), gz = new ClipLabel();
-		final WhoLine line2 = new WhoLine();
-		final Chips chips = new Chips();
+		JLabel icon = new ClipLabel(), line1 = new ClipLabel(), value = new ClipLabel(), gz = new ClipLabel();
+		WhoLine line2 = new WhoLine();
+		Chips chips = new Chips();
 
 		RowRenderer() {
 			super(new BorderLayout(6, 0));
-			setBorder(BorderFactory.createCompoundBorder(
-				BorderFactory.createMatteBorder(0, 0, 1, 0, DARK_GRAY_COLOR),
-				BorderFactory.createEmptyBorder(4, 6, 4, 6)));
-			line2.setFont(SMALL);
+			setBorder(createCompoundBorder(
+				createMatteBorder(0, 0, 1, 0, DARK_GRAY_COLOR),
+				createEmptyBorder(4, 6, 4, 6)));
 			icon.setVerticalAlignment(SwingConstants.TOP);
 			icon.setPreferredSize(new Dimension(ICON_W, ICON_H));
 			line1.setFont(REGULAR);
 			value.setFont(SMALL);
-			value.setForeground(GOLD);
 			value.setHorizontalAlignment(SwingConstants.RIGHT);
 			gz.setFont(SMALL);
+			gz.setForeground(MUTED);
 			gz.setHorizontalAlignment(SwingConstants.RIGHT);
 			var middle = row(0);
 			middle.add(line1, NORTH);
@@ -1241,14 +1152,10 @@ JsonObject o, String k) {
 			setBackground(mine(r) ? MINE_BG : DARKER_GRAY_COLOR);
 			var tint = color(str(r, "tint"), null);
 			var ic = iconFor(r);
-			if (tint != null) ic = new Tinted(ic != null ? ic : new BlankIcon(), tint);
+			if (tint != null) ic = new Tinted(ic != null ? ic : BLANK, tint);
 			icon.setIcon(ic);
 			icon.setVisible(ic != null);
 
-			var who = str(r, "who");
-			var whoInk = color(str(r, "whoColor"), Color.WHITE);
-			var tag = str(r, "tag");
-			var tagInk = color(str(r, "tagColor"), MUTED);
 			var when = when(r);
 			var title = str(r, "title");
 			if (!title.isEmpty()) {
@@ -1257,7 +1164,7 @@ JsonObject o, String k) {
 				line1.setForeground(color(str(r, "textColor"), Color.WHITE));
 				// Who got it, in the colours the site picked (a Supporter's own, else their team's), then
 				// "· Team" in the team's colour on a board.
-				line2.show(r, who, tag, whoInk, tagInk);
+				line2.r = r;
 				line2.setVisible(true);
 			} else {
 				// A roll-up line ("+214 smaller drops…"): one plain line.
@@ -1265,32 +1172,26 @@ JsonObject o, String k) {
 				line1.setForeground(color(str(r, "textColor"), MUTED));
 				line2.setVisible(false);
 			}
-			value.setText(plainText(r.has("value") ? str(r, "value") : when));
-			value.setForeground(r.has("value") ? GOLD : MUTED);
+			var has = r.has("value");
+			value.setText(plainText(has ? str(r, "value") : when));
+			value.setForeground(has ? GOLD : MUTED);
+			// Reactions as pills (GZ / Sad / Sit), so they read as buttons rather than labels; else the
+			// plain gz/time text.
 			var rowChips = chipsOf(r);
-			if (rowChips != null) {
-				// Reactions as pills (GZ / Sad / Sit), so they read as buttons rather than labels.
-				chips.chips = rowChips;
-				// The renderer is shared: a death's two pills after a GZ row's one need the space re-laid out,
-				// or "Sad" draws off the left edge until a hover repaints the row.
-				chips.invalidate();
-				chips.hover = index == hoverRow ? hoverChip : -1;
-				chips.setVisible(true);
-				gz.setVisible(false);
-			} else {
-				chips.chips = null;
-				chips.setVisible(false);
-				gz.setText(r.has("value") ? plainText(when) : "");
-				gz.setForeground(MUTED);
-				gz.setVisible(r.has("value"));
-			}
+			chips.chips = rowChips;
+			// The renderer is shared: a death's two pills after a GZ row's one need the space re-laid out,
+			// or "Sad" draws off the left edge until a hover repaints the row.
+			chips.invalidate();
+			chips.hover = index == hoverRow ? hoverChip : -1;
+			chips.setVisible(rowChips != null);
+			gz.setText(has ? plainText(when) : "");
+			gz.setVisible(rowChips == null && has);
 			return this;
 		}
 	}
 
 	/** The row and pill under the mouse, lit by the renderer (-1: none). EDT. */
-	int hoverRow = -1;
-	int hoverChip = -1;
+	int hoverRow = -1, hoverChip = -1;
 
 	void setHover(int row, int chip) {
 		if (row == hoverRow && chip == hoverChip) return;
@@ -1302,14 +1203,10 @@ JsonObject o, String k) {
 	}
 
 	/** Inside a reaction pill: the text's side padding; and the space between two pills. */
-	static final int CHIP_PAD = 6;
-	static final int CHIP_SPACE = 3;
+	static final int CHIP_PAD = 6, CHIP_SPACE = 3;
 	/** Soft fills, no outline: quiet when idle, a little lighter under the mouse, tinted when yours. */
-	static final Color CHIP_FILL = new Color(0x303030);
-	static final Color CHIP_FILL_HOVER = new Color(0x404040);
-	static final Color CHIP_MINE = new Color(255, 152, 31, 52);
-	static final Color CHIP_MINE_HOVER = new Color(255, 152, 31, 84);
-	static final Color CHIP_INK = new Color(0xb4b4b4);
+	static final Color CHIP_FILL = new Color(0x303030), CHIP_FILL_HOVER = new Color(0x404040), CHIP_MINE = new Color(255, 152, 31, 52),
+		CHIP_MINE_HOVER = new Color(255, 152, 31, 84), CHIP_INK = new Color(0xb4b4b4);
 
 	/** "Sit 3", or just "Sit" before anyone has. */
 	static String chipText(JsonObject c) {
@@ -1320,15 +1217,11 @@ JsonObject o, String k) {
 
 	/** A row's reaction chips in drawing order: a death's {@code reacts}, else its one {@code gz}. */
 	static JsonArray chipsOf(JsonObject r) {
-		if (isArr(r, "reacts")) return r.getAsJsonArray("reacts");
-		if (isObj(r, "gz")) {
-			var g = r.getAsJsonObject("gz");
-			if (!g.has("label")) g.addProperty("label", "GZ");
-			var one = new JsonArray();
-			one.add(g);
-			return one;
-		}
-		return null;
+		if (arr(r, "reacts") != null) return arr(r, "reacts");
+		var g = obj(r, "gz");
+		if (g == null) return null;
+		if (!g.has("label")) g.addProperty("label", "GZ");
+		return BingoApiClient.one(g);
 	}
 
 	static int chipWidth(FontMetrics fm, JsonObject c) {
@@ -1364,7 +1257,6 @@ JsonObject o, String k) {
 
 		Chips() {
 			setFont(SMALL);
-			setOpaque(false);
 		}
 
 		public Dimension getPreferredSize() {
@@ -1386,7 +1278,7 @@ JsonObject o, String k) {
 					int w = chipWidth(fm, c);
 					x -= w;
 					var mine = flag(c, "mine");
-					var live = isObj(c, "on");
+					var live = obj(c, "on") != null;
 					var lit = live && k == hover;
 					g2.setColor(mine ? (lit ? CHIP_MINE_HOVER : CHIP_MINE) : lit ? CHIP_FILL_HOVER : CHIP_FILL);
 
@@ -1411,10 +1303,8 @@ JsonObject o, String k) {
 	}
 
 	static long millis(String at) {
-		if (at == null || at.isEmpty()) return 0;
 		var iso = at.trim().replace(' ', 'T');
-		if (!iso.endsWith("Z") && !HAS_OFFSET.matcher
-(iso).matches()) iso = iso + "Z";
+		if (!iso.endsWith("Z") && !HAS_OFFSET.matcher(iso).matches()) iso += "Z";
 		try {
 			return java.time.Instant.parse(iso).toEpochMilli();
 		} catch (RuntimeException e) {

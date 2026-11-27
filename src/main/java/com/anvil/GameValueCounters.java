@@ -33,21 +33,17 @@ class GameValueCounters {
 	/** Fallback per-source jump cap when the site sends none. */
 	static final int DEFAULT_MAX_DELTA = 1000;
 
-	@AllArgsConstructor
 	static class Source {
 		/** "varbit" or "varp". */
 		String type;
 		int id;
-
-		Source() {
-		}
 
 		boolean isVarp() {
 			return "varp".equalsIgnoreCase(type);
 		}
 
 		boolean valid() {
-			return id > 0 && ("varp".equalsIgnoreCase(type) || "varbit".equalsIgnoreCase(type));
+			return id > 0 && (isVarp() || "varbit".equalsIgnoreCase(type));
 		}
 
 		String key() {
@@ -79,16 +75,6 @@ class GameValueCounters {
 		 */
 		List<Source> unless;
 
-		Entry() {
-		}
-
-		Entry(String name, boolean confirmed, int maxDelta, Source... sources) {
-			this.name = name;
-			this.confirmed = confirmed;
-			this.maxDelta = maxDelta;
-			this.sources = Arrays.asList(sources);
-		}
-
 		boolean decreasing() {
 			return "decrease".equalsIgnoreCase(direction);
 		}
@@ -99,15 +85,9 @@ class GameValueCounters {
 
 		boolean valid() {
 			if (name == null || name.trim().isEmpty() || sources == null || sources.isEmpty()) return false;
-			for (var s : sources) {
-				if (s == null || !s.valid()) return false;
-			}
-			if (unless != null) {
-				for (var s : unless) {
-					if (s == null || !s.valid()) return false;
-				}
-			}
-			return true;
+			var all = new ArrayList<>(sources);
+			if (unless != null) all.addAll(unless);
+			return all.stream().allMatch(s -> s != null && s.valid());
 		}
 	}
 
@@ -123,7 +103,7 @@ class GameValueCounters {
 	}
 
 	// Baselines, keyed per entry name AND var, so two entries on one var each keep their own.
-	final Map<String, Integer> last = new HashMap<>();
+	Map<String, Integer> last = new HashMap<>();
 	List<Entry> entries = Collections.emptyList();
 	List<Entry> source;
 	boolean inGame;
@@ -133,12 +113,8 @@ class GameValueCounters {
 	void configure(List<Entry> next) {
 		if (next == source && source != null) return;
 		source = next;
-		List<Entry> clean = new ArrayList<>();
-		if (next != null) {
-			for (var e : next) {
-				if (e != null && e.valid()) clean.add(e);
-			}
-		}
+		var clean = new ArrayList<Entry>();
+		if (next != null) for (var e : next) if (e != null && e.valid()) clean.add(e);
 		entries = clean;
 	}
 
@@ -217,9 +193,7 @@ class GameValueCounters {
 		int now = reader.read(s.isVarp(), s.id);
 		var before = last.put(prefix + s.key(), now);
 		if (before == null) return 0;
-		if (e.balance && before == 0 && !e.decreasing()) {
-			return 0; // a balance reading 0 then a real number: it arrived, nobody earned it
-		}
+		if (e.balance && before == 0 && !e.decreasing()) return 0; // a balance reading 0 then a real number: it arrived, nobody earned it
 		int delta = e.decreasing() ? before - now : now - before;
 		return delta <= 0 || delta > e.cap() ? 0 : delta;
 	}

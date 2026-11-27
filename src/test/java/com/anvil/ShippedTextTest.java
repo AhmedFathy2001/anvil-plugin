@@ -32,5 +32,10 @@ public class ShippedTextTest
 		assertEquals("NOVICE", text.questTiers.get("cook's assistant"));
 		assertEquals("EXPERIENCED", text.questTiers.get("rag and bone man ii"));
 		assertTrue(text.questTiers.size() > 200);
+		assertEquals(14, text.notifyPrefKeys.size());
+		assertEquals("notifyRareDrops", text.notifyPrefKeys.get(0));
+		assertEquals("configDefaultsVersion", text.notifyPrefKeys.get(13));
+		assertEquals(10, text.oldChatKeys.size());
+		assertEquals("chatTextColor", text.oldChatKeys.get(9));
 	}
 }

@@ -35,9 +35,9 @@ class DeathAttribution {
 
 
 	/** Who has us targeted, and when they acquired us. Insertion-ordered so "most recent" is cheap. */
-	final Map<String, Long> attackers = new LinkedHashMap<>();
+	Map<String, Long> attackers = new LinkedHashMap<>();
 	/** Which of {@link #attackers} are players rather than NPCs. */
-	final Set<String> players = new HashSet<>();
+	Set<String> players = new HashSet<>();
 
 	/** When we last took damage from something other than ourselves. */
 	long lastDamageAt;
@@ -53,9 +53,8 @@ class DeathAttribution {
 		if (name == null || name.isEmpty()) return;
 		attackers.remove(name); // re-insert so iteration order stays "oldest first"
 		attackers.put(name, nowMs);
-		if (player) {
-			players.add(name);
-		} else players.remove(name);
+		if (player) players.add(name);
+		else players.remove(name);
 		while (attackers.size() > 24 /* MAX_ATTACKERS */) stoppedTargetingUs(attackers.keySet().iterator().next());
 	}
 
@@ -130,11 +129,7 @@ class DeathAttribution {
 	/** How many players had us targeted when we died (the site's "ganged by N players"); 0 once the last hit is stale. */
 	synchronized int players(long nowMs) {
 		if (lastDamageAt <= 0 || nowMs - lastDamageAt > DAMAGE_WINDOW_MS) return 0;
-		int n = 0;
-		for (var name : attackers.keySet()) {
-			if (players.contains(name)) n++;
-		}
-		return n;
+		return (int) attackers.keySet().stream().filter(players::contains).count();
 	}
 
 	/** How many things currently have us targeted — for the log line that explains an attribution. */

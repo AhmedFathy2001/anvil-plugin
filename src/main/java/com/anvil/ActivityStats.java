@@ -37,7 +37,6 @@ class ActivityStats {
 	static class Source {
 		final Kind kind;
 		final int id;
-
 	}
 
 	/** Site tracked-stat key -> where to read it. Keys mirror lib/hiscoresActivities.ts exactly. */
@@ -47,7 +46,7 @@ class ActivityStats {
 	static final String CLUES_ALL = "cluesAll";
 
 	static {
-		Map<String, Source> m = new LinkedHashMap<>();
+		var m = new LinkedHashMap<String, Source>();
 		m.put("cluesBeginner", bit(VarbitID.COLLECTION_CLUES_BEGINNER_COMPLETED));
 		m.put("cluesEasy", bit(VarbitID.COLLECTION_CLUES_EASY_COMPLETED));
 		m.put("cluesMedium", bit(VarbitID.COLLECTION_CLUES_MEDIUM_COMPLETED));
@@ -99,8 +98,8 @@ class ActivityStats {
 	 * @param varp   reads a varplayer by id (normally {@code client::getVarpValue})
 	 */
 	static Map<String, Integer> read(Collection<String> wanted, IntUnaryOperator varbit, IntUnaryOperator varp) {
-		Map<String, Integer> out = new LinkedHashMap<>();
-		if (wanted == null || wanted.isEmpty()) return out;
+		var out = new LinkedHashMap<String, Integer>();
+		if (wanted == null) return out;
 		for (var key : wanted) {
 			if (key == null) continue;
 			var k = key.trim();
@@ -113,9 +112,7 @@ class ActivityStats {
 				}
 			} else {
 				var s = SOURCES.get(k);
-				if (s == null) {
-					continue; // a rank-based or unreadable key — the hiscores sweep still covers it
-				}
+				if (s == null) continue; // a rank-based or unreadable key — the hiscores sweep still covers it
 				value = s.kind == Kind.VARBIT ? varbit.applyAsInt(s.id) : varp.applyAsInt(s.id);
 			}
 			if (value > 0) out.put(k, value);
@@ -141,5 +138,4 @@ class ActivityStats {
 	static int clogSlotsMax(IntUnaryOperator varp) {
 		return Math.max(0, varp.applyAsInt(VarPlayerID.COLLECTION_COUNT_MAX));
 	}
-
 }

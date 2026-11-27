@@ -97,8 +97,8 @@ class RuleEngine {
 
 	/** What one event comes to: lines to print now, the fact for the site, and whether to screenshot it. */
 	static class Out {
-		final List<String> say = new ArrayList<>();
-		final List<JsonObject> facts = new ArrayList<>();
+		List<String> say = new ArrayList<>();
+		List<JsonObject> facts = new ArrayList<>();
 		boolean shot;
 		boolean coop;
 		/** A gain was held for its tile's batch: flushGains sends it. */
@@ -106,21 +106,21 @@ class RuleEngine {
 		/** A stat tile reached its goal: the stat push goes now. */
 		boolean done;
 		/** Tile id → its local count after this event, for the panel's optimistic rows. */
-		final Map<Integer, Long> raised = new HashMap<>();
+		Map<Integer, Long> raised = new HashMap<>();
 		/** Drop tiles this event moved, as they stood, for the in-game "tile progress" popup. */
-		final List<Rule> toasts = new ArrayList<>();
+		List<Rule> toasts = new ArrayList<>();
 		/** Item hunt popups: the banner's three lines. */
-		final List<String[]> banners = new ArrayList<>();
-		/** The hunt targets behind them, by item id: each gets its screenshot (AnvilPlugin huntShot). */
-		final Set<Integer> hunted = new LinkedHashSet<>();
+		List<String[]> banners = new ArrayList<>();
+		/** The hunt targets behind them, by item id: each gets its screenshot (the hunt shot in AnvilPlugin.emit). */
+		Set<Integer> hunted = new LinkedHashSet<>();
 	}
 
 
 	volatile Table table;
-	final Map<Integer, Long> seenItems = new HashMap<>();
-	final Map<String, TreeSet<Long>> xpMinutes = new HashMap<>();
+	Map<Integer, Long> seenItems = new HashMap<>();
+	Map<String, TreeSet<Long>> xpMinutes = new HashMap<>();
 	/** Gains held per tile until the batch goes or the tile completes. */
-	final Map<Integer, Long> held = new HashMap<>();
+	Map<Integer, Long> held = new HashMap<>();
 	/** This client's unconfirmed count for a tile: event rules build on it when the table is older. */
 	volatile IntToLongFunction floor = t -> 0;
 	/** A name's absolute count off the game's count line just read for it, else null. */
@@ -227,15 +227,12 @@ class RuleEngine {
 			var any = false;
 			Boolean huntOk = null;
 			for (var r : rules) {
-				if (!sourceOk(r, source, kind) || (r.simple && r.have >= r.of)) continue;
+				// The rule's sources (or not PvP, when it names none) and its npcs, when it names any.
+				if ((!empty(r.src) ? !r.src.contains(kind) : "pvp".equals(kind)) || !empty(r.npcs) && !DropSource.sourceMatches(r.npcs, source) || (r.simple && r.have >= r.of)) continue;
 				if (r.hunt != null) {
 					// A pet or a new log slot reports the same item again a moment later: one popup for it.
 					if (huntOk == null) huntOk = huntFresh(it[0], now);
-					if (huntOk && said.add(r)) {
-						out.say.add(fill(t, "hunt", r, "{hunt}", r.hunt));
-						out.banners.add(new String[]{"Item hunt", r.hunt, r.label});
-						out.hunted.add(it[0]);
-					}
+					if (huntOk && said.add(r)) hunt(out, t, r, it[0]);
 					continue;
 				}
 				any = true;
@@ -284,7 +281,7 @@ class RuleEngine {
 		return out;
 	}
 
-	final Map<Integer, Long> huntSeen = new HashMap<>();
+	Map<Integer, Long> huntSeen = new HashMap<>();
 
 	boolean huntFresh(int itemId, long now) {
 		var last = huntSeen.put(itemId, now);
@@ -297,13 +294,15 @@ class RuleEngine {
 		var t = table;
 		var rules = t == null ? null : t.drops.get(String.valueOf(itemId));
 		if (rules == null || !huntFresh(itemId, now)) return out;
-		for (var r : rules) {
-			if (r.hunt == null) continue;
-			out.say.add(fill(t, "hunt", r, "{hunt}", r.hunt));
-			out.banners.add(new String[]{"Item hunt", r.hunt, r.label});
-			out.hunted.add(itemId);
-		}
+		for (var r : rules) if (r.hunt != null) hunt(out, t, r, itemId);
 		return out;
+	}
+
+	/** An item hunt target's line, popup and screenshot. */
+	static void hunt(Out out, Table t, DropRule r, int itemId) {
+		out.say.add(fill(t, "hunt", r, "{hunt}", r.hunt));
+		out.banners.add(new String[]{"Item hunt", r.hunt, r.label});
+		out.hunted.add(itemId);
 	}
 
 	/** Does the table carry an item hunt's targets? */
@@ -400,11 +399,7 @@ class RuleEngine {
 	/** A multi-run timed tile's {have, of}; null for anything else. */
 	synchronized long[] runs(int id) {
 		var t = table;
-		if (t != null) {
-			for (var r : t.events) {
-				if (r.t == id && "timed".equals(r.on) && r.of > 1) return new long[]{r.have, r.of};
-			}
-		}
+		if (t != null) for (var r : t.events) if (r.t == id && "timed".equals(r.on) && r.of > 1) return new long[]{r.have, r.of};
 		return null;
 	}
 
@@ -549,11 +544,6 @@ class RuleEngine {
 		return floor(current / step) > floor((current - added) / step);
 	}
 
-	static boolean sourceOk(DropRule r, String source, String kind) {
-		if (!empty(r.src) ? !r.src.contains(kind) : "pvp".equals(kind)) return false;
-		return empty(r.npcs) || DropSource.sourceMatches(r.npcs, source);
-	}
-
 	static boolean valueSourceOk(List<String> sources, String source, String kind) {
 		if (empty(sources)) return true;
 		for (var s : sources) {
@@ -601,7 +591,6 @@ class RuleEngine {
 		}
 		var out = new ArrayList<String>();
 		by.forEach((head, boards) -> {
-
 			if (boards.size() > maxBoards) {
 				var first = boards.values().iterator().next().get(0);
 				out.add(more(head + " on " + boards.size() + " boards" + first.substring(head.length()), boards.values().stream().mapToInt(List::size).sum()));

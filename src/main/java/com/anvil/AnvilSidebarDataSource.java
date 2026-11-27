@@ -25,29 +25,6 @@ public class AnvilSidebarDataSource {
 	/** The plugin behind the panel's buttons, bound after construction like the capture above. */
 	@Setter volatile AnvilPlugin plugin;
 
-	/** On a seasonal world the site takes mode activity from: the panel shows the sharing switch. */
-	boolean seasonalSharingOffered() {
-		return fromPlugin(AnvilPlugin::seasonalSharingOffered, false);
-	}
-
-	boolean shareSeasonal() {
-		return fromPlugin(AnvilPlugin::shareSeasonal, false);
-	}
-
-	void setShareSeasonal(boolean on) {
-		withPlugin(p -> p.setShareSeasonal(on));
-	}
-
-	/** Hand the keyboard back to the game canvas. */
-	void gameFocus() {
-		withPlugin(AnvilPlugin::gameFocus);
-	}
-
-	/** The Feed tab came on screen, or went (AnvilPlugin.feedOnScreen). */
-	void feedOnScreen(boolean on) {
-		withPlugin(p -> p.feedOnScreen(on));
-	}
-
 	/** Run {@code f} on the bound plugin; a no-op when none is bound (tests, a panel driven by hand). */
 	void withPlugin(Consumer<AnvilPlugin> f) {
 		var p = plugin;
@@ -73,29 +50,9 @@ public class AnvilSidebarDataSource {
 		return new PanelActions(scrape, profile, scrape ? null : "Join your clan channel to sync the roster");
 	}
 
-	/** The logged-in character's row, or {@code null} to hide it (logged out, not signed in). */
-	AccountRow accountRow() {
-		return fromPlugin(AnvilPlugin::accountRow, null);
-	}
-
 	/** A character's Supporter look from the plugin's own list (ChatFlair), or null. */
 	ChatFlair.Entry flairOf(String rsn) {
 		return fromPlugin(p -> p.flairOf(rsn), null);
-	}
-
-	/** Run a row action; {@code done} gets a one-line outcome, off the EDT. */
-	void accountAction(AccountRow.Action action, Consumer<String> done) {
-		withPlugin(p -> p.accountAction(action, done));
-	}
-
-	/** Push the in-game clan roster to the home site. */
-	void syncRoster() {
-		withPlugin(AnvilPlugin::syncClanRosterFromPanel);
-	}
-
-	/** Send this account's collection log + bests to the home site. */
-	void syncProfile() {
-		withPlugin(AnvilPlugin::syncProfileNow);
 	}
 
 	/** Is this clip in the play cycle? */
@@ -137,19 +94,6 @@ public class AnvilSidebarDataSource {
 	}
 
 	/**
-	 * The starting shot's live requirements (session age, position) for the card, in display order.
-	 * Empty where nothing is checked. Cheap and non-blocking: the panel polls it every second.
-	 */
-	List<StartProofRules.Check> startProofChecks(PluginConfigResponse.StartProof proof) {
-		return fromPlugin(p -> p.startProofChecks(proof), Collections.emptyList());
-	}
-
-	/** Ask Shortest Path for a route to the starting shot's spot. */
-	void routeToStartSpot() {
-		withPlugin(AnvilPlugin::routeToStartSpot);
-	}
-
-	/**
 	 * Whether this event's tiles can be pinned as in-game widgets: it is one of the live boards you're
 	 * playing, or one still waiting to start (pinned early, it counts down and goes live at the whistle).
 	 */
@@ -163,31 +107,6 @@ public class AnvilSidebarDataSource {
 	int activeEventId() {
 		var cfg = config.get();
 		return cfg != null && cfg.event != null ? cfg.event.id : 0;
-	}
-
-	/** This client's newest count for a tile, or -1 (AnvilPlugin.tileCount). */
-	long tileCount(int tileId) {
-		return fromPlugin(p -> p.tileCount(tileId), -1L);
-	}
-
-	/** The tiles pinned over the game on {@code eventId}. */
-	List<Integer> pinnedTiles(int eventId) {
-		List<Integer> none = Collections.emptyList();
-		return eventId > 0 ? fromPlugin(p -> p.tileTracker().pinned(eventId), none) : none;
-	}
-
-	/** Signed in, and the first config answer hasn't come back (or failed) yet. */
-	boolean awaitingFirstConfig() {
-		return fromPlugin(AnvilPlugin::awaitingFirstConfig, false);
-	}
-
-	/** Take every pin on {@code eventId} off the screen. */
-	void unpinAll(int eventId) {
-		withPlugin(p -> p.tileTracker().clear(eventId));
-	}
-
-	void setTileTracked(int eventId, int tileId, boolean on) {
-		withPlugin(p -> p.setTrackedTile(eventId, tileId, on));
 	}
 
 	/** Take + file the starting shot. No-op where {@link #startProof()} is null. Never blocks the EDT. */
@@ -257,19 +176,6 @@ public class AnvilSidebarDataSource {
 	/** The member's explicit pick, or "" when they are on Auto and the site is deciding. */
 	String chosenClan() {
 		return fromPlugin(AnvilPlugin::getChosenClan, "");
-	}
-
-	/**
-	 * The clan slug this plugin is actually addressing — a pick if there is one, else whatever the
-	 * site resolved. "" before the first answer.
-	 */
-	String activeClan() {
-		return apiClient.getActiveClan();
-	}
-
-	/** The member picked a clan (or "" for Auto): persist it and refetch, without waiting. EDT-safe. */
-	void chooseClan(String slug) {
-		withPlugin(p -> p.setChosenClan(slug));
 	}
 
 	// ---- Weekly competitions (SOTW/BOTW) as sidebar events ----------------------------------------

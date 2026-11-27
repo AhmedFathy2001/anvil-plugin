@@ -18,11 +18,9 @@ import lombok.*;
  */
 @RequiredArgsConstructor
 class SyncBackoff {
-	static final long FIRST_MS = 30_000L;
-	static final long MAX_MS = 600_000L;
+	static final long FIRST_MS = 30_000L, MAX_MS = 600_000L;
 
-	final long firstMs;
-	final long maxMs;
+	final long firstMs, maxMs;
 	/** A uniform draw in [0, 1) spreading each wait ±20%; 0.5 gives the exact doubling. */
 	final DoubleSupplier jitter;
 	long nextAttemptAt;

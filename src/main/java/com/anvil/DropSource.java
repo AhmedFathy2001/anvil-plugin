@@ -23,15 +23,9 @@ class DropSource {
 		return wikiName == null ? null : WIKI_QUALIFIER.matcher(wikiName).replaceFirst("").trim();
 	}
 
-
-
 	/** True when the reported loot {@code source} is one of a tile's configured (wiki-named) NPCs. */
 	static boolean sourceMatches(List<String> sourceNpcs, String source) {
-		if (source == null || sourceNpcs == null) return false;
-		for (var npc : sourceNpcs) {
-			if (npc != null && (source.equalsIgnoreCase(npc) || source.equalsIgnoreCase(inGameNpcName(npc)))) return true;
-		}
-		return false;
+		return source != null && sourceNpcs != null && sourceNpcs.stream().anyMatch(npc -> npc != null && (source.equalsIgnoreCase(npc) || source.equalsIgnoreCase(inGameNpcName(npc))));
 	}
 
 	/** The server's entry for a pet, or null when it has nothing to say about it. */
@@ -74,9 +68,8 @@ class DropSource {
 		if (sources.size() == 1) return sources.get(0);
 		String best = null;
 		int bestKc = -1;
-		Map<String, Integer> counts = killCount == null ? Collections.emptyMap() : killCount;
 		for (var candidate : sources) {
-			Integer kc = counts.get(candidate.toLowerCase(Locale.ROOT));
+			var kc = killCount == null ? null : killCount.get(candidate.toLowerCase(Locale.ROOT));
 			int value = kc == null ? -1 : kc;
 			if (value > bestKc) {
 				bestKc = value;

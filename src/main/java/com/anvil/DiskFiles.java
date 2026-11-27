@@ -18,6 +18,24 @@ import net.runelite.client.util.*;
  * method here blocks on disk — callers run them on the plugin executor, never the client thread.
  */
 class DiskFiles {
+	/**
+	 * A fixed table the plugin ships as a resource beside this class: the JSON file's {@code rows},
+	 * each a list of strings (the file's {@code _about} says what the table is for). Empty when it
+	 * can't be read.
+	 */
+	static List<List<String>> table(String resource) {
+		var out = new ArrayList<List<String>>();
+		try (var r = new InputStreamReader(DiskFiles.class.getResourceAsStream(resource), StandardCharsets.UTF_8)) {
+			for (var row : new JsonParser().parse(r).getAsJsonObject().getAsJsonArray("rows")) {
+				var l = new ArrayList<String>();
+				for (var c : row.getAsJsonArray()) l.add(c.getAsString());
+				out.add(l);
+			}
+		} catch (Exception e) {
+		}
+		return out;
+	}
+
 	/** {@code dir}, created on demand; null when it can't be. */
 	static Filepath ensureDir(Filepath dir) {
 		if (dir == null) return null;
@@ -55,16 +73,11 @@ class DiskFiles {
 		}
 	}
 
-	static String readText(Filepath file) {
-		var b = read(file);
-		return b == null ? null : new String(b, StandardCharsets.UTF_8);
-	}
-
 	/** The file as a {@code type}, or null when it is missing, empty or not valid JSON (a truncated write). */
 	static <T> T readJson(Gson gson, Filepath file, Class<T> type) {
-		var text = readText(file);
+		var b = read(file);
 		try {
-			return text == null ? null : gson.fromJson(text, type);
+			return b == null ? null : gson.fromJson(new String(b, StandardCharsets.UTF_8), type);
 		} catch (RuntimeException e) {
 			return null;
 		}
@@ -72,11 +85,11 @@ class DiskFiles {
 
 	/** The files directly in {@code dir} whose names pass {@code name}; empty when there is no listing. */
 	static List<Filepath> listFiles(Filepath dir, Predicate<String> name) {
-		if (dir == null) return new ArrayList<>();
+		if (dir == null) return List.of();
 		try (var walk = dir.walk(1)) {
 			return walk.filter(f -> f.isFile() && name.test(f.getFileName())).collect(Collectors.toList());
 		} catch (Exception e) {
-			return new ArrayList<>();
+			return List.of();
 		}
 	}
 
@@ -84,7 +97,7 @@ class DiskFiles {
 		if (file == null) return;
 		try {
 			file.deleteIfExists();
-		} catch (IOException | RuntimeException ignored) {
+		} catch (Exception ignored) {
 			// Best effort: a leftover file is pruned by age on the next load.
 		}
 	}
@@ -96,10 +109,8 @@ class DiskFiles {
 	static String fingerprint(String secret) {
 		if (secret == null || secret.trim().isEmpty()) return "";
 		try {
-			var digest = MessageDigest.getInstance("SHA-256").digest(secret.trim().getBytes(StandardCharsets.UTF_8));
-			var sb = new StringBuilder();
-			for (int i = 0; i < 8; i++) sb.append(String.format("%02x", digest[i]));
-			return sb.toString();
+			// The first 8 bytes as 16 hex digits.
+			return String.format("%016x", new java.math.BigInteger(1, Arrays.copyOf(MessageDigest.getInstance("SHA-256").digest(secret.trim().getBytes(StandardCharsets.UTF_8)), 8)));
 		} catch (NoSuchAlgorithmException e) {
 			throw new IllegalStateException(e);
 		}

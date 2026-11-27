@@ -67,7 +67,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 
 
-	final AnvilSidebarDataSource data;
+	AnvilSidebarDataSource data;
 
 	// ---- Tabs: Clan · You · Lookup ----------------------------------------------------------------
 	// Clan is everything the panel always was — `content` below, untouched. You and Lookup are views
@@ -80,22 +80,22 @@ public class AnvilSidebarPanel extends PluginPanel {
 	// Holds ONLY the selected tab's panel. A CardLayout sized every tab to the tallest one — usually
 	// Clan mid-event — and BoxLayout spread that extra height through the You card: log bars drifted
 	// apart and the grids were squeezed until their last row clipped.
-	final JPanel tabBody = new JPanel(new BorderLayout());
-	final JPanel tabStrip = new JPanel(new GridBagLayout());
-	final Map<Tab, JLabel> tabLabels = new EnumMap<>(Tab.class);
-	final JPanel lookupPanel = column();
+	JPanel tabBody = new JPanel(new BorderLayout());
+	JPanel tabStrip = new JPanel(new GridBagLayout());
+	Map<Tab, JLabel> tabLabels = new EnumMap<>(Tab.class);
+	JPanel lookupPanel = column();
 	/** Lookup is for a player or a clan; this says which the search box means. */
 	boolean lookupClans, lookupGuides;
 	/** Players | Clans, redrawn when the mode changes (styleLookupModes). */
-	final JPanel lookupModes = column();
+	JPanel lookupModes = column();
 	String lookupModesShown;
 	/** The site-built views: the Clan tab, the You tab, and what Lookup found. */
-	final UiView clanView;
-	final UiView youView;
-	final UiView lookupView;
+	UiView clanView;
+	UiView youView;
+	UiView lookupView;
 	/** The Feed tab: the clan's and the board's live lists, and the board's chat (view 'feed'). */
-	final UiView feedView;
-	final UiView[] views;
+	UiView feedView;
+	UiView[] views;
 	/** Whose card You holds. */
 	String youRsn;
 	/** The Clan tab has asked for its view since it was last reset (sign-in, a clan switch). */
@@ -103,15 +103,15 @@ public class AnvilSidebarPanel extends PluginPanel {
 	/** When the Clan tab last asked the site, so a burst of repaints asks once. */
 	long clanAskedAt;
 	/** ⚙: syncing and this client's own settings — profile sync, roster sync for admins, sounds. */
-	final JPanel settingsPanel = column();
-	final JPanel lookupRecentRow = column();
-	final JTextField lookupSearch = new JTextField();
+	JPanel settingsPanel = column();
+	JPanel lookupRecentRow = column();
+	JTextField lookupSearch = new JTextField();
 	/** Fills in names as you type in {@link #lookupSearch}; built with the tab bodies. */
 	LookupSuggestions lookupCompleter;
-	final JLabel lookupClear = new JLabel(new GlyphIcon(CLOSE, 10, MUTED));
-	final JPanel lookupBox = new JPanel(new BorderLayout(6, 0));
+	JLabel lookupClear = new JLabel(new GlyphIcon(CLOSE, 10, MUTED));
+	JPanel lookupBox = new JPanel(new BorderLayout(6, 0));
 	/** Newest first, at most five, this session only. */
-	final LinkedList<String> recentLookups = new LinkedList<>();
+	LinkedList<String> recentLookups = new LinkedList<>();
 	/** The clan dropdown is wanted by the clan logic AND only shown on the Clan tab. */
 	boolean pickerWanted;
 
@@ -119,23 +119,23 @@ public class AnvilSidebarPanel extends PluginPanel {
 	// Which clan the plugin is pointed at. One Anvil serves every clan and a person can hold seats in
 	// several, so this is a real choice rather than a filter over data we already have: picking here
 	// re-addresses everything the plugin does — board, stat pushes, submissions, notifications.
-	final JComboBox<ClanChoice> clanPicker = new JComboBox<>();
-	final JButton refreshButton = new JButton("Refresh");
+	JComboBox<ClanChoice> clanPicker = new JComboBox<>();
+	JButton refreshButton = flatButton("Refresh", null, WHITE, () -> refresh(true));
 
 	// Device sign-in (home-native, DeviceSignIn): shown whenever there is no Account Token yet — the
 	// main way in, so nobody has to copy a token out of the site.
-	final BingoApiClient api;
-	final ConfigManager configManager;
+	BingoApiClient api;
+	ConfigManager configManager;
 	/** RuneLite's shared client-lifetime scheduler — paces the sign-in flow's approval polls. */
-	final ScheduledExecutorService executor;
-	final JButton signInButton = new JButton("Sign in with Discord");
-	final JLabel signInStatus = small("", MUTED);
-	final JPanel signInRow = new JPanel(new BorderLayout(0, 2));
+	ScheduledExecutorService executor;
+	JButton signInButton = flatButton("Sign in with Discord", null, BRAND_ORANGE, this::startSignIn);
+	JLabel signInStatus = small("", MUTED);
+	JPanel signInRow = new JPanel(new BorderLayout(0, 2));
 	// The token isn't in RuneLite's settings (AnvilConfig.playerToken is hidden), so the panel carries
 	// both ends: a manual paste for when the browser sign-in can't work, and Sign out.
-	final JLabel pasteTokenLink = new ClipLabel("Paste a token instead");
+	JLabel pasteTokenLink = new ClipLabel("Paste a token instead");
 	/** Opens the account menu: Not my account / Sign out. */
-	final JLabel accountMenuLink = new JLabel(new GlyphIcon(ELLIPSIS, 14));
+	JLabel accountMenuLink = new JLabel(new GlyphIcon(ELLIPSIS, 14));
 	/**
 	 * Between {@link #onActivate} and {@link #onDeactivate}. Off screen, a refresh is skipped outright:
 	 * XP bumps, config changes and logins all ask for one, and drawing a panel nobody can see is EDT
@@ -149,28 +149,30 @@ public class AnvilSidebarPanel extends PluginPanel {
 	// everyone reading it is the owner: "Tracking X · Not you? ×", "Not tracking X here · Track again",
 	// or "X is someone else's · It's mine?". The way out for a sibling or a visitor; × hides the
 	// tracking line for that character for good.
-	final JLabel accountLabel = small("", MUTED);
+	JLabel accountLabel = small("", MUTED);
 	/** "Tracking" + the tracked name in its Supporter colours (ChatFlair), swapped as the look changes. */
-	final JPanel accountLine = new JPanel();
+	JPanel accountLine = new JPanel();
 	JLabel accountName;
-	final JLabel accountLink = small("", BRAND_ORANGE);
-	final JLabel accountStatus = small("", MUTED);
-	final JPanel accountRowPanel = new JPanel(new BorderLayout(4, 2));
+	JLabel accountLink = small("", BRAND_ORANGE);
+	JLabel accountStatus = small("", MUTED);
+	JPanel accountRowPanel = new JPanel(new BorderLayout(4, 2));
 	/** On a seasonal world: whether its progress is shared with the clan, and a switch for it. */
-	final JPanel seasonRow = new JPanel(new BorderLayout(6, 0));
-	final JLabel seasonLabel = small("Sharing season progress", MUTED);
-	final JLabel seasonLink = new JLabel("Turn off");
+	JPanel seasonRow = new JPanel(new BorderLayout(6, 0));
+	JLabel seasonLabel = small("Sharing season progress", MUTED);
+	JLabel seasonLink = new JLabel("Turn off");
 	AccountRow shownAccountRow;
 	boolean accountActionInFlight;
 
-	final JPanel content = column();
+	JPanel content = column();
 
 	// Only re-renders while the panel is visible; started on activate, stopped on deactivate.
-	final Timer autoRefresh;
+	Timer autoRefresh;
 
 	/** Re-checks the starting-shot card's requirements once a second while it's up; null with no card. */
-	final Timer startProofTimer = new Timer(1000, e -> tickStartProof());
 	Runnable startProofTick;
+	Timer startProofTimer = new Timer(1000, e -> {
+		if (startProofTick != null) startProofTick.run();
+	});
 
 	// Guards against ActionEvents fired while we rebuild the combo model.
 	boolean rebuildingPicker;
@@ -203,7 +205,49 @@ public class AnvilSidebarPanel extends PluginPanel {
 		add(buildHeader(), NORTH);
 		SlimScrollBarUI.applyTo(getWrappedPanel());
 
-		buildTabBodies();
+		// Our own field rather than RuneLite's IconTextField: that one draws typed text grey and a
+		// light-grey clear button with a red cross, neither of which can be restyled from outside.
+		styleSearch(lookupSearch);
+		lookupSearch.setBorder(createEmptyBorder());
+		lookupSearch.setToolTipText("A player's name — press Enter");
+		lookupSearch.addActionListener(e -> {
+			if (lookupClans) {
+				lookupView.show("clans", singletonMap("q", lookupSearch.getText().trim()), "Searching…");
+			} else showLookup(lookupSearch.getText());
+		});
+		onEdit(lookupSearch, () -> lookupClear.setVisible(!lookupSearch.getText().isEmpty()));
+		// Players only: clan names aren't in any list the game keeps.
+		lookupCompleter = new LookupSuggestions(lookupSearch, () -> !lookupClans,
+			() -> new ArrayList<>(recentLookups), data::myRsn, data::lookupNames);
+		lookupSearch.addKeyListener(lookupCompleter);
+		lookupClear.setVisible(false);
+		lookupClear.setToolTipText("Clear");
+		onClick(lookupClear, () -> {
+			lookupSearch.setText("");
+			lookupSearch.requestFocusInWindow();
+			sayLookupHint();
+		});
+		lookupBox.setBackground(DARKER_GRAY_COLOR);
+		setBoxLine(MEDIUM_GRAY_COLOR);
+		lookupBox.add(small("Name", MUTED), WEST);
+		lookupBox.add(lookupSearch, CENTER);
+		lookupBox.add(lookupClear, EAST);
+		capH(left(lookupBox));
+		// Focus shows as the underline turning orange.
+		lookupSearch.addFocusListener(new FocusAdapter() {
+			public void focusGained(FocusEvent e) {
+				setBoxLine(BRAND_ORANGE);
+				lookupCompleter.refresh();
+			}
+
+			public void focusLost(FocusEvent e) {
+				setBoxLine(MEDIUM_GRAY_COLOR);
+			}
+		});
+
+		styleLookupModes();
+		addAll(lookupPanel, lookupModes, gap(6), lookupBox, gap(6), lookupRecentRow, lookupView);
+		lookupView.say(LOOKUP_HINT);
 		tabBody.setBackground(DARK_GRAY_COLOR);
 		tabBody.add(content, NORTH);
 		add(tabBody, CENTER);
@@ -225,8 +269,6 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 		var title = label("Anvil Progress", BOLD, BRAND_ORANGE);
 
-		styleFlatButton(refreshButton, WHITE);
-		refreshButton.addActionListener(e -> refresh(true));
 		// As wide as "Refreshing…" from the start, so the header doesn't shift while it works.
 		refreshing(true);
 		refreshButton.setPreferredSize(refreshButton.getPreferredSize());
@@ -239,8 +281,6 @@ public class AnvilSidebarPanel extends PluginPanel {
 		capH(titleRow);
 
 		// Sign-in affordance — visible whenever there is no token (see refreshSignInRow).
-		styleFlatButton(signInButton, BRAND_ORANGE);
-		signInButton.addActionListener(e -> startSignIn());
 		signInStatus.setVisible(false);
 		signInRow.setBackground(DARK_GRAY_COLOR);
 		signInRow.add(signInButton, NORTH);
@@ -270,7 +310,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		left(accountRowPanel).setVisible(false);
 
 		styleLink(seasonLink, "Your seasonal progress (relics, areas, tasks, with a screenshot) goes to your clan."
-			+ " Your clan chooses what gets posted on the Anvil website.", () -> data.setShareSeasonal(!data.shareSeasonal()));
+			+ " Your clan chooses what gets posted on the Anvil website.", () -> data.withPlugin(p -> p.setShareSeasonal(!p.shareSeasonal())));
 		seasonRow.setBackground(DARKER_GRAY_COLOR);
 		seasonRow.setBorder(createEmptyBorder(4, 8, 4, 8));
 		seasonRow.add(seasonLabel, CENTER);
@@ -293,31 +333,6 @@ public class AnvilSidebarPanel extends PluginPanel {
 		});
 		var south = new JPanel(new BorderLayout(0, 8));
 		south.setBackground(DARK_GRAY_COLOR);
-		south.add(buildTabStrip(), NORTH);
-		south.add(clanPicker, SOUTH);
-		header.add(south, SOUTH);
-
-		return header;
-	}
-
-	/**
-	 * Address another clan. Not a filter over a snapshot we already hold — the other clan's board lives
-	 * on the site, so this hands the choice to the plugin (which persists it and re-addresses the
-	 * client) and shows the loading state until the answer comes back.
-	 *
-	 * <p>No refresh() here on purpose. The source renders from the config the plugin holds, and that
-	 * config is still the old clan's until the refetch lands — refreshing now would repaint the clan
-	 * they just switched away from. The plugin repaints once it has the new answer.</p>
-	 */
-	void switchClan(String slug) {
-		clanShown = false; // another clan's events are a different list — start at the top
-		data.chooseClan(slug);
-		renderLoading();
-	}
-
-	// ---- Tabs ---------------------------------------------------------------------------------------
-
-	JPanel buildTabStrip() {
 		tabStrip.setBackground(DARK_GRAY_COLOR);
 		var gc = new GridBagConstraints();
 		gc.fill = GridBagConstraints.BOTH;
@@ -343,20 +358,29 @@ public class AnvilSidebarPanel extends PluginPanel {
 		}
 		styleTabs();
 		tabStrip.setVisible(false);
-		return tabStrip;
+		south.add(tabStrip, NORTH);
+		south.add(clanPicker, SOUTH);
+		header.add(south, SOUTH);
+
+		return header;
 	}
 
-	/** A creator space is not a clan: its tab says "Space". Follows the config on every refresh. EDT. */
-	void relabelClanTab() {
-		var label = tabLabels.get(CLAN);
-		if (label == null) return;
-		var space = data.activeIsSpace();
-		var text = space ? "Space" : "Clan";
-		if (!text.equals(label.getText())) {
-			label.setText(text);
-			label.setToolTipText(space ? "This creator's space and events" : null);
-		}
+	/**
+	 * Address another clan. Not a filter over a snapshot we already hold — the other clan's board lives
+	 * on the site, so this hands the choice to the plugin (which persists it and re-addresses the
+	 * client) and shows the loading state until the answer comes back.
+	 *
+	 * <p>No refresh() here on purpose. The source renders from the config the plugin holds, and that
+	 * config is still the old clan's until the refetch lands — refreshing now would repaint the clan
+	 * they just switched away from. The plugin repaints once it has the new answer.</p>
+	 */
+	void switchClan(String slug) {
+		clanShown = false; // another clan's events are a different list — start at the top
+		data.withPlugin(p -> p.setChosenClan(slug));
+		renderLoading();
 	}
+
+	// ---- Tabs ---------------------------------------------------------------------------------------
 
 	/** Selected: white with an orange underline. The rest: grey over a hairline; all greyed while signed out. */
 	void styleTabs() {
@@ -369,51 +393,6 @@ public class AnvilSidebarPanel extends PluginPanel {
 		}
 	}
 
-	void buildTabBodies() {
-
-		// Our own field rather than RuneLite's IconTextField: that one draws typed text grey and a
-		// light-grey clear button with a red cross, neither of which can be restyled from outside.
-		styleSearch(lookupSearch);
-		lookupSearch.setBorder(createEmptyBorder());
-		lookupSearch.setToolTipText("A player's name — press Enter");
-		lookupSearch.addActionListener(e -> {
-			if (lookupClans) {
-				lookupView.show("clans", singletonMap("q", lookupSearch.getText().trim()), "Searching…");
-			} else showLookup(lookupSearch.getText());
-		});
-		onEdit(lookupSearch, () -> lookupClear.setVisible(!lookupSearch.getText().isEmpty()));
-		// Players only: clan names aren't in any list the game keeps.
-		lookupCompleter = new LookupSuggestions(lookupSearch, () -> !lookupClans,
-			() -> new ArrayList<>(recentLookups), data::myRsn, data::lookupNames);
-		lookupClear.setVisible(false);
-		lookupClear.setToolTipText("Clear");
-		onClick(lookupClear, () -> {
-			lookupSearch.setText("");
-			lookupSearch.requestFocusInWindow();
-			sayLookupHint();
-		});
-		lookupBox.setBackground(DARKER_GRAY_COLOR);
-		setBoxLine(MEDIUM_GRAY_COLOR);
-		lookupBox.add(small("Name", MUTED), WEST);
-		lookupBox.add(lookupSearch, CENTER);
-		lookupBox.add(lookupClear, EAST);
-		capH(left(lookupBox));
-		// Focus shows as the underline turning orange.
-		lookupSearch.addFocusListener(new FocusAdapter() {
-			public void focusGained(FocusEvent e) {
-				setBoxLine(BRAND_ORANGE);
-				lookupCompleter.refresh();
-			}
-
-			public void focusLost(FocusEvent e) {
-				setBoxLine(MEDIUM_GRAY_COLOR);
-			}
-		});
-
-		styleLookupModes();
-		addAll(lookupPanel, lookupModes, gap(6), lookupBox, gap(6), lookupRecentRow, lookupView);
-		lookupView.say(LOOKUP_HINT);
-	}
 
 	static final String LOOKUP_HINT = "Search a name — or right-click anyone in game and pick Anvil.";
 
@@ -433,7 +412,13 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	/** Re-checked on every render: the config's answer brings the tabs, and sign-out takes them away. */
 	void updateTabStrip() {
-		relabelClanTab();
+		// A creator space is not a clan: its tab says "Space". Follows the config on every refresh.
+		var label = tabLabels.get(CLAN);
+		var space = data.activeIsSpace();
+		if (label != null && !(space ? "Space" : "Clan").equals(label.getText())) {
+			label.setText(space ? "Space" : "Clan");
+			label.setToolTipText(space ? "This creator's space and events" : null);
+		}
 		styleLookupModes();
 		var on = playerCardsAvailable();
 		// Signed out the strip still shows, greyed: there is more here once you sign in.
@@ -446,11 +431,6 @@ public class AnvilSidebarPanel extends PluginPanel {
 		applyPicker();
 	}
 
-	void setPickerWanted(boolean wanted) {
-		pickerWanted = wanted;
-		applyPicker();
-	}
-
 	void applyPicker() {
 		clanPicker.setVisible(pickerWanted && tab == CLAN);
 	}
@@ -458,7 +438,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	void selectTab(Tab next) {
 		tab = next;
 		feedRead();
-		data.feedOnScreen(onScreen && next == FEED);
+		data.withPlugin(p -> p.feedOnScreen(onScreen && next == FEED));
 		tabBody.removeAll();
 		tabBody.add(next == CLAN ? content : next == FEED ? feedView : next == YOU ? youView : next == LOOKUP ? lookupPanel : settingsPanel,
 			NORTH);
@@ -473,11 +453,15 @@ public class AnvilSidebarPanel extends PluginPanel {
 		redraw(this);
 	}
 
+	void toLookup() {
+		if (tab != LOOKUP) selectTab(LOOKUP);
+	}
+
 	/** Look a character up in the Lookup tab — the right-click "Anvil" entry lands here. */
 	void showLookup(String rawName) {
 		invokeLater(() -> {
 			var name = rawName == null ? "" : rawName.replace(' ', ' ').trim();
-			if (tab != LOOKUP) selectTab(LOOKUP);
+			toLookup();
 			if (name.isEmpty()) return;
 			if (lookupClans || lookupGuides) setLookupMode("Players");
 			lookupSearch.setText(name);
@@ -492,7 +476,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	 * for again while the fresh one is on its way — going back, or between tabs, is instant. Anything
 	 * sent to the site (a claim, a pin) may change every view, so it empties. EDT only.
 	 */
-	final Map<String, JsonObject> uiCache = BingoApiClient.capped(40, true);
+	Map<String, JsonObject> uiCache = BingoApiClient.capped(40, true);
 
 	<T> void async(Supplier<T> fetch, Consumer<T> then) {
 		interactive().execute(() -> {
@@ -508,7 +492,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	UiView.Host uiHost() {
 		return new UiView.Host() {
 			public void load(String view, Map<String, String> args, Consumer<JsonObject> done) {
-				var clan = data.activeClan();
+				var clan = api.getActiveClan();
 				var sent = withPins(args);
 				// Where the player stands, for the guide search's "You're at …".
 				if ("guides".equals(view)) sent.put("region", "" + data.fromPlugin(p -> p.region, -1));
@@ -535,9 +519,10 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 			public void pin(int event, int tile, boolean on) {
 				uiCache.clear();
-				if (tile <= 0) {
-					data.unpinAll(event);
-				} else data.setTileTracked(event, tile, on);
+				data.withPlugin(p -> {
+					if (tile <= 0) p.tileTracker().clear(event);
+					else p.setTrackedTile(event, tile, on);
+				});
 			}
 
 			public void switchClan(String slug) {
@@ -546,7 +531,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 			public void openTab(String name, Map<String, String> args) {
 				if ("lookup".equals(name)) {
-					if (tab != LOOKUP) selectTab(LOOKUP);
+					toLookup();
 					setLookupMode("guides".equals(args.get("mode")) ? "Guides" : "Players");
 					return;
 				}
@@ -558,7 +543,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			}
 
 			public long count(int tile) {
-				return data.tileCount(tile);
+				return data.fromPlugin(p -> p.tileCount(tile), -1L);
 			}
 
 			public String myName() {
@@ -566,7 +551,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			}
 
 			public void gameFocus() {
-				data.gameFocus();
+				data.withPlugin(AnvilPlugin::gameFocus);
 			}
 
 			public JComponent nativePart(String name) {
@@ -611,7 +596,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			}
 
 			public void clan(String slug) {
-				if (tab != LOOKUP) selectTab(LOOKUP);
+				toLookup();
 				setLookupMode("Clans");
 				lookupView.show("clan", singletonMap("slug", slug), "Loading the clan…");
 			}
@@ -624,25 +609,17 @@ public class AnvilSidebarPanel extends PluginPanel {
 	 * it already has.
 	 */
 	Map<String, String> withPins(Map<String, String> args) {
-		var given = parseIntOr(args.get("event"), 0);
+		var given = UiView.parseInt(args.get("event"), 0);
 		var event = given > 0 ? given : data.activeEventId();
 		var out = new HashMap<>(args);
 		out.put("chosen", data.chosenClan().isEmpty() ? "" : "1");
 		if (data.canTrackTiles(event, "1".equals(args.get("pre")))) {
 			out.put("track", "1");
 			var pins = new StringJoiner(",");
-			for (var id : data.pinnedTiles(event)) pins.add("" + id);
+			for (var id : data.fromPlugin(p -> p.tileTracker().pinned(event), List.<Integer>of())) pins.add("" + id);
 			out.put("pins", pins.toString());
 		}
 		return out;
-	}
-
-	static int parseIntOr(String s, int fallback) {
-		try {
-			return Integer.parseInt(s);
-		} catch (NumberFormatException e) {
-			return fallback;
-		}
 	}
 
 	void remember(String name) {
@@ -659,8 +636,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 				chip.setBorder(createEmptyBorder(2, 6, 2, 6));
 				chip.add(small(plainText(n), LIGHT_GRAY_COLOR));
 				chip.setToolTipText(plainText("Look up " + n));
-				var slot = new JPanel(new BorderLayout());
-				slot.setOpaque(false);
+				var slot = row(0);
 				slot.setBorder(createEmptyBorder(0, 0, 0, 4));
 				slot.add(onClick(chip, () -> showLookup(n)));
 				wrap.add(slot);
@@ -759,7 +735,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			return;
 		}
 		invokeLater(() -> {
-			if (tab != LOOKUP) selectTab(LOOKUP);
+			toLookup();
 			setLookupMode("Guides", args);
 		});
 	}
@@ -808,7 +784,46 @@ public class AnvilSidebarPanel extends PluginPanel {
 		settingsPanel.removeAll();
 		var sync = buildPanelActions(actions);
 		if (sync.getComponentCount() > 0) addCard(sync);
-		addCard(buildBannerSounds());
+		// Banner clips, which are files in a folder on THIS machine.
+		// Nothing here is per account or per clan — swapping character or clan doesn't change which
+		// .wav files are on your disk — so the list is the same wherever you are in the panel. A lit
+		// swatch is in the play cycle, a hollow one is muted, and clicking the row flips it.
+		var clips = data.sounds(BANNER);
+		var bannerCard = column();
+		bannerCard.add(cardTitle("Banner sounds"));
+
+		if (clips.isEmpty()) {
+			addAll(bannerCard, note("None added — use Add clip, or the banner folder.", 165), gap(4));
+		} else {
+			for (var clip : clips.subList(0, Math.min(clips.size(), BANNER_CLIPS_SHOWN))) addAll(bannerCard, buildClipRow(clip, data.bannerSoundOn(clip)), gap(2));
+			if (clips.size() > BANNER_CLIPS_SHOWN) {
+				var more = small("+" + (clips.size() - BANNER_CLIPS_SHOWN) + " more in the folder", MUTED);
+				more.setBorder(createEmptyBorder(2, CLIP_TEXT_INSET, 0, 0));
+				bannerCard.add(more);
+			}
+			bannerCard.add(gap(4));
+		}
+
+		// Two buttons on one line, equal halves.
+		bannerCard.add(buttons(new GridLayout(1, 2, 4, 0),
+			flatButton("Add clip", "Pick .wav files to copy into the banner sounds folder", WHITE,
+				() -> data.importSounds(BANNER)),
+			flatButton("Copy folder", "Copy the sounds folder's path — paste it into your file manager to rename or delete clips",
+				WHITE, data::copyBannerSoundsPath)));
+
+		// MISSIONS, stated rather than configured. A mission dropping should not sound like a tile
+		// being finished, and what it sounds like is decided by whether this folder has anything in
+		// it — so the panel says which of the two is happening, and the button is how you change it.
+		bannerCard.add(gap(8));
+		var missions = data.sounds(MISSION).size();
+		bannerCard.add(small(missions == 0
+			? "Missions: a game sound (no clip added)"
+			: "Missions: " + missions + (missions == 1 ? " clip" : " clips"), MUTED));
+		bannerCard.add(gap(4));
+		bannerCard.add(fullWidth(flatButton(missions == 0 ? "Add mission clip" : "Add mission clips",
+			"Pick .wav files to play when a mission drops, instead of the game sound used by default",
+			WHITE, () -> data.importSounds(MISSION))));
+		addCard(bannerCard);
 		addAll(settingsPanel, bold("On the Anvil website"), gap(6));
 		siteRow("Discord posts & screenshot privacy", "What you post to your clan's Discord", "/settings/announcements");
 		siteRow("All your Anvil settings", "Profile, characters, name colours and more", "/settings");
@@ -857,9 +872,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	String settingsShown;
 
 	String settingsKey(PanelActions actions) {
-		var k = new StringBuilder()
-			.append(actions.canSyncProfile).append('|').append(actions.canSyncRoster).append('|').append(actions.rosterNote)
-			.append('|').append(isSupporter());
+		var k = new StringBuilder(actions.canSyncProfile + "|" + actions.canSyncRoster + "|" + actions.rosterNote + "|" + isSupporter());
 		for (var clip : data.sounds(BANNER)) k.append('|').append(clip).append(data.bannerSoundOn(clip) ? '+' : '-');
 		return k.append("|m").append(data.sounds(MISSION).size()).toString();
 	}
@@ -869,18 +882,18 @@ public class AnvilSidebarPanel extends PluginPanel {
 	public void onActivate() {
 		onScreen = true;
 		feedRead();
-		data.feedOnScreen(tab == FEED);
+		data.withPlugin(p -> p.feedOnScreen(tab == FEED));
 		refresh();
 		autoRefresh.start();
-		for (var v : views) v.resume();
+		for (var v : views) if (!v.tickers.isEmpty()) v.ticker.start(); // the countdowns drawn before resume
 		startProofTimer.start();
 	}
 
 	public void onDeactivate() {
 		onScreen = false;
-		data.feedOnScreen(false);
+		data.withPlugin(p -> p.feedOnScreen(false));
 		autoRefresh.stop();
-		for (var v : views) v.stop();
+		for (var v : views) v.ticker.stop(); // no countdowns tick unseen
 		startProofTimer.stop();
 	}
 
@@ -1029,7 +1042,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	void refreshAccountRow() {
 		seasonalChanged();
-		var row = data.accountRow();
+		var row = data.fromPlugin(AnvilPlugin::accountRow, null);
 		var changed = shownAccountRow == null || row == null
 			|| shownAccountRow.state != row.state || !shownAccountRow.rsn.equals(row.rsn);
 		shownAccountRow = row;
@@ -1095,12 +1108,12 @@ public class AnvilSidebarPanel extends PluginPanel {
 		accountActionInFlight = true;
 		accountLink.setEnabled(false);
 		setAccountStatus("Working…");
-		data.accountAction(action, outcome -> invokeLater(() -> {
+		data.withPlugin(p -> p.accountAction(action, outcome -> invokeLater(() -> {
 			accountActionInFlight = false;
 			refreshAccountRow();
 			setAccountStatus(outcome);
 			refresh();
-		}));
+		})));
 	}
 
 	/** The Supporter list moved: the tracked name's colours may have. Any thread. */
@@ -1118,13 +1131,11 @@ public class AnvilSidebarPanel extends PluginPanel {
 		var own = e == null || e.d == null || ChatPalette.nameColor(e.d.c) == null ? null : e.d;
 		var source = own != null ? own.g : e == null ? null : e.g;
 		var stops = new ArrayList<Color>();
-		if (source != null) for (var g : source) {
-			if (stops.size() < 4) stops.add(nameColor(own != null, g));
-		}
+		if (source != null) for (var g : source) if (stops.size() < 4) stops.add(nameColor(own != null, g));
 		// The tenure badge (any tier) the chat shows; else the old Patron-only star.
 		var tenure = e == null || e.t == null || e.t < 1 || e.t > AnvilPlugin.TENURE_STEPS ? 0 : e.t;
 		var star = e != null && (tenure > 0 || Boolean.TRUE.equals(e.s));
-		var l = stops.size() >= 2 ? new GradientLabel(stops.toArray(new Color[0]), Boolean.TRUE.equals(e == null ? null : e.s)) : new JLabel();
+		var l = stops.size() >= 2 ? new GradientLabel(stops.toArray(new Color[0]), Boolean.TRUE.equals(e.s)) : new JLabel();
 		l.setText(rsn);
 		l.setFont(accountLabel.getFont().deriveFont(Font.BOLD));
 		l.setForeground(nameColor(own != null, own != null ? own.c : e == null ? null : e.c));
@@ -1197,7 +1208,8 @@ public class AnvilSidebarPanel extends PluginPanel {
 		rebuildingPicker = true;
 		clanPicker.removeAllItems();
 		rebuildingPicker = false;
-		setPickerWanted(false); // no config for the new credentials yet, so no clans to choose between
+		pickerWanted = false; // no config for the new credentials yet, so no clans to choose between
+		applyPicker();
 		setSignInStatus("");
 		refreshSignInRow();
 		renderLoading();
@@ -1205,12 +1217,10 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	/** Worn gear reached the site: a guide open in Lookup asks again a second on, for its "Your gear now" card. */
 	void wornGearSent() {
-		var t = new Timer(1000, e -> {
+		UiView.once(1000, e -> {
 			var l = lookupView.lastLoads.get("null");
 			if (onScreen && tab == LOOKUP && l != null && "guide".equals(l[0])) lookupView.refresh(true);
 		});
-		t.setRepeats(false);
-		t.start();
 	}
 
 	/** Ask again: the clan picker and sign-in state from the config the plugin holds, the tab from the site. */
@@ -1220,9 +1230,9 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	/** EDT: show or update the seasonal-sharing switch (seasonal world, setting changed, config polled). */
 	void seasonalChanged() {
-		var show = data.seasonalSharingOffered();
+		var show = data.fromPlugin(AnvilPlugin::seasonalSharingOffered, false);
 		if (show) {
-			var on = data.shareSeasonal();
+			var on = data.fromPlugin(AnvilPlugin::shareSeasonal, false);
 			seasonLabel.setText(on ? "Sharing season progress" : "Season progress not shared");
 			seasonLink.setText(on ? "Turn off" : "Turn on");
 		}
@@ -1240,7 +1250,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		refreshAccountRow();
 		if (manual) {
 			api.clearThumbs();
-			for (var v : views) v.invalidateDrawn();
+			for (var v : views) v.drawn.clear();
 			// A refresh with nothing new changes nothing on screen: the button says it's working.
 			refreshing(true);
 		}
@@ -1287,7 +1297,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	void showClan(boolean manual) {
 		if (api.needsSignIn() || !data.supportsPluginUi()) {
 			clanShown = false;
-			if (data.awaitingFirstConfig()) {
+			if (data.fromPlugin(AnvilPlugin::awaitingFirstConfig, false)) {
 				renderLoading();
 			} else renderEmpty();
 			return;
@@ -1342,8 +1352,8 @@ public class AnvilSidebarPanel extends PluginPanel {
 		});
 	}
 
-	final AtomicBoolean liveQueued = new AtomicBoolean();
-	final Timer countsCatchUp = new Timer(15_000 /* COUNTS_CATCH_UP_MS */, e -> boardChanged());
+	AtomicBoolean liveQueued = new AtomicBoolean();
+	Timer countsCatchUp = new Timer(15_000 /* COUNTS_CATCH_UP_MS */, e -> boardChanged());
 
 	/** Counts moved here (own progress, the push): the Clan tab's live ones redraw, at most once per frame. Any thread. */
 	void liveCountsMoved() {
@@ -1364,10 +1374,6 @@ public class AnvilSidebarPanel extends PluginPanel {
 				countsCatchUp.start();
 			}
 		});
-	}
-
-	void tickStartProof() {
-		if (startProofTick != null) startProofTick.run();
 	}
 
 	/**
@@ -1396,7 +1402,8 @@ public class AnvilSidebarPanel extends PluginPanel {
 			clanPicker.setModel(model);
 			// Nothing chosen — the site is deciding, which is the Auto row.
 			clanPicker.setSelectedItem(toSelect != null ? toSelect : choices.isEmpty() ? null : choices.get(0));
-			setPickerWanted(choices.size() > 2);
+			pickerWanted = choices.size() > 2;
+			applyPicker();
 		} finally {
 			rebuildingPicker = false;
 		}
@@ -1414,18 +1421,13 @@ public class AnvilSidebarPanel extends PluginPanel {
 	 * rest appear under "Also live". Choosing a clan narrows to it and moves where submissions file,
 	 * which is a bigger deal than a filter usually is; the rows say so.
 	 */
+	@AllArgsConstructor
 	static class ClanChoice {
 		/** Clan slug, or "" for Auto. */
 		final String slug;
 		final String label;
 		/** Second line — the board running there, or what this seat is. Never null. */
 		final String detail;
-
-		ClanChoice(String slug, String label, String detail) {
-			this.slug = slug == null ? "" : slug;
-			this.label = label == null ? "" : label;
-			this.detail = detail == null ? "" : detail;
-		}
 
 		/** Auto first, then the clans in the order the site sent them (newest seat first). */
 		static List<ClanChoice> of(List<PluginConfigResponse.ClanRef> clans) {
@@ -1485,7 +1487,29 @@ public class AnvilSidebarPanel extends PluginPanel {
 		// has given them the address of. Signed out is the state to answer first, because it is the
 		// state every new install starts in.
 		if (api.needsSignIn()) {
-			setContent(firstRunCard());
+			// What a fresh install sees: what this is, the one button that connects it, and where that goes.
+			// The sign-in button itself lives in the header (it is shown in exactly this state), so this
+			// points at it rather than repeating it. What it adds is the half a stranger cannot guess — that
+			// the account is free, that it is theirs rather than their clan's, and that a person with no clan
+			// still gets something out of it. The link is the only address here, and it is the same one
+			// pressing Sign in would write.
+			// A column that opens with a small gold section label (the panel's header style) and the gap under it.
+			var card = column();
+			addAll(card, small("New here?", BRAND_ORANGE), gap(6));
+			card.setBorder(createEmptyBorder(8, 0, 0, 0));
+			card.add(note("Anvil tracks your OSRS progress — collection log, personal bests, records — and"
+				+ " your clan's bingo boards. Press Sign in with Discord above to make your free account"
+				+ " and connect this client in one step."));
+			card.add(gap(6));
+			card.add(note("You don't need a clan: your profile is your own. If you run one, starting it"
+				+ " there is free too."));
+			var site = styleLink(new ClipLabel(BingoApiClient.site().replaceFirst("^https?://", "")), "Open Anvil in your browser",
+				() -> LinkBrowser.browse(BingoApiClient.site()));
+			site.setIcon(new GlyphIcon(EXTERNAL, 11));
+			site.setHorizontalTextPosition(SwingConstants.LEADING);
+			site.setBorder(createEmptyBorder(6, 0, 0, 0));
+			card.add(site);
+			setContent(card);
 			return;
 		}
 		// Signed in, but no config answered: the site can't be reached yet. Say that rather than
@@ -1493,8 +1517,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		var empty = new PluginErrorPanel();
 		empty.setContent("Can't show your clan here", "Anvil can't be reached right now. It'll keep trying.");
 		renderSettings();
-		var stack = new JPanel();
-		stack.setLayout(new BoxLayout(stack, BoxLayout.Y_AXIS));
+		var stack = column();
 		stack.setOpaque(false);
 		// One alignment for both: the error panel centres itself (0.5) and the cards sit left (0), and a
 		// column of mixed alignments pushed the cards half off the right edge.
@@ -1504,41 +1527,11 @@ public class AnvilSidebarPanel extends PluginPanel {
 		setContent(stack);
 	}
 
-	/**
-	 * What a fresh install sees: what this is, the one button that connects it, and where that goes.
-	 *
-	 * <p>The sign-in button itself lives in the header (it is shown in exactly this state), so this
-	 * points at it rather than repeating it. What it adds is the half a stranger cannot guess — that
-	 * the account is free, that it is theirs rather than their clan's, and that a person with no clan
-	 * still gets something out of it. The link is the only address here, and it is the same one
-	 * pressing Sign in would write.</p>
-	 */
-	JPanel firstRunCard() {
-		// A column that opens with a small gold section label (the panel's header style) and the gap under it.
-		var card = column();
-		addAll(card, small("New here?", BRAND_ORANGE), gap(6));
-		card.setBorder(createEmptyBorder(8, 0, 0, 0));
-		card.add(note("Anvil tracks your OSRS progress — collection log, personal bests, records — and"
-			+ " your clan's bingo boards. Press Sign in with Discord above to make your free account"
-			+ " and connect this client in one step."));
-		card.add(gap(6));
-		card.add(note("You don't need a clan: your profile is your own. If you run one, starting it"
-			+ " there is free too."));
-		var site = styleLink(new ClipLabel(BingoApiClient.site().replaceFirst("^https?://", "")), "Open Anvil in your browser",
-			() -> LinkBrowser.browse(BingoApiClient.site()));
-		site.setIcon(new GlyphIcon(EXTERNAL, 11));
-		site.setHorizontalTextPosition(SwingConstants.LEADING);
-		site.setBorder(createEmptyBorder(6, 0, 0, 0));
-		card.add(site);
-
-		return card;
-	}
 
 	/** A wrapped grey paragraph at the panel's width — long copy clips rather than wraps without it. */
 	static JLabel note(String text) {
-		var label = new ClipLabel(wrapHtml(esc(text), STATUS_WRAP_PX));
-		label.setFont(SMALL);
-		label.setForeground(MUTED);
+		var label = small("", MUTED);
+		label.setText(wrapHtml(esc(text), STATUS_WRAP_PX));
 		return label;
 	}
 
@@ -1559,12 +1552,10 @@ public class AnvilSidebarPanel extends PluginPanel {
 		// Nothing this account can do here: no empty card either.
 		if (!actions.canSyncRoster && !actions.canSyncProfile && actions.rosterNote == null) return panel;
 		panel.add(cardTitle("Syncing"));
-		if (actions.canSyncProfile) {
-			addAll(panel, fullWidthButton("Sync profile", "Send your collection log and best times to Anvil", data::syncProfile), gap(4), note("Send your collection log and best times to Anvil", 165));
-		}
+		if (actions.canSyncProfile) addAll(panel, fullWidthButton("Sync profile", "Send your collection log and best times to Anvil", () -> data.withPlugin(AnvilPlugin::syncProfileNow)), gap(4), note("Send your collection log and best times to Anvil", 165));
 		if (actions.canSyncProfile && (actions.canSyncRoster || actions.rosterNote != null)) panel.add(gap(8));
 		if (actions.canSyncRoster) {
-			addAll(panel, fullWidthButton("Sync clan roster", "Push the in-game clan member list to the site", data::syncRoster), gap(4), note("Clan admins: push the in-game member list to the site", 165));
+			addAll(panel, fullWidthButton("Sync clan roster", "Push the in-game clan member list to the site", () -> data.withPlugin(AnvilPlugin::syncClanRosterFromPanel)), gap(4), note("Clan admins: push the in-game member list to the site", 165));
 		} else if (actions.rosterNote != null) panel.add(note(actions.rosterNote, 165));
 		return panel;
 	}
@@ -1574,13 +1565,13 @@ public class AnvilSidebarPanel extends PluginPanel {
 		var l = new JLabel(wrapHtml(esc(text), widthPt));
 		l.setFont(SMALL);
 		l.setForeground(MUTED);
-		return left(l);
+		return l;
 	}
 
 	/** A card's white bold title and the gap under it. */
 	static JPanel cardTitle(String text) {
 		var p = column();
-		addAll(p, left(bold(text)), gap(6));
+		addAll(p, bold(text), gap(6));
 		return capH(p);
 	}
 
@@ -1589,53 +1580,6 @@ public class AnvilSidebarPanel extends PluginPanel {
 		return label(text, SMALL.deriveFont(Font.BOLD), WHITE);
 	}
 
-	/**
-	 * Banner clips, which are files in a folder on THIS machine.
-	 *
-	 * <p>Nothing here is per account or per clan — swapping character or clan doesn't change which
-	 * .wav files are on your disk — so the list is the same wherever you are in the panel. A lit
-	 * swatch is in the play cycle, a hollow one is muted, and clicking the row flips it.
-	 */
-	JPanel buildBannerSounds() {
-		var clips = data.sounds(BANNER);
-		var panel = column();
-		panel.add(cardTitle("Banner sounds"));
-
-		if (clips.isEmpty()) {
-			addAll(panel, note("None added — use Add clip, or the banner folder.", 165), gap(4));
-		} else {
-			for (var clip : clips.subList(0, Math.min(clips.size(), BANNER_CLIPS_SHOWN))) {
-				addAll(panel, buildClipRow(clip, data.bannerSoundOn(clip)), gap(2));
-			}
-			if (clips.size() > BANNER_CLIPS_SHOWN) {
-				var more = small("+" + (clips.size() - BANNER_CLIPS_SHOWN) + " more in the folder", MUTED);
-				more.setBorder(createEmptyBorder(2, CLIP_TEXT_INSET, 0, 0));
-				panel.add(more);
-			}
-			panel.add(gap(4));
-		}
-
-		// Two buttons on one line, equal halves.
-		panel.add(buttons(new GridLayout(1, 2, 4, 0),
-			flatButton("Add clip", "Pick .wav files to copy into the banner sounds folder", WHITE,
-				() -> data.importSounds(BANNER)),
-			flatButton("Copy folder", "Copy the sounds folder's path — paste it into your file manager to rename or delete clips",
-				WHITE, data::copyBannerSoundsPath)));
-
-		// MISSIONS, stated rather than configured. A mission dropping should not sound like a tile
-		// being finished, and what it sounds like is decided by whether this folder has anything in
-		// it — so the panel says which of the two is happening, and the button is how you change it.
-		panel.add(gap(8));
-		var missions = data.sounds(MISSION).size();
-		panel.add(small(missions == 0
-			? "Missions: a game sound (no clip added)"
-			: "Missions: " + missions + (missions == 1 ? " clip" : " clips"), MUTED));
-		panel.add(gap(4));
-		panel.add(fullWidth(flatButton(missions == 0 ? "Add mission clip" : "Add mission clips",
-			"Pick .wav files to play when a mission drops, instead of the game sound used by default",
-			WHITE, () -> data.importSounds(MISSION))));
-		return panel;
-	}
 
 	/** How far a clip's name sits from the panel edge — the swatch's width plus its gap. */
 	static final int CLIP_TEXT_INSET = 14;
@@ -1656,10 +1600,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		row.setToolTipText(plainText(display) + (on ? " — click to mute" : " — muted; click to unmute"));
 
 		var swatch = new JPanel();
-		var size = new Dimension(8, 8); // one for all three: the getters hand out copies
-		swatch.setPreferredSize(size);
-		swatch.setMinimumSize(size);
-		swatch.setMaximumSize(size);
+		sizeTo(swatch, new Dimension(8, 8));
 		swatch.setBackground(on ? PROGRESS_COMPLETE_COLOR : DARK_GRAY_COLOR);
 		swatch.setBorder(createLineBorder(on
 			? PROGRESS_COMPLETE_COLOR : WIDGET_BORDER));
@@ -1671,9 +1612,20 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 		row.add(swatchBox, WEST);
 		row.add(small(display.length() <= 26 ? display : display.substring(0, 25).trim() + "…", on ? TEXT_COLOR : MUTED), CENTER);
-		hoverable(capH(row), DARKER_GRAY_COLOR, () -> {
+		// Lights up under the mouse, so the row says it can be clicked.
+		row.setOpaque(true);
+		row.setBackground(DARKER_GRAY_COLOR);
+		onClick(capH(row), () -> {
 			data.toggleBannerSound(clip);
 			renderSettings();
+		}).addMouseListener(new MouseAdapter() {
+			public void mouseEntered(MouseEvent e) {
+				row.setBackground(DARK_GRAY_HOVER_COLOR);
+			}
+
+			public void mouseExited(MouseEvent e) {
+				if (row.getMousePosition(true) == null) row.setBackground(DARKER_GRAY_COLOR); // into a child is still inside
+			}
 		});
 		return row;
 	}
@@ -1698,9 +1650,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			addAll(card, gap(4), where);
 		}
 
-		if (!empty(proof.keyword)) {
-			addAll(card, gap(2), small("Keyword: " + proof.keyword, MUTED));
-		}
+		if (!empty(proof.keyword)) addAll(card, gap(2), small("Keyword: " + proof.keyword, MUTED));
 
 		// The requirements the button checks — session age, position — shown live, so a player can
 		// see each one go green instead of finding out from a refusal in chat. Ticks every second
@@ -1717,9 +1667,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			};
 		}
 
-		if ("rejected".equals(proof.status)) {
-			addAll(card, gap(2), small("Your last shot was rejected — take another.", PROGRESS_ERROR_COLOR));
-		}
+		if ("rejected".equals(proof.status)) addAll(card, gap(2), small("Your last shot was rejected — take another.", PROGRESS_ERROR_COLOR));
 
 		// WHY it matters, which the card never said. A player who reads "starting shot needed" and
 		// carries on has no way to know their drops are landing in a review queue meanwhile.
@@ -1758,14 +1706,14 @@ public class AnvilSidebarPanel extends PluginPanel {
 		if (proof.spot != null) {
 			card.add(gap(4));
 			card.add(fullWidthButton("Route me there", "Draws the way there with the Shortest Path plugin, if you have it",
-				data::routeToStartSpot));
+				() -> data.withPlugin(AnvilPlugin::routeToStartSpot)));
 		}
 
 		return card;
 	}
 
 	void renderStartProofChecks(JPanel into, PluginConfigResponse.StartProof proof) {
-		var list = data.startProofChecks(proof);
+		List<StartProofRules.Check> list = data.fromPlugin(p -> p.startProofChecks(proof), emptyList());
 		// Ticked every second, but the checks only move when you log in or walk to the spot: rebuild
 		// only when what they say changes.
 		var said = new StringBuilder();
@@ -1788,12 +1736,6 @@ public class AnvilSidebarPanel extends PluginPanel {
 	}
 
 	// ---- Tiles and Teams pages --------------------------------------------------------------------
-
-	/** Install one row listener on the panel and every label nested inside it. */
-	static void addMouseListenerToTree(Component component, MouseAdapter listener) {
-		component.addMouseListener(listener);
-		if (component instanceof Container) for (var child : ((Container) component).getComponents()) addMouseListenerToTree(child, listener);
-	}
 
 	static void addAll(Container into, Component... parts) {
 		for (var c : parts) into.add(c);
@@ -1913,9 +1855,9 @@ public class AnvilSidebarPanel extends PluginPanel {
 	 * which is the one case it does not guard.
 	 */
 	static class ClanChoiceRenderer implements ListCellRenderer<ClanChoice> {
-		final JPanel row = new JPanel(new BorderLayout(0, 1));
-		final JLabel name = new ClipLabel();
-		final JLabel detail = new ClipLabel();
+		JPanel row = new JPanel(new BorderLayout(0, 1));
+		JLabel name = new ClipLabel();
+		JLabel detail = new ClipLabel();
 
 		ClanChoiceRenderer() {
 			name.setFont(SMALL);

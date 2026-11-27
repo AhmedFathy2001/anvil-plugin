@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static com.anvil.DiskFiles.*;
 import lombok.*;
 import com.google.gson.*;
 import java.io.*;
@@ -24,17 +25,16 @@ import net.runelite.client.util.*;
 @RequiredArgsConstructor
 @Slf4j
 class ResponseDiskCache {
-	static final String CONFIG = "config";
-	static final String CHAT_PATTERNS = "chat-patterns";
-	/** The Supporter name list (ChatFlair): public, the same for every account: one file per site.
+	/** CHAT_FLAIR: the Supporter name list (ChatFlair): public, the same for every account: one file per site.
 	 * Renamed whenever the wire gains a field: an old file at the same version would never refetch. */
-	static final String CHAT_FLAIR = "chat-flair-3-";
+	static final String CONFIG = "config", CHAT_PATTERNS = "chat-patterns", CHAT_FLAIR = "chat-flair-3-";
 
 	/** One saved answer. */
+	@AllArgsConstructor
+	@NoArgsConstructor
 	static class Entry {
-		String url, etag, body;
-		/** The character the request was made as (X-RSN, else the launcher hint), or null. */
-		String rsn;
+		/** rsn: the character the request was made as (X-RSN, else the launcher hint), or null. */
+		String url, etag, body, rsn;
 		long savedAt;
 	}
 
@@ -43,7 +43,7 @@ class ResponseDiskCache {
 	/** Fingerprint of the token in use, "" when signed out. */
 	volatile String account = "";
 	/** kind → etag (or body hash) last written, so an unchanged 30s poll doesn't rewrite the file. */
-	final Map<String, String> written = new ConcurrentHashMap<>();
+	Map<String, String> written = new ConcurrentHashMap<>();
 
 
 	/**
@@ -52,7 +52,7 @@ class ResponseDiskCache {
 	 * deletes off the client thread.
 	 */
 	String switchAccount(String token) {
-		var next = DiskFiles.fingerprint(token);
+		var next = fingerprint(token);
 		var prev = account;
 		if (next.equals(prev)) return null;
 		account = next;
@@ -62,14 +62,14 @@ class ResponseDiskCache {
 
 	/** {@code <kind>-<acct>.json}, or the shared {@code <kind>.json} for a null {@code acct}. */
 	Filepath file(String kind, String acct) {
-		var d = DiskFiles.ensureDir(dir);
+		var d = ensureDir(dir);
 		return d == null || "".equals(acct) ? null : d.joinSegment(kind + (acct == null ? "" : "-" + acct) + ".json");
 	}
 
 	/** The saved answer of {@code kind} for the current account, or null. Blocking. */
 	Entry load(String kind) {
 		// Missing or unreadable reads as nothing saved; the next fresh answer overwrites a bad file.
-		var e = DiskFiles.readJson(gson, file(kind, account), Entry.class);
+		var e = readJson(gson, file(kind, account), Entry.class);
 		if (e == null || e.body == null || e.url == null) return null;
 		written.put(kind, e.etag != null ? e.etag : Integer.toString(e.body.hashCode()));
 		return e;
@@ -83,23 +83,17 @@ class ResponseDiskCache {
 		if (marker.equals(written.get(kind))) return;
 		var f = file(kind, acct);
 		if (f == null) return;
-		var e = new Entry();
-		e.url = url;
-		e.etag = etag;
-		e.body = body;
-		e.rsn = rsn;
-		e.savedAt = System.currentTimeMillis();
 		try {
-			DiskFiles.writeAtomic(f, gson.toJson(e));
+			writeAtomic(f, gson.toJson(new Entry(url, etag, body, rsn, System.currentTimeMillis())));
 			written.put(kind, marker);
-		} catch (IOException | RuntimeException ex) {
+		} catch (Exception ex) {
 		}
 	}
 
 	/** A saved copy of public data the same for everyone ({@code <kind>.json}), or null. Blocking. */
 	<T> T loadShared(String kind, Class<T> type) {
 		var f = file(kind, null);
-		return f == null ? null : DiskFiles.readJson(gson, f, type);
+		return f == null ? null : readJson(gson, f, type);
 	}
 
 	/** Save {@link #loadShared}'s copy. Blocking; never the client thread. */
@@ -107,14 +101,14 @@ class ResponseDiskCache {
 		var f = file(kind, null);
 		if (f == null) return;
 		try {
-			DiskFiles.writeAtomic(f, gson.toJson(value));
-		} catch (IOException | RuntimeException ex) {
+			writeAtomic(f, gson.toJson(value));
+		} catch (Exception ex) {
 		}
 	}
 
 	/** Delete every saved answer for {@code acct}. Blocking. */
 	void clear(String acct) {
 		if (acct == null || acct.isEmpty()) return;
-		DiskFiles.deleteQuietly(file(CONFIG, acct));
+		deleteQuietly(file(CONFIG, acct));
 	}
 }

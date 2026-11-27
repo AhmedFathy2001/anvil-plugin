@@ -18,8 +18,6 @@ import java.util.*;
  * <p>No RuneLite dependencies, so it is unit-testable.
  */
 class TileNotes {
-
-
 	/** Only real tiles can be pinned (the site serves no progress for a virtual id). */
 	static boolean pinnable(int tileId) {
 		return tileId > 0;
@@ -27,22 +25,15 @@ class TileNotes {
 
 	/** "3/5 runs" for a tile needing several qualifying runs; null for a plain one-clear timed tile. */
 	static String runs(long done, int required) {
-		if (required <= 1) return null;
-		return fmt(max(0, min(done, required))) + "/" + fmt(required) + " runs";
+		return required <= 1 ? null : fmt(max(0, min(done, required))) + "/" + fmt(required) + " runs";
 	}
 
 
 	/** Part tileId → its combo's tileId. */
 	static Map<Integer, Integer> partCombos(List<TrackedCombo> combos) {
 		if (combos == null || combos.isEmpty()) return Collections.emptyMap();
-		Map<Integer, Integer> out = new HashMap<>();
-		for (var c : combos) {
-			if (c != null && c.parts != null) {
-				for (var p : c.parts) {
-					if (p != null) out.put(p.tileId, c.tileId);
-				}
-			}
-		}
+		var out = new HashMap<Integer, Integer>();
+		for (var c : combos) if (c != null && c.parts != null) for (var p : c.parts) if (p != null) out.put(p.tileId, c.tileId);
 		return out;
 	}
 
@@ -52,7 +43,7 @@ class TileNotes {
 	 * {current, required} at this client's newest count; a part missing from it shows just its label.
 	 */
 	static List<String> comboLines(TrackedCombo combo, Map<Integer, long[]> counts) {
-		List<String> out = new ArrayList<>();
+		var out = new ArrayList<String>();
 		int needed = max(1, combo.needed);
 		// A "mix" combo is weighted shares, so it reads as the server's percentage instead.
 		out.add("mix".equals(combo.rule)
@@ -63,11 +54,7 @@ class TileNotes {
 				if (p == null) continue;
 				var label = p.label == null ? "Part" : p.label.trim();
 				var c = counts == null ? null : counts.get(p.tileId);
-				if (p.completed) {
-					out.add(label + "  done");
-				} else if (c != null && c[1] > 1) {
-					out.add(label + "  " + fmt(max(0, min(c[0], c[1]))) + "/" + fmt(c[1]));
-				} else out.add(label);
+				out.add(p.completed ? label + "  done" : c != null && c[1] > 1 ? label + "  " + fmt(max(0, min(c[0], c[1]))) + "/" + fmt(c[1]) : label);
 			}
 		}
 		return out;
@@ -75,15 +62,7 @@ class TileNotes {
 
 	/** A part named with its combo, for chat: "GOTR rare or searches — 100 searches". */
 	static String partLabel(String comboLabel, String partLabel) {
-		if (comboLabel == null || comboLabel.trim().isEmpty()) return partLabel;
-		return comboLabel.trim() + " \u2014 " + (partLabel == null ? "" : partLabel.trim());
-	}
-
-	static String plural(String noun) {
-		var n = noun.toLowerCase(Locale.ROOT);
-		if (n.endsWith("s") || n.endsWith("x") || n.endsWith("z") || n.endsWith("sh") || n.endsWith("ch")) return noun + "es";
-		if (n.length() > 1 && n.endsWith("y") && "aeiou".indexOf(n.charAt(n.length() - 2)) < 0) return noun.substring(0, noun.length() - 1) + "ies";
-		return noun + "s";
+		return comboLabel == null || comboLabel.trim().isEmpty() ? partLabel : comboLabel.trim() + " \u2014 " + (partLabel == null ? "" : partLabel.trim());
 	}
 
 	static String fmt(long n) {
