@@ -43,10 +43,7 @@ class SlimScrollBarUI extends BasicScrollBarUI {
 
 	static JButton zeroButton() {
 		var b = new JButton();
-		var none = new Dimension(0, 0);
-		b.setPreferredSize(none);
-		b.setMinimumSize(none);
-		b.setMaximumSize(none);
+		Ui.sizeTo(b, new Dimension(0, 0));
 		return b;
 	}
 

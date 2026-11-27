@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static javax.swing.BorderFactory.*;
 import static net.runelite.client.ui.ColorScheme.*;
 import java.awt.*;
 import java.awt.event.*;
@@ -102,6 +103,13 @@ class Ui {
 		return c;
 	}
 
+	/** Pins {@code c} at {@code d}: preferred, minimum and maximum alike. */
+	static void sizeTo(JComponent c, Dimension d) {
+		c.setPreferredSize(d);
+		c.setMinimumSize(d);
+		c.setMaximumSize(d);
+	}
+
 	static <T extends JComponent> T left(T c) {
 		c.setAlignmentX(Component.LEFT_ALIGNMENT);
 		return c;
@@ -167,7 +175,7 @@ class Ui {
 	static JPanel block() {
 		var p = column();
 		p.setBackground(DARKER_GRAY_COLOR);
-		p.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+		p.setBorder(createEmptyBorder(8, 8, 8, 8));
 		return p;
 	}
 
@@ -184,12 +192,17 @@ class Ui {
 
 	/** The search fields' look: white text and caret on the darker surface, an orange selection. */
 	static void styleSearch(JTextField f) {
-		f.setBackground(DARKER_GRAY_COLOR);
-		f.setForeground(Color.WHITE);
-		f.setCaretColor(Color.WHITE);
+		darkInput(f);
 		f.setSelectionColor(BRAND_ORANGE);
 		f.setSelectedTextColor(Color.BLACK);
 		f.setFont(REGULAR);
+	}
+
+	/** White text and caret on the darker surface. */
+	static void darkInput(JTextComponent f) {
+		f.setBackground(DARKER_GRAY_COLOR);
+		f.setForeground(Color.WHITE);
+		f.setCaretColor(Color.WHITE);
 	}
 
 	/** Runs {@code changed} on every edit of the field's text. */
@@ -275,9 +288,13 @@ class Ui {
 	static class SearchField extends JTextField {
 		final String placeholder;
 
+		/** The panel's search boxes all look alike: {@link #styleSearch}, small type, a grey outline. */
 		SearchField(String placeholder, String value) {
-			super(value == null ? "" : value);
+			super(value);
 			this.placeholder = placeholder;
+			styleSearch(this);
+			setFont(SMALL);
+			setBorder(createCompoundBorder(createLineBorder(UiView.RAISED_HOVER), createEmptyBorder(4, 6, 4, 6)));
 		}
 
 		/** The hint stays until something is typed: a box that takes focus on its own showed none. */

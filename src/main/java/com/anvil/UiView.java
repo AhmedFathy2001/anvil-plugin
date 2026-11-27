@@ -585,9 +585,7 @@ class UiView extends JPanel {
 				// A copy answers on the button itself: "Copied ✓" for a moment, then its own label.
 				if ("copy".equals(str(on, "a"))) b.addActionListener(e -> {
 					b.setText("Copied ✓");
-					var back = new Timer(1500, x -> b.setText(label));
-					back.setRepeats(false);
-					back.start();
+					once(1500, x -> b.setText(label));
 				});
 				return button;
 			case "gap":
@@ -625,8 +623,7 @@ class UiView extends JPanel {
 
 	List<JComponent> children(JsonObject n, String key) {
 		List<JComponent> out = new ArrayList<>();
-		var a = arr(n, key);
-		if (a != null) for (var e : a) if (e.isJsonObject()) out.add(node(e.getAsJsonObject()));
+		for (var e : all(n, key)) if (e.isJsonObject()) out.add(node(e.getAsJsonObject()));
 		return out;
 	}
 
@@ -865,12 +862,6 @@ class UiView extends JPanel {
 		return l;
 	}
 
-	static void sizeTo(JComponent c, Dimension d) {
-		c.setPreferredSize(d);
-		c.setMinimumSize(d);
-		c.setMaximumSize(d);
-	}
-
 	/**
 	 * A row is height-capped ({@link Ui#capH}) when built, while its picture is still hidden at 0x0; once
 	 * the picture decodes, lift each capped ancestor to its new preferred height or the icon is cropped
@@ -1027,8 +1018,7 @@ class UiView extends JPanel {
 	/** A bar in segments, one colour each (a race's steps: done, here, still to come). */
 	static JComponent segs(JsonObject n) {
 		List<Color> cs = new ArrayList<>();
-		var a = arr(n, "c");
-		if (a != null) for (var e : a) cs.add(color(e.getAsString(), MUTED));
+		for (var e : all(n, "c")) cs.add(color(e.getAsString(), MUTED));
 		int h = num(n, "h", 6);
 		var bar = new JPanel() {
 			protected void paintComponent(Graphics g) {
@@ -1111,7 +1101,7 @@ class UiView extends JPanel {
 	 */
 	JComponent tabs(JsonObject n) {
 		var key = str(n, "key");
-		var list = n.has("tabs") ? n.getAsJsonArray("tabs") : new JsonArray();
+		var list = all(n, "tabs");
 		if (list.size() == 0) return new JPanel();
 		// A tab with {@code on} and no body is a link (Feed | Chat): picking it runs the action, and the
 		// one marked {@code sel} is lit.
@@ -1121,7 +1111,7 @@ class UiView extends JPanel {
 		for (var e : list) {
 			var t = e.getAsJsonObject();
 			var label = str(t, "label");
-			bodies.put(label, t.has("c") ? t.getAsJsonObject("c") : null);
+			bodies.put(label, obj(t, "c"));
 			if (t.has("on") && !t.has("c")) links.put(label, t.getAsJsonObject("on"));
 			if (bool(t, "sel")) wanted = label;
 		}
@@ -1218,11 +1208,11 @@ class UiView extends JPanel {
 
 		var lists = column();
 		lists.setOpaque(false);
-		for (var e : n.has("c") ? n.getAsJsonArray("c") : new JsonArray()) {
+		for (var e : all(n, "c")) {
 			var list = e.getAsJsonObject();
 			var box = node(list);
 			var rows = List.of(box.getComponents());
-			var specs = list.has("c") ? list.getAsJsonArray("c") : new JsonArray();
+			var specs = all(list, "c");
 			if (rows.size() != specs.size()) {
 				lists.add(box); // a list with gaps or extras between rows isn't searched
 				continue;
@@ -1272,10 +1262,7 @@ class UiView extends JPanel {
 		refill.run();
 		if (bool(n, "box")) {
 			var search = new SearchField(str(n, "hint"), "");
-			styleSearch(search);
-			search.setFont(SMALL);
 			search.setBackground(DARK_GRAY_COLOR);
-			search.setBorder(createCompoundBorder(createLineBorder(RAISED_HOVER), createEmptyBorder(4, 6, 4, 6)));
 			onEdit(search, () -> {
 				query[0] = search.getText().trim();
 				refill.run();
@@ -1338,10 +1325,6 @@ class UiView extends JPanel {
 	 */
 	JComponent search(JsonObject n, String name, String value) {
 		var field = new SearchField(str(n, "label"), value);
-		styleSearch(field);
-		field.setFont(SMALL);
-		field.setBorder(createCompoundBorder(
-			createLineBorder(RAISED_HOVER), createEmptyBorder(4, 6, 4, 6)));
 		inputs.put(name, () -> field.getText().trim());
 		var on = obj(n, "on");
 		if (on != null) {
@@ -1436,7 +1419,7 @@ class UiView extends JPanel {
 		switch (str(n, "kind")) {
 			case "select":
 				List<String[]> options = new ArrayList<>();
-				for (var e : n.has("options") ? n.getAsJsonArray("options") : new JsonArray()) {
+				for (var e : all(n, "options")) {
 					var o = e.getAsJsonObject();
 					options.add(new String[]{str(o, "v"), plainText(str(o, "label"))});
 				}
@@ -1462,10 +1445,7 @@ class UiView extends JPanel {
 				int start = max(min, min(max, parseInt(value, min)));
 				var spinner = new JSpinner(new SpinnerNumberModel(start, min, max, max(1, num(n, "step", 1))));
 				spinner.setFont(SMALL);
-				var field = ((JSpinner.DefaultEditor) spinner.getEditor()).getTextField();
-				field.setBackground(DARKER_GRAY_COLOR);
-				field.setForeground(Color.WHITE);
-				field.setCaretColor(Color.WHITE);
+				darkInput(((JSpinner.DefaultEditor) spinner.getEditor()).getTextField());
 				inputs.put(name, () -> String.valueOf(spinner.getValue()));
 				var row = Ui.row(6);
 				row.add(small(str(n, "label"), MUTED), WEST);
@@ -1475,9 +1455,7 @@ class UiView extends JPanel {
 				// A typed answer (a sign-up question). One line; the site caps the length.
 				var box = new JTextField(value);
 				box.setFont(SMALL);
-				box.setBackground(DARKER_GRAY_COLOR);
-				box.setForeground(Color.WHITE);
-				box.setCaretColor(Color.WHITE);
+				darkInput(box);
 				inputs.put(name, box::getText);
 				return capH(box);
 			case "check":
@@ -1504,9 +1482,7 @@ class UiView extends JPanel {
 			var secs = max(0, (at - System.currentTimeMillis()) / 1000);
 			if (armed[0] && secs == 0) {
 				armed[0] = false;
-				var later = new Timer(3_000 /* DUE_REFRESH_MS */, e -> refresh(true));
-				later.setRepeats(false);
-				later.start();
+				once(3_000 /* DUE_REFRESH_MS */, e -> refresh(true));
 			}
 			// Past a day, "4d 4h" — "100:15:48" reads as a clock, not as four days.
 			var clock = secs >= 86400
@@ -1680,6 +1656,11 @@ class UiView extends JPanel {
 	static JsonArray arr(JsonObject o, String key) {
 		var e = o.get(key);
 		return e != null && e.isJsonArray() ? e.getAsJsonArray() : null;
+	}
+
+	/** {@link #arr}, or an empty array. */
+	static JsonArray all(JsonObject o, String key) {
+		return Objects.requireNonNullElseGet(arr(o, key), JsonArray::new);
 	}
 
 	static int num(JsonObject o, String key, int fallback) {
