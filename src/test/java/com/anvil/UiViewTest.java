@@ -20,6 +20,8 @@ public class UiViewTest
 		final List<Consumer<JsonObject>> pending = new ArrayList<>();
 		Map<String, String> postedFields;
 		String site;
+		String copied;
+		String tab;
 		String lookedUp;
 		String pinned;
 		String switched;
@@ -58,6 +60,18 @@ public class UiViewTest
 		public void site(String path)
 		{
 			site = path;
+		}
+
+		@Override
+		public void copy(String path)
+		{
+			copied = path;
+		}
+
+		@Override
+		public void openTab(String name, Map<String, String> args)
+		{
+			tab = name + args;
 		}
 
 		@Override
@@ -288,6 +302,32 @@ public class UiViewTest
 	}
 
 	@Test
+	public void copyFetchesASitePathOnlyAndTabCarriesItsArgs()
+	{
+		FakeHost host = new FakeHost();
+		UiView v = new UiView(host, null, null, null);
+		v.render(view("{\"t\":\"col\",\"c\":[{\"t\":\"text\",\"s\":\"Copy\",\"on\":{\"a\":\"copy\",\"path\":\"/api/plugin/guide-export?guide=1\"}},"
+			+ "{\"t\":\"text\",\"s\":\"Evil\",\"on\":{\"a\":\"copy\",\"path\":\"//evil.example/x\"}},"
+			+ "{\"t\":\"text\",\"s\":\"Players\",\"on\":{\"a\":\"tab\",\"tab\":\"lookup\",\"args\":{\"mode\":\"players\"}}}]}"));
+		click(v, "Evil");
+		assertNull(host.copied);
+		click(v, "Copy");
+		assertEquals("/api/plugin/guide-export?guide=1", host.copied);
+		assertNull(host.site);
+		click(v, "Players");
+		assertEquals("lookup{mode=players}", host.tab);
+	}
+
+	@Test
+	public void writerQuillsAreGlyphsInTheirRankColours()
+	{
+		assertEquals(GlyphIcon.Shape.QUILL, UiView.glyph("quill-silver"));
+		assertEquals(GlyphIcon.Shape.QUILL_STAR, UiView.glyph("quill-star"));
+		assertEquals(new Color(0xe0b453), UiView.QUILLS.get("quill-gold"));
+		assertEquals(GlyphIcon.Shape.CHECK, UiView.glyph("check"));
+	}
+
+	@Test
 	public void anAnswerForAViewNoLongerShownIsDropped()
 	{
 		FakeHost host = new FakeHost();
@@ -328,6 +368,31 @@ public class UiViewTest
 		assertFalse(shown.contains("12"));
 		search.setText("nothing like it");
 		assertTrue(find(v, "Nothing").isVisible());
+	}
+
+	@Test
+	public void aFilterNamesTheMatchedPartAndBuildsSearchOnlyRowsFromATemplate()
+	{
+		UiView v = new UiView(new FakeHost(), null, null, null);
+		v.render(view("{\"t\":\"filter\",\"box\":true,\"c\":[{\"t\":\"grid\",\"cols\":1,\"c\":["
+			+ "{\"t\":\"text\",\"s\":\"Zulrah\",\"k\":\"Zulrah|Tanzanite fang\",\"av\":[\"Zulrah\"]}]}],"
+			+ "\"at\":{\"t\":\"text\",\"s\":\"{1} - matched item: {0}\"},"
+			+ "\"xh\":{\"t\":\"text\",\"s\":\"Matching items\"},"
+			+ "\"xt\":{\"t\":\"text\",\"s\":\"{0}\",\"icon\":{\"t\":\"icon\",\"item\":\"{1}\"},\"tip\":\"{2} · {3}\"},"
+			+ "\"x\":[[\"Tanzanite fang\",12922,\"Zulrah\",\"got 1\"],[\"Zul-andra teleport\",12938,\"Zulrah\",\"not yet\"]]}"));
+		assertFalse(texts(v).contains("Matching items"));
+		JTextField search = findField(v);
+		search.setText("zul");
+		List<String> shown = texts(v);
+		assertTrue(shown.contains("Zulrah"));
+		assertTrue(shown.contains("Matching items"));
+		assertTrue(shown.contains("Zul-andra teleport"));
+		assertFalse(shown.contains("Tanzanite fang"));
+		search.setText("tanz");
+		shown = texts(v);
+		assertTrue(shown.contains("Zulrah - matched item: Tanzanite fang"));
+		assertTrue(shown.contains("Tanzanite fang"));
+		assertTrue(find(v, "Tanzanite fang").getToolTipText().contains("Zulrah · got 1"));
 	}
 
 	private static JTextField findField(Component c)

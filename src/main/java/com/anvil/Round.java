@@ -1,14 +1,14 @@
 package com.anvil;
 
 import java.awt.*;
-import javax.swing.JPanel;
+import javax.swing.*;
 
 /**
  * A panel drawn as a rounded rectangle: a card, a raised row, a track step. {@code fill} null draws no
  * ground until hovered; {@code edge} is a 1px outline (an accent card, a row marked on the way back).
  * Never opaque to Swing, so the corners show what's behind; "opaque" only switches the fill on.
  */
-final class Round extends JPanel {
+class Round extends JPanel {
 	final int arc;
 	final Color hover;
 	Color edge;

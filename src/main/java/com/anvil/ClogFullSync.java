@@ -1,6 +1,6 @@
 package com.anvil;
 
-import lombok.Getter;
+import lombok.*;
 import java.util.*;
 
 /**
@@ -20,7 +20,7 @@ import java.util.*;
  * pages on the way in, so a game update that shuffles pages is a dataset rebuild rather than a
  * plugin release.
  */
-final class ClogFullSync {
+class ClogFullSync {
 	/**
 	 * Items land over several ticks; wait this long after the last one before calling it complete.
 	 * Two ticks and change — long enough that a transmit arriving in bursts isn't cut in half, short

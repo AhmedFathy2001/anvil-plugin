@@ -61,7 +61,7 @@ public class MotionIconTest
 		Icon icon = BingoApiClient.animatedIcon(gif(48, 48, 3, 10), 48, 48);
 		assertTrue(icon instanceof GifIcon);
 		GifIcon g = (GifIcon) icon;
-		assertEquals(3, g.frameCount());
+		assertEquals(3, g.frames.length);
 		assertEquals(48, g.getIconWidth());
 		// 100 ms a frame: past the end it wraps to the first frame again, whatever the file's loop count.
 		assertEquals(0, g.frameAt(50));

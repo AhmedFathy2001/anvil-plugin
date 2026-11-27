@@ -316,39 +316,6 @@ public interface AnvilConfig extends Config {
 	}
 
 	@ConfigItem(
-		keyName = "autoStartShot",
-		name = "Auto starting shot",
-		description = "Take an event's starting shot automatically once you stand on its pinned spot.",
-		position = 8,
-		section = "bingoSection"
-	)
-	default boolean autoStartShot() {
-		return true;
-	}
-
-	@ConfigItem(
-		keyName = "startSpotGuide",
-		name = "Starting shot guide",
-		description = "While a starting shot is owed: an on-screen card with its checks, a hint arrow and a world map pin to the spot. Gone once it's filed.",
-		position = 9,
-		section = "bingoSection"
-	)
-	default boolean startSpotGuide() {
-		return true;
-	}
-
-	@ConfigItem(
-		keyName = "trackerOnePanel",
-		name = "Pinned tiles in one panel",
-		description = "Show every tile pinned with \"Track on screen\" in one compact movable panel: each tile's name and your team's progress. Off: a separate, detailed widget per tile (members and other teams).",
-		position = 10,
-		section = "bingoSection"
-	)
-	default boolean trackerOnePanel() {
-		return true;
-	}
-
-	@ConfigItem(
 		keyName = "shareActivity",
 		name = "Share clan posts",
 		description = "Post your drops, pets, deaths, levels and achievements to your clan's Discord. Which ones post, and from when, is set on the Anvil website: Settings > Announcements.",
@@ -446,6 +413,39 @@ public interface AnvilConfig extends Config {
 		section = "profileSection"
 	)
 	default boolean shareMoments() {
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "shareItems",
+		name = "Share my bank with Anvil for guides",
+		description = "Send your bank, inventory, worn gear and looting bag to Anvil, so guides can show what you're missing and your own version of a setup. Only you see it. Turning this off deletes what was sent.",
+		position = 7,
+		section = "profileSection"
+	)
+	default boolean shareItems() {
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "tripWarning",
+		name = "Pre-trip warning",
+		description = "Closing the bank before a boss or raid checks your spellbook, rune pouch and switches, shows the check in the panel and warns on screen if something's missing.",
+		position = 8,
+		section = "profileSection"
+	)
+	default boolean tripWarning() {
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "tripAutoOpen",
+		name = "Open the pre-trip check in the panel",
+		description = "Closing the bank before a boss or raid opens the check in the Anvil panel. Off, it stays in Lookup > Guides and on the You tab.",
+		position = 9,
+		section = "profileSection"
+	)
+	default boolean tripAutoOpen() {
 		return true;
 	}
 }

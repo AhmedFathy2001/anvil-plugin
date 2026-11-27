@@ -1,14 +1,15 @@
 package com.anvil;
 
+import static java.lang.Math.*;
 import lombok.*;
-import com.google.gson.Gson;
-import java.io.IOException;
+import com.google.gson.*;
+import java.io.*;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.function.Supplier;
+import java.util.function.*;
 import java.util.stream.*;
-import lombok.extern.slf4j.Slf4j;
-import net.runelite.client.util.Filepath;
+import lombok.extern.slf4j.*;
+import net.runelite.client.util.*;
 
 /**
  * Clan notifications (POST /api/plugin/notify) the site didn't take, kept and resent.
@@ -31,10 +32,9 @@ import net.runelite.client.util.Filepath;
  */
 @RequiredArgsConstructor
 @Slf4j
-final class NotifyOutbox {
+class NotifyOutbox {
 	static final int MAX_ITEMS = 100;
 	static final long MAX_AGE_MS = 24L * 60 * 60 * 1000;
-	static final long MAX_BYTES = 20L * 1024 * 1024;
 	static final long FIRST_RETRY_MS = 15_000L;
 	static final long MAX_RETRY_MS = 300_000L;
 
@@ -47,7 +47,7 @@ final class NotifyOutbox {
 	}
 
 	/** One queued notification. Serialized as-is; the PNG lives beside it. */
-	static final class Item {
+	static class Item {
 		String id;
 		String url;
 		String channel;
@@ -86,7 +86,7 @@ final class NotifyOutbox {
 		it.id = now + "-" + UUID.randomUUID().toString().substring(0, 8);
 		it.createdAt = now;
 		it.attempts = 1;
-		it.nextAttemptAt = now + RetryPolicy.backoffMs(1, FIRST_RETRY_MS, MAX_RETRY_MS, Math.random());
+		it.nextAttemptAt = now + RetryPolicy.backoffMs(1, FIRST_RETRY_MS, MAX_RETRY_MS, random());
 		return it;
 	}
 
@@ -102,13 +102,13 @@ final class NotifyOutbox {
 			if (now - it.createdAt > maxAge) evict.add(it);
 			else {
 				kept.add(it);
-				bytes += Math.max(0, it.pngBytes);
+				bytes += max(0, it.pngBytes);
 			}
 		}
 		int i = 0;
 		while (i < kept.size() && (kept.size() - i > maxItems || bytes > maxBytes)) {
 			var oldest = kept.get(i++);
-			bytes -= Math.max(0, oldest.pngBytes);
+			bytes -= max(0, oldest.pngBytes);
 			evict.add(oldest);
 		}
 		return evict;
@@ -152,14 +152,14 @@ final class NotifyOutbox {
 			try {
 				if (png != null && png.length > 0) DiskFiles.writeAtomic(d.joinSegment(item.id + ".png"), png);
 				DiskFiles.writeAtomic(d.joinSegment(item.id + ".json"), gson.toJson(item));
-			} catch (IOException | RuntimeException e) {
+			} catch (Exception e) {
 				item.png = png; // keep it for this session at least
 			}
 		}
 		synchronized (this) {
 			items.add(item);
 			prune(System.currentTimeMillis());
-			if (task == null || task.isDone()) schedule(Math.max(0, item.nextAttemptAt - System.currentTimeMillis()));
+			if (task == null || task.isDone()) schedule(max(0, item.nextAttemptAt - System.currentTimeMillis()));
 		}
 	}
 
@@ -195,7 +195,7 @@ final class NotifyOutbox {
 
 	/** Call with the monitor held. */
 	void prune(long now) {
-		var evict = overflow(items, now, MAX_ITEMS, MAX_AGE_MS, MAX_BYTES);
+		var evict = overflow(items, now, MAX_ITEMS, MAX_AGE_MS, (20L * 1024 * 1024) /* MAX_BYTES */);
 		if (evict.isEmpty()) return;
 		items.removeAll(evict);
 		log.info("Dropped {} stale notification(s)", evict.size());
@@ -207,7 +207,7 @@ final class NotifyOutbox {
 		var ex = scheduler.get();
 		if (ex == null || ex.isShutdown()) return;
 		cancel();
-		task = ex.schedule(this::handOff, Math.max(0, waitMs), TimeUnit.MILLISECONDS);
+		task = ex.schedule(this::handOff, max(0, waitMs), TimeUnit.MILLISECONDS);
 	}
 
 	/** On the timer: run the pass on the HTTP pool, never the plugin's one thread. */
@@ -248,8 +248,8 @@ final class NotifyOutbox {
 				// Still down. Push this one back, and don't dial again for the rest — same wait for all.
 				var now = System.currentTimeMillis();
 				synchronized (this) {
-					var next = now + RetryPolicy.backoffMs(++it.attempts, FIRST_RETRY_MS, MAX_RETRY_MS, Math.random());
-					for (var x : due.subList(i, due.size())) x.nextAttemptAt = Math.max(x.nextAttemptAt, next);
+					var next = now + RetryPolicy.backoffMs(++it.attempts, FIRST_RETRY_MS, MAX_RETRY_MS, random());
+					for (var x : due.subList(i, due.size())) x.nextAttemptAt = max(x.nextAttemptAt, next);
 				}
 				rewrite(it);
 				break;
@@ -281,7 +281,7 @@ final class NotifyOutbox {
 		if (d == null) return;
 		try {
 			DiskFiles.writeAtomic(d.joinSegment(it.id + ".json"), gson.toJson(it));
-		} catch (IOException | RuntimeException e) {
+		} catch (Exception e) {
 		}
 	}
 

@@ -1,11 +1,11 @@
 package com.anvil;
 
-import lombok.RequiredArgsConstructor;
+import lombok.*;
 import com.google.gson.*;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.function.Consumer;
-import lombok.extern.slf4j.Slf4j;
+import java.util.function.*;
+import lombok.extern.slf4j.*;
 import okhttp3.*;
 
 /**
@@ -18,11 +18,10 @@ import okhttp3.*;
  */
 @Slf4j
 @RequiredArgsConstructor
-final class PushSocket extends WebSocketListener {
+class PushSocket extends WebSocketListener {
 	static final long FIRST_RETRY_MS = 2_000;
-	static final long MAX_RETRY_MS = 5 * 60_000;
-	/** Close code for "ticket expired": reconnect at once with a fresh one. */
-	static final int TICKET_EXPIRED = 4001;
+	/** Chat rides this socket, so a drop is retried within half a minute, never left for five. */
+	static final long MAX_RETRY_MS = 30_000;
 
 	final BingoApiClient api;
 	final ScheduledExecutorService executor;
@@ -141,12 +140,20 @@ final class PushSocket extends WebSocketListener {
 
 	public void onClosing(WebSocket ws, int code, String reason) {
 		ws.close(1000, null);
-		dropped(ws, code == TICKET_EXPIRED);
+		dropped(ws, code == 4001 /* TICKET_EXPIRED */);
 	}
 
 	public void onFailure(WebSocket ws, Throwable t, Response response) {
+		// Why it failed, in the client log, at most every five minutes: "stuck reconnecting" needs a cause.
+		var now = System.currentTimeMillis();
+		if (ws == socket && now - warnedAt > 5 * 60_000) {
+			warnedAt = now;
+			log.warn("Anvil live connection failed: {}", response != null ? "HTTP " + response.code() : String.valueOf(t));
+		}
 		dropped(ws, false);
 	}
+
+	long warnedAt;
 
 	/** Call with the monitor held. */
 	long backoff() {

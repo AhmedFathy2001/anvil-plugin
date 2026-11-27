@@ -1,8 +1,8 @@
 package com.anvil;
 
 import lombok.*;
-import java.util.Locale;
-import net.runelite.api.gameval.VarbitID;
+import java.util.*;
+import net.runelite.api.gameval.*;
 
 /**
  * The six Combat Achievement tiers, with the point value awarded for a task at that tier and the

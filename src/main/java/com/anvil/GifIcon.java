@@ -1,11 +1,11 @@
 package com.anvil;
 
 import java.awt.*;
-import java.awt.image.BufferedImage;
+import java.awt.image.*;
 import java.io.*;
 import java.util.*;
 import javax.imageio.*;
-import javax.imageio.metadata.IIOMetadata;
+import javax.imageio.metadata.*;
 
 import javax.swing.*;
 import javax.swing.Timer;
@@ -19,12 +19,7 @@ import org.w3c.dom.*;
  * advances only while a label showing it is on screen and the client window is in front — so after
  * idling it carries on from the frame it stopped at.
  */
-final class GifIcon implements Icon {
-	/** Decoded canvas pixels across all frames (~24 MB of ARGB): a 220x73 banner of 60 frames is ~1M. */
-	static final long MAX_PIXELS = 6_000_000L;
-	static final int MAX_FRAMES = 300;
-	/** GIF delays are centiseconds; 0/1 means "as fast as possible", which browsers show as 100 ms. */
-	static final int MIN_DELAY_MS = 20;
+class GifIcon implements Icon {
 	static final int FALLBACK_DELAY_MS = 100;
 
 	static final Set<GifIcon> LIVE = Collections.newSetFromMap(new WeakHashMap<>());
@@ -55,10 +50,6 @@ final class GifIcon implements Icon {
 			c.shown = last.shown;
 		}
 		return last = c;
-	}
-
-	int frameCount() {
-		return frames.length;
 	}
 
 	public int getIconWidth() {
@@ -141,7 +132,7 @@ final class GifIcon implements Icon {
 			try {
 				reader.setInput(in, false, false);
 				int n = reader.getNumImages(true);
-				if (n <= 0 || n > MAX_FRAMES || (long) lw * lh * n > MAX_PIXELS) return null;
+				if (n <= 0 || n > 300 /* MAX_FRAMES */ || (long) lw * lh * n > 6_000_000L /* MAX_PIXELS */) return null;
 				var frames = new BufferedImage[n];
 				int[] ends = new int[n];
 				var canvas = new BufferedImage(lw, lh, BufferedImage.TYPE_INT_ARGB);
@@ -174,7 +165,7 @@ final class GifIcon implements Icon {
 		}
 	}
 
-	static final class Frame {
+	static class Frame {
 		int x;
 		int y;
 		int delayMs = FALLBACK_DELAY_MS;
@@ -194,7 +185,7 @@ final class GifIcon implements Icon {
 				placed = true;
 			} else if ("GraphicControlExtension".equals(n.getNodeName())) {
 				int cs = Integer.parseInt(attr(a, "delayTime"));
-				f.delayMs = cs <= 1 ? FALLBACK_DELAY_MS : Math.max(MIN_DELAY_MS, cs * 10);
+				f.delayMs = cs <= 1 ? FALLBACK_DELAY_MS : Math.max(20 /* MIN_DELAY_MS */, cs * 10);
 				f.disposal = attr(a, "disposalMethod");
 			}
 		}

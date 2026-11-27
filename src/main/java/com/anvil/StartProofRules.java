@@ -1,6 +1,7 @@
 package com.anvil;
 
-import lombok.RequiredArgsConstructor;
+import static java.lang.Math.*;
+import lombok.*;
 
 /**
  * The client-side half of the STARTING SHOT rule (site lib/startProof).
@@ -20,7 +21,7 @@ import lombok.RequiredArgsConstructor;
  *
  * <p>Pure and static so it unit-tests without a client: the plugin supplies the numbers.
  */
-final class StartProofRules {
+class StartProofRules {
 	/** {@code sessionLoginAtMs} when we never saw the login — a plugin enabled mid-session. */
 	static final long UNKNOWN_LOGIN = 0L;
 
@@ -30,7 +31,7 @@ final class StartProofRules {
 	 */
 	static int distance(PluginConfigResponse.StartProof proof, Integer x, Integer y) {
 		if (proof == null || proof.spot == null || x == null || y == null) return -1;
-		return Math.max(Math.abs(x - proof.spot.x), Math.abs(y - proof.spot.y));
+		return max(abs(x - proof.spot.x), abs(y - proof.spot.y));
 	}
 
 	/**
@@ -55,7 +56,7 @@ final class StartProofRules {
 				return "Log out and back in before your starting shot — that's what saves your hiscores"
 					+ " so your starting totals are right.";
 			}
-			var minutes = Math.max(0, (nowMs - sessionLoginAtMs) / 60_000L);
+			var minutes = max(0, (nowMs - sessionLoginAtMs) / 60_000L);
 			if (minutes > proof.maxSessionMinutes) {
 				return "You've been logged in for " + describeMinutes(minutes) + " — log out and back in,"
 					+ " then take your starting shot within " + proof.maxSessionMinutes + " min."
@@ -89,7 +90,7 @@ final class StartProofRules {
 
 	/** One live requirement on the starting-shot card: met, not met, or not knowable yet. */
 	@RequiredArgsConstructor
-	static final class Check {
+	static class Check {
 		enum State {
 			OK, BAD, UNKNOWN
 		}
@@ -106,7 +107,7 @@ final class StartProofRules {
 	static Check sessionCheck(PluginConfigResponse.StartProof proof, long sessionLoginAtMs, long nowMs) {
 		if (proof == null || proof.maxSessionMinutes <= 0) return null;
 		if (sessionLoginAtMs == UNKNOWN_LOGIN) return new Check(Check.State.BAD, "Log out and back in (then under " + proof.maxSessionMinutes + " min)");
-		var minutes = Math.max(0, (nowMs - sessionLoginAtMs) / 60_000L);
+		var minutes = max(0, (nowMs - sessionLoginAtMs) / 60_000L);
 		if (minutes > proof.maxSessionMinutes) {
 			return new Check(Check.State.BAD, "Session " + describeMinutes(minutes) + ": relog (under "
 				+ proof.maxSessionMinutes + " min)");

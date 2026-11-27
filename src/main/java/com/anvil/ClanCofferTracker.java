@@ -1,7 +1,7 @@
 package com.anvil;
 
-import lombok.RequiredArgsConstructor;
-import java.util.Locale;
+import lombok.*;
+import java.util.*;
 
 /**
  * Turns repeated reads of the Clan Coffer coin stack into auditable balance transitions.
@@ -10,8 +10,7 @@ import java.util.Locale;
  * the local player, but it is used only for attribution: the balance delta remains the source of
  * truth and an unconfirmed movement is still reported anonymously.</p>
  */
-final class ClanCofferTracker {
-	static final long ACTOR_WINDOW_MS = 15_000L;
+class ClanCofferTracker {
 
 	enum Kind {
 		SNAPSHOT, DEPOSIT, WITHDRAWAL;
@@ -20,7 +19,7 @@ final class ClanCofferTracker {
 	}
 
 	@RequiredArgsConstructor
-	static final class Observation {
+	static class Observation {
 		final Kind kind;
 		final int beforeBalance;
 		final int afterBalance;
@@ -67,7 +66,7 @@ final class ClanCofferTracker {
 		var kind = balance > before ? Kind.DEPOSIT : Kind.WITHDRAWAL;
 		var confirmed = recentSelfAction == kind
 			&& now >= recentSelfActionAt
-			&& now - recentSelfActionAt <= ACTOR_WINDOW_MS;
+			&& now - recentSelfActionAt <= 15_000L /* ACTOR_WINDOW_MS */;
 		lastBalance = balance;
 		// One chat line may explain one physical transition, never a later unrelated one.
 		recentSelfAction = null;

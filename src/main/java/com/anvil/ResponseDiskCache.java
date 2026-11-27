@@ -1,12 +1,12 @@
 package com.anvil;
 
 import lombok.*;
-import com.google.gson.Gson;
-import java.io.IOException;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import lombok.extern.slf4j.Slf4j;
-import net.runelite.client.util.Filepath;
+import com.google.gson.*;
+import java.io.*;
+import java.util.*;
+import java.util.concurrent.*;
+import lombok.extern.slf4j.*;
+import net.runelite.client.util.*;
 
 /**
  * The last good {@code /api/plugin/config} and active {@code /api/plugin/board} answers, kept on disk
@@ -23,17 +23,15 @@ import net.runelite.client.util.Filepath;
  */
 @RequiredArgsConstructor
 @Slf4j
-final class ResponseDiskCache {
+class ResponseDiskCache {
 	static final String CONFIG = "config";
 	static final String CHAT_PATTERNS = "chat-patterns";
-	/** The Supporter name list (ChatFlair): public, the same for every account, so one shared file.
+	/** The Supporter name list (ChatFlair): public, the same for every account: one file per site.
 	 * Renamed whenever the wire gains a field: an old file at the same version would never refetch. */
-	static final String CHAT_FLAIR = "chat-flair-2";
-	/** A board bigger than this isn't worth the disk; the next launch just downloads it. */
-	static final int MAX_BODY_CHARS = 2_000_000;
+	static final String CHAT_FLAIR = "chat-flair-3-";
 
 	/** One saved answer. */
-	static final class Entry {
+	static class Entry {
 		String url, etag, body;
 		/** The character the request was made as (X-RSN, else the launcher hint), or null. */
 		String rsn;
@@ -79,7 +77,7 @@ final class ResponseDiskCache {
 
 	/** Save a fresh 200 body. Blocking; called from the HTTP worker that fetched it, never the client thread. */
 	void store(String kind, String url, String etag, String body, String rsn) {
-		if (body == null || body.length() > MAX_BODY_CHARS) return;
+		if (body == null || body.length() > 2_000_000 /* MAX_BODY_CHARS */) return;
 		var acct = account;
 		var marker = etag != null ? etag : Integer.toString(body.hashCode());
 		if (marker.equals(written.get(kind))) return;

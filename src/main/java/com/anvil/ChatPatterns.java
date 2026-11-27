@@ -1,13 +1,13 @@
 package com.anvil;
 
 import static java.util.Collections.*;
-import lombok.RequiredArgsConstructor;
-import com.google.gson.Gson;
+import lombok.*;
+import com.google.gson.*;
 import java.io.*;
-import java.nio.charset.StandardCharsets;
+import java.nio.charset.*;
 import java.util.*;
 import java.util.regex.*;
-import lombok.extern.slf4j.Slf4j;
+import lombok.extern.slf4j.*;
 
 /**
  * Every chat line the plugin reads, by a stable key, so the site can re-word one without a release.
@@ -21,13 +21,13 @@ import lombok.extern.slf4j.Slf4j;
  * <p>Parsers read groups BY NAME — an override may order its groups differently.</p>
  */
 @Slf4j
-final class ChatPatterns {
-	static final class Sample {
+class ChatPatterns {
+	static class Sample {
 		String line;
 		Map<String, String> expect;
 	}
 
-	static final class Entry {
+	static class Entry {
 		String key;
 		String description;
 		List<String> types;
@@ -41,13 +41,13 @@ final class ChatPatterns {
 		List<Sample> samples;
 	}
 
-	static final class Catalog {
+	static class Catalog {
 		int version;
 		List<Entry> patterns;
 	}
 
 	/** One site override. A null regex means "use the default". */
-	static final class SiteOverride {
+	static class SiteOverride {
 		String key;
 		String regex;
 		/** Optional literal the new wording always carries — the pre-filter for this override. */
@@ -55,25 +55,22 @@ final class ChatPatterns {
 	}
 
 	/** Body of GET /api/plugin/chat-patterns. */
-	static final class OverridesResponse {
+	static class OverridesResponse {
 		int version;
 		List<SiteOverride> overrides;
 	}
 
 	static final int MAX_LENGTH = 500;
-	/** charAt calls one test input may cost; a backtracking bomb blows through this in microseconds. */
-	static final long STEP_BUDGET = 2_000_000L;
 	/**
 	 * charAt calls an OVERRIDE may spend on one real chat line. Vetting can't foresee every line, and
 	 * these run on the client thread — an override that overspends is dropped for the session.
 	 */
-	static final long LINE_BUDGET = 100_000L;
 	static final Pattern NEVER = Pattern.compile("(?!)");
 
 	static volatile Map<String, Entry> entries = emptyMap();
 	static volatile Map<String, Pattern> defaults = emptyMap();
 	/** The accepted overrides and their hints, swapped as ONE object so a reader never pairs mismatched halves. */
-	static final class Live {
+	static class Live {
 		final Map<String, Pattern> patterns;
 		final Map<String, String> hints;
 
@@ -128,7 +125,7 @@ final class ChatPatterns {
 			var hint = l.hints.get(key);
 			if (hint != null && !text.contains(hint)) return null;
 			try {
-				return hit(o.matcher(new Budgeted(text, LINE_BUDGET)), whole);
+				return hit(o.matcher(new Budgeted(text, 100_000L /* LINE_BUDGET */)), whole);
 			} catch (BudgetExceeded ex) {
 				drop(key, o);
 				// fall through to the default — this line still deserves a reading
@@ -260,7 +257,7 @@ final class ChatPatterns {
 		return entries;
 	}
 
-	static final class BudgetExceeded extends RuntimeException {
+	static class BudgetExceeded extends RuntimeException {
 		BudgetExceeded() {
 			super(null, null, false, false);
 		}
@@ -268,12 +265,12 @@ final class ChatPatterns {
 
 	/** A CharSequence that gives up once the regex engine has read it too many times. */
 	@RequiredArgsConstructor
-	static final class Budgeted implements CharSequence {
+	static class Budgeted implements CharSequence {
 		final String s;
 		final long[] left;
 
 		Budgeted(String s) {
-			this(s, STEP_BUDGET);
+			this(s, 2_000_000L /* STEP_BUDGET */);
 		}
 
 		Budgeted(String s, long budget) {

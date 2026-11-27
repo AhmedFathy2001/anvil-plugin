@@ -1,6 +1,6 @@
 package com.anvil;
 
-import lombok.RequiredArgsConstructor;
+import lombok.*;
 import java.util.*;
 import net.runelite.api.*;
 import net.runelite.api.gameval.*;
@@ -17,7 +17,7 @@ import net.runelite.api.gameval.*;
  * value; the caller diffs it against what it last sent and pushes only the difference, which is
  * usually nothing.
  */
-final class AccountProgress {
+class AccountProgress {
 	/**
 	 * Diary completion varbits, region by region, in tier order: easy, medium, hard, elite.
 	 *
@@ -162,7 +162,7 @@ final class AccountProgress {
 
 	/** One quest, as the site lists it: the game's own id and name, and which of the three states. */
 	@RequiredArgsConstructor
-	static final class Item {
+	static class Item {
 		final int id;
 		final String name;
 		final int state;

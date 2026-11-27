@@ -26,7 +26,7 @@ import com.google.gson.*;
  * </ul>
  * Every kind also carries {@code rsn} when known.
  */
-final class NotifyFacts {
+class NotifyFacts {
 	final String kind;
 	final JsonObject facts = new JsonObject();
 

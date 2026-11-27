@@ -1,6 +1,6 @@
 package com.anvil;
 
-import lombok.RequiredArgsConstructor;
+import lombok.*;
 import java.util.*;
 
 /**
@@ -20,10 +20,10 @@ import java.util.*;
  *
  * <p>RuneLite-free so it can be unit-tested; {@link AnvilPlugin} owns persistence.
  */
-final class VestigeRolls {
+class VestigeRolls {
 	/** One boss's cycle state. */
 	@RequiredArgsConstructor
-	static final class State {
+	static class State {
 		/** Rolls seen since the last vestige — 0 means "a vestige is 3 rolls away". */
 		final int rolls;
 		/** True once a vestige has been observed, which anchors the cycle. */
@@ -32,7 +32,7 @@ final class VestigeRolls {
 
 	/** What a drop did to the cycle, and what to say about it. */
 	@RequiredArgsConstructor
-	static final class Result {
+	static class Result {
 		final State state;
 		/** True when this drop WAS the vestige. */
 		final boolean vestige;

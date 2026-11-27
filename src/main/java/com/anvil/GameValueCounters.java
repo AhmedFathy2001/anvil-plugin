@@ -2,7 +2,7 @@ package com.anvil;
 
 import lombok.*;
 import java.util.*;
-import java.util.function.Predicate;
+import java.util.function.*;
 
 /**
  * Counters read off game values (varbits/varps) rather than a chat line: Tithe Farm points, Giants'
@@ -27,14 +27,14 @@ import java.util.function.Predicate;
  *
  * <p>Pure (no client): {@link #tick} is handed a {@link Reader}, so the rules are unit-tested.
  */
-final class GameValueCounters {
+class GameValueCounters {
 	/** Ticks after a session starts (or after a loading zone) before values count. */
 	static final int SETTLE_TICKS = 5;
 	/** Fallback per-source jump cap when the site sends none. */
 	static final int DEFAULT_MAX_DELTA = 1000;
 
 	@AllArgsConstructor
-	static final class Source {
+	static class Source {
 		/** "varbit" or "varp". */
 		String type;
 		int id;
@@ -56,7 +56,7 @@ final class GameValueCounters {
 	}
 
 	/** One catalog entry as the site ships it. */
-	static final class Entry {
+	static class Entry {
 		String name;
 		List<Source> sources;
 		/** "increase" (default) or "decrease". */
@@ -113,7 +113,7 @@ final class GameValueCounters {
 
 	/** A change to credit under {@code entry.name}. */
 	@RequiredArgsConstructor
-	static final class Credit {
+	static class Credit {
 		final Entry entry;
 		final int amount;
 	}

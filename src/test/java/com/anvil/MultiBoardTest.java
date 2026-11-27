@@ -88,9 +88,9 @@ public class MultiBoardTest
 	@Test
 	public void pinsFromTwoBoardsSitSideBySide()
 	{
-		TileTracker.Widget a = new TileTracker.Widget(0, 11, (id, site) -> site);
+		TileTracker.Widget a = new TileTracker.Widget(11, (id, site) -> site);
 		a.event = 1;
-		TileTracker.Widget b = new TileTracker.Widget(1, 22, (id, site) -> site);
+		TileTracker.Widget b = new TileTracker.Widget(22, (id, site) -> site);
 		b.event = 2;
 		String saved = TileTracker.format(Arrays.asList(a, b));
 		assertEquals("1:11;2:22", saved);

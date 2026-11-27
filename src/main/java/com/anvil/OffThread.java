@@ -1,10 +1,10 @@
 package com.anvil;
 
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.BooleanSupplier;
-import javax.swing.SwingUtilities;
-import lombok.extern.slf4j.Slf4j;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.function.*;
+import javax.swing.*;
+import lombok.extern.slf4j.*;
 
 /**
  * A tripwire for blocking work on the two threads that must never wait: the client thread (the game
@@ -14,7 +14,7 @@ import lombok.extern.slf4j.Slf4j;
  * once per kind of call, with the stack that got it there — rather than felt as a hitch.
  */
 @Slf4j
-final class OffThread {
+class OffThread {
 	static volatile BooleanSupplier onClientThread = () -> false;
 	static final Set<String> reported = ConcurrentHashMap.newKeySet();
 

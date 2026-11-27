@@ -1,9 +1,10 @@
 package com.anvil;
 
-import lombok.Setter;
+import static java.lang.Math.*;
+import lombok.*;
 import java.awt.*;
 import java.awt.event.*;
-import java.awt.image.BufferedImage;
+import java.awt.image.*;
 import java.util.*;
 import javax.swing.*;
 import javax.swing.Timer;
@@ -16,11 +17,9 @@ import javax.swing.Timer;
  * change) and each frame fills the text box through that image's pixels into a reused buffer.
  * A moving one (Patron) slides its gradient along: one shared timer repaints only those on screen.
  */
-final class GradientLabel extends JLabel {
+class GradientLabel extends JLabel {
 	/** Side-panel labels look faster at the same rate because they are compact; keep them at five seconds. */
 	static final long PANEL_CYCLE_MS = 5000;
-	/** RuneScape chat and widget names use the same calm five-second cycle as the side panel. */
-	static final long GAME_CYCLE_MS = 5000;
 	static final Set<GradientLabel> MOVING = Collections.newSetFromMap(new WeakHashMap<>());
 	/** The player's "Animated names" setting: off, a moving gradient holds still. */
 	@Setter static volatile boolean animate = true;
@@ -74,7 +73,7 @@ final class GradientLabel extends JLabel {
 		var dt = now - lastWallMs;
 		lastWallMs = now;
 		// Clamped: a long gap between frames (a stall, a hidden panel) never fast-forwards.
-		if (dt > 0 && clientActive()) playedMs += Math.min(dt, 250);
+		if (dt > 0 && clientActive()) playedMs += min(dt, 250);
 		return playedMs;
 	}
 
@@ -133,10 +132,10 @@ final class GradientLabel extends JLabel {
 		}
 		var g2d = (Graphics2D) g;
 		var at = g2d.getTransform();
-		var sx = Math.max(1, at.getScaleX());
-		var sy = Math.max(1, at.getScaleY());
-		int iw = (int) Math.ceil(w * sx);
-		int ih = (int) Math.ceil(h * sy);
+		var sx = max(1, at.getScaleX());
+		var sy = max(1, at.getScaleY());
+		int iw = (int) ceil(w * sx);
+		int ih = (int) ceil(h * sy);
 
 		var key = w + "x" + h + "@" + sx + "," + sy + "|" + getText() + "|" + getFont() + "|" + getForeground()
 			+ "|" + System.identityHashCode(getIcon()) + "|" + getInsets();

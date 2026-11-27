@@ -1,5 +1,7 @@
 package com.anvil;
 
+import static java.lang.Math.*;
+import static com.anvil.AnvilPlugin.empty;
 import com.google.gson.*;
 import java.util.*;
 import java.util.function.*;
@@ -14,8 +16,8 @@ import java.util.function.*;
  * them with the site's answer. Every method that reads or writes a count holds the engine's lock; each
  * runs in microseconds, so the client thread never waits on anything slow.
  */
-final class RuleEngine {
-	static final class Table {
+class RuleEngine {
+	static class Table {
 		Map<String, List<DropRule>> drops = new HashMap<>();
 		Map<String, List<KillRule>> kills = new HashMap<>();
 		List<ValueRule> values = new ArrayList<>();
@@ -37,22 +39,24 @@ final class RuleEngine {
 		List<String> src;
 	}
 
-	static final class DropRule extends Rule {
+	static class DropRule extends Rule {
 		List<String> npcs;
 		boolean simple;
+		/** An item hunt's target (`label` the item, `hunt` the hunt): a popup and a line, never a fact (the drop report carries it). */
+		String hunt;
 	}
 
-	static final class KillRule extends Rule {
+	static class KillRule extends Rule {
 		String unit;
 		boolean quiet;
 		boolean coop;
 	}
 
-	static final class ValueRule extends Rule {
+	static class ValueRule extends Rule {
 		long min;
 	}
 
-	static final class StatRule extends Rule {
+	static class StatRule extends Rule {
 		String on;
 		List<String> names;
 		long step;
@@ -64,7 +68,7 @@ final class RuleEngine {
 	 * event must name one of {@code keys} ("*" or none = any), as the site expanded them; for timed and
 	 * deathless the key is the activity the clear parser matches. {@code of} 0 = never counted.
 	 */
-	static final class EventRule extends Rule {
+	static class EventRule extends Rule {
 		String on;
 		Set<String> keys;
 		/** Keys that never hit, even through a wildcard (a combat task the tile already counts). */
@@ -82,17 +86,17 @@ final class RuleEngine {
 		boolean site;
 
 		String key() {
-			return keys == null || keys.isEmpty() ? "" : keys.iterator().next();
+			return empty(keys) ? "" : keys.iterator().next();
 		}
 	}
 
-	static final class Proof {
+	static class Proof {
 		int min = 25;
 		double frac = 0.25;
 	}
 
 	/** What one event comes to: lines to print now, the fact for the site, and whether to screenshot it. */
-	static final class Out {
+	static class Out {
 		final List<String> say = new ArrayList<>();
 		final List<JsonObject> facts = new ArrayList<>();
 		boolean shot;
@@ -105,9 +109,12 @@ final class RuleEngine {
 		final Map<Integer, Long> raised = new HashMap<>();
 		/** Drop tiles this event moved, as they stood, for the in-game "tile progress" popup. */
 		final List<Rule> toasts = new ArrayList<>();
+		/** Item hunt popups: the banner's three lines. */
+		final List<String[]> banners = new ArrayList<>();
+		/** The hunt targets behind them, by item id: each gets its screenshot (AnvilPlugin huntShot). */
+		final Set<Integer> hunted = new LinkedHashSet<>();
 	}
 
-	static final long DEDUP_MS = 3_000;
 
 	volatile Table table;
 	final Map<Integer, Long> seenItems = new HashMap<>();
@@ -173,7 +180,7 @@ final class RuleEngine {
 			var r = e.getKey();
 			if (r.have >= r.of) continue;
 			any = true;
-			var n = Math.min(e.getValue(), r.of - r.have);
+			var n = min(e.getValue(), r.of - r.have);
 			r.have += n;
 			out.raised.put(r.t, r.have);
 			out.coop |= r.coop;
@@ -191,7 +198,7 @@ final class RuleEngine {
 			if (v != null) c.addProperty(k, v);
 		});
 		if (c.size() > 0) f.add("c", c);
-		if (unverified != null && !unverified.isEmpty()) {
+		if (!empty(unverified)) {
 			var u = new JsonArray();
 			unverified.forEach(u::add);
 			f.add("unv", u);
@@ -216,13 +223,24 @@ final class RuleEngine {
 			// source-limited tile refused under the line; the other 449 of a 450 stack).
 			var clog = "clog".equals(kind);
 			var last = seenItems.get(it[0]);
-			if (!clog && last != null && now - last < DEDUP_MS) continue;
+			if (!clog && last != null && now - last < 3_000 /* DEDUP_MS */) continue;
 			var any = false;
+			Boolean huntOk = null;
 			for (var r : rules) {
 				if (!sourceOk(r, source, kind) || (r.simple && r.have >= r.of)) continue;
+				if (r.hunt != null) {
+					// A pet or a new log slot reports the same item again a moment later: one popup for it.
+					if (huntOk == null) huntOk = huntFresh(it[0], now);
+					if (huntOk && said.add(r)) {
+						out.say.add(fill(t, "hunt", r, "{hunt}", r.hunt));
+						out.banners.add(new String[]{"Item hunt", r.hunt, r.label});
+						out.hunted.add(it[0]);
+					}
+					continue;
+				}
 				any = true;
 				if (r.simple) {
-					r.have = Math.min(r.of, r.have + Math.max(1, it[1]));
+					r.have = min(r.of, r.have + max(1, it[1]));
 					out.raised.put(r.t, r.have);
 				} else if (!said.add(r)) continue;
 				out.say.add(fill(t, r.simple ? "drop" : "dropPlain", r));
@@ -254,7 +272,7 @@ final class RuleEngine {
 		for (var r : t.values) {
 			var total = r.min <= 0;
 			if ((total ? r.have >= r.of : gp < r.min) || !valueSourceOk(r.src, source, kind)) continue;
-			r.have = total ? Math.min(r.of, r.have + gp) : r.of;
+			r.have = total ? min(r.of, r.have + gp) : r.of;
 			out.raised.put(r.t, r.have);
 			out.say.add(fill(t, "value", r, "{gp}", gp(gp)));
 		}
@@ -266,10 +284,47 @@ final class RuleEngine {
 		return out;
 	}
 
+	final Map<Integer, Long> huntSeen = new HashMap<>();
+
+	boolean huntFresh(int itemId, long now) {
+		var last = huntSeen.put(itemId, now);
+		return last == null || now - last > 10_000;
+	}
+
+	/** A pet the game announced (no loot event): the popup and line of every hunt it is a target of. */
+	synchronized Out hunted(int itemId, long now) {
+		var out = new Out();
+		var t = table;
+		var rules = t == null ? null : t.drops.get(String.valueOf(itemId));
+		if (rules == null || !huntFresh(itemId, now)) return out;
+		for (var r : rules) {
+			if (r.hunt == null) continue;
+			out.say.add(fill(t, "hunt", r, "{hunt}", r.hunt));
+			out.banners.add(new String[]{"Item hunt", r.hunt, r.label});
+			out.hunted.add(itemId);
+		}
+		return out;
+	}
+
+	/** Does the table carry an item hunt's targets? */
+	boolean hasHunts() {
+		var t = table;
+		return t != null && t.drops.values().stream().anyMatch(rs -> rs.stream().anyMatch(r -> r.hunt != null));
+	}
+
 	/** Is any event rule of this kind open? */
 	boolean has(String on) {
 		var t = table;
 		return t != null && t.events.stream().anyMatch(r -> on.equals(r.on));
+	}
+
+	/** The keys open {@code on} rules list beside {@code key}: on a gain tile, the item's other ids. */
+	Set<String> keysWith(String on, String key) {
+		var t = table;
+		var out = new HashSet<String>();
+		if (t != null) for (var r : t.events) if (on.equals(r.on) && r.keys != null && r.keys.contains(key)) out.addAll(r.keys);
+		out.remove(key);
+		return out;
 	}
 
 	/** Hits a rule taking any of these keys, or any key ("*", or none listed), unless it lists one as {@code no}. */
@@ -288,7 +343,7 @@ final class RuleEngine {
 		var t = table;
 		if (t == null) return out;
 		for (var r : t.events) {
-			if (r.site || !on.equals(r.on) || r.of > 0 && Math.max(r.have, floor.applyAsLong(r.t)) >= r.of || !hit.test(r) || claim != null && !claim.test(r.t)) continue;
+			if (r.site || !on.equals(r.on) || r.of > 0 && max(r.have, floor.applyAsLong(r.t)) >= r.of || !hit.test(r) || claim != null && !claim.test(r.t)) continue;
 			var why = r.max != null && value > r.max ? "max" : value < r.min ? "min" : r.party > 0 && party != r.party ? "party" : r.team && teamWhy != null ? "team" : null;
 			if (why == null) out.add(r);
 			else if (t.say.containsKey(on + "." + why)) no.add(fill(t, on + "." + why, r, "{x}", x, "{seen}", String.valueOf(party), "{party}", String.valueOf(r.party), "{why}", teamWhy));
@@ -304,9 +359,9 @@ final class RuleEngine {
 		var t = table;
 		if (t == null) return o;
 		if (r.of > 0) {
-			r.have = Math.max(r.have, floor.applyAsLong(r.t));
+			r.have = max(r.have, floor.applyAsLong(r.t));
 			if (r.have >= r.of) return o;
-			n = Math.min(n, r.of - r.have);
+			n = min(n, r.of - r.have);
 			r.have += n;
 			o.raised.put(r.t, r.have);
 		}
@@ -416,7 +471,7 @@ final class RuleEngine {
 		for (var r : t.stats) {
 			if (!on.equals(r.on) || r.names == null || !r.names.contains(key) || r.have >= r.of) continue;
 			var before = r.have;
-			r.have = Math.min(r.of, r.have + gained);
+			r.have = min(r.of, r.have + gained);
 			out.raised.put(r.t, r.have);
 			if (r.have >= r.of) {
 				out.done = true;
@@ -465,7 +520,7 @@ final class RuleEngine {
 		rules.addAll(t.stats);
 		for (var r : rules) {
 			var n = have.get(r.t);
-			if (n != null && r.of > 0) r.have = Math.max(r.have, n);
+			if (n != null && r.of > 0) r.have = max(r.have, n);
 		}
 	}
 
@@ -490,17 +545,17 @@ final class RuleEngine {
 	/** A grindy kill tile screenshots only on proof steps (and completion); a small one on every credit. */
 	static boolean milestone(long added, long current, long required, Proof p) {
 		if (required < p.min) return true;
-		var step = Math.max(1.0, required * p.frac);
-		return Math.floor(current / step) > Math.floor((current - added) / step);
+		var step = max(1.0, required * p.frac);
+		return floor(current / step) > floor((current - added) / step);
 	}
 
 	static boolean sourceOk(DropRule r, String source, String kind) {
-		if (r.src != null && !r.src.isEmpty() ? !r.src.contains(kind) : "pvp".equals(kind)) return false;
-		return r.npcs == null || r.npcs.isEmpty() || DropSource.sourceMatches(r.npcs, source);
+		if (!empty(r.src) ? !r.src.contains(kind) : "pvp".equals(kind)) return false;
+		return empty(r.npcs) || DropSource.sourceMatches(r.npcs, source);
 	}
 
 	static boolean valueSourceOk(List<String> sources, String source, String kind) {
-		if (sources == null || sources.isEmpty()) return true;
+		if (empty(sources)) return true;
 		for (var s : sources) {
 			if (s != null && (s.equalsIgnoreCase("PvP") ? "pvp".equals(kind) : s.equalsIgnoreCase(source))) return true;
 		}

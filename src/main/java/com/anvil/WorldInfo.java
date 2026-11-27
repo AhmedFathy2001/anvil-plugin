@@ -1,8 +1,8 @@
 package com.anvil;
 
 import java.util.*;
-import java.util.stream.Collectors;
-import net.runelite.api.WorldType;
+import java.util.stream.*;
+import net.runelite.api.*;
 
 /**
  * What the client knows about the world the player is on, in the form the site reads it.
@@ -13,7 +13,7 @@ import net.runelite.api.WorldType;
  * ships is recognised on release day without a plugin update — the activity text names it even
  * before RuneLite has a flag for it.</p>
  */
-final class WorldInfo {
+class WorldInfo {
 	/**
 	 * Worlds that run their own save — a separate character, its own drops and kill counts — so
 	 * nothing earned there is the player's main-game progression. The site has the authoritative

@@ -1,6 +1,7 @@
 package com.anvil;
 
 import java.util.*;
+import java.util.function.*;
 
 /**
  * What killed us — as opposed to what we were killing.
@@ -24,7 +25,7 @@ import java.util.*;
  * <p>Pure and RuneLite-free so it is unit-tested directly (DeathAttributionTest). The plugin feeds
  * it names; it never holds an Actor, which would keep a dead NPC alive for as long as we did.
  */
-final class DeathAttribution {
+class DeathAttribution {
 	/**
 	 * How long an attacker stays a candidate after we last took a hit. Long enough to cover the
 	 * gap between a killing blow and the death animation, short enough that the thing that killed
@@ -32,8 +33,6 @@ final class DeathAttribution {
 	 */
 	static final long DAMAGE_WINDOW_MS = 15_000;
 
-	/** Nothing sane has this many things attacking it; the cap is against a leak, not a crowd. */
-	static final int MAX_ATTACKERS = 24;
 
 	/** Who has us targeted, and when they acquired us. Insertion-ordered so "most recent" is cheap. */
 	final Map<String, Long> attackers = new LinkedHashMap<>();
@@ -57,7 +56,7 @@ final class DeathAttribution {
 		if (player) {
 			players.add(name);
 		} else players.remove(name);
-		while (attackers.size() > MAX_ATTACKERS) stoppedTargetingUs(attackers.keySet().iterator().next());
+		while (attackers.size() > 24 /* MAX_ATTACKERS */) stoppedTargetingUs(attackers.keySet().iterator().next());
 	}
 
 	/** Something stopped targeting us — it is no longer a candidate for killing us. */
@@ -102,16 +101,25 @@ final class DeathAttribution {
 	 * @param weWereFighting the last thing we landed a hit on, used only to break a tie
 	 */
 	synchronized String killer(String weWereFighting, long nowMs) {
+		return killer(weWereFighting, nowMs, n -> true);
+	}
+
+	/**
+	 * ...counting only the attackers {@code near} still finds beside us. A target can outlive the room:
+	 * a CoX Jewelled Crab from the puzzle stayed "on" a player, and his death at Tekton two rooms later
+	 * read "Killed by Jewelled Crab (red)".
+	 */
+	synchronized String killer(String weWereFighting, long nowMs, Predicate<String> near) {
 		if (lastDamageAt <= 0 || nowMs - lastDamageAt > DAMAGE_WINDOW_MS || attackers.isEmpty()) return null;
 		if (weWereFighting != null && !weWereFighting.isEmpty()) {
 			for (var name : attackers.keySet()) {
-				if (Rsn.same(name, weWereFighting)) return name;
+				if (Rsn.same(name, weWereFighting) && near.test(name)) return name;
 			}
 		}
 		String newest = null;
 		var newestAt = Long.MIN_VALUE;
 		for (var entry : attackers.entrySet()) {
-			if (entry.getValue() >= newestAt) {
+			if (entry.getValue() >= newestAt && near.test(entry.getKey())) {
 				newestAt = entry.getValue();
 				newest = entry.getKey();
 			}

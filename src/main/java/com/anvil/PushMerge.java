@@ -7,7 +7,7 @@ import com.google.gson.*;
  * site builds it once for the whole team with no caller in it, so per-member tiles take our own
  * number from {@code members} here. (The panel's rows are the site's own view now.)
  */
-final class PushMerge {
+class PushMerge {
 	/**
 	 * {@code held} with {@code team}'s fields over it (one level deep, so the event's and panel's
 	 * caller-only fields survive), then our own numbers from {@code mine} ({@code c}: progress by

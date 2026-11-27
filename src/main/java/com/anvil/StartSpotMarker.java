@@ -1,15 +1,15 @@
 package com.anvil;
 
-import java.awt.image.BufferedImage;
-import lombok.RequiredArgsConstructor;
+import java.awt.image.*;
+import lombok.*;
 import java.util.*;
 import javax.inject.*;
-import net.runelite.api.Client;
-import net.runelite.api.coords.WorldPoint;
-import net.runelite.client.eventbus.EventBus;
-import net.runelite.client.events.PluginMessage;
+import net.runelite.api.*;
+import net.runelite.api.coords.*;
+import net.runelite.client.eventbus.*;
+import net.runelite.client.events.*;
 import net.runelite.client.ui.overlay.worldmap.*;
-import net.runelite.client.util.ImageUtil;
+import net.runelite.client.util.*;
 
 /**
  * Points the way to the starting shot's drawn spot while one is owed: the game's own hint arrow (over

@@ -1,10 +1,10 @@
 package com.anvil;
 
-import lombok.Setter;
+import lombok.*;
 import com.google.gson.*;
 import javax.inject.*;
-import lombok.extern.slf4j.Slf4j;
-import net.runelite.client.util.Filepath;
+import lombok.extern.slf4j.*;
+import net.runelite.client.util.*;
 
 import java.io.*;
 import java.util.*;
@@ -172,7 +172,7 @@ public class PendingSubmissionStore {
 		// file cannot walk anywhere with "../" in it.
 		try (InputStream in = dir.joinSegment(sub.screenshotFile).openInputStream()) {
 			return in.readAllBytes();
-		} catch (IOException | RuntimeException e) {
+		} catch (Exception e) {
 			log.error("Unreadable proof {}: {}", sub.screenshotFile, e.getMessage());
 			return null;
 		}
@@ -186,7 +186,7 @@ public class PendingSubmissionStore {
 			dir.joinSegment(sub.screenshotFile).deleteIfExists();
 			dir.joinSegment(baseName + ".json").deleteIfExists();
 			log.info("Removed proof {}", baseName);
-		} catch (IOException | RuntimeException e) {
+		} catch (Exception e) {
 			log.warn("Can't remove proof {}: {}", baseName, e.getMessage());
 		}
 	}

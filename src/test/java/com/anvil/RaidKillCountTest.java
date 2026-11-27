@@ -2,6 +2,7 @@ package com.anvil;
 
 import org.junit.Test;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -57,6 +58,74 @@ public class RaidKillCountTest
 		// Direction matters. A drop from the mode should not be answered by the base raid's line —
 		// only the other way round, which is the direction RuneLite's naming actually produces.
 		assertFalse(AnvilPlugin.kcLineBelongsTo("Tombs of Amascut: Expert Mode", "Tombs of Amascut"));
+	}
+
+	private static AnvilPlugin sawLine(String name, int kc, long agoMs)
+	{
+		AnvilPlugin p = new AnvilPlugin();
+		p.lastKcName = name;
+		p.lastKcValue = kc;
+		p.lastKcAtMs = AnvilPlugin.now() - agoMs;
+		p.raidLineOpen = AnvilPlugin.isRaidLine(name);
+		p.killCounts.put("tombs of amascut", 144);
+		return p;
+	}
+
+	@Test
+	public void aRaidChestMinutesAfterTheLastBossKeepsItsModeCount()
+	{
+		// Wardens die, the Expert line says 11, the chest is opened minutes later, still in the raid: not normal-mode 144.
+		AnvilPlugin p = sawLine("Tombs of Amascut: Expert Mode", 11, 3 * 60_000L);
+		assertEquals(Integer.valueOf(11), p.killCountFor("Tombs of Amascut"));
+		// Out of the raid (the next tick outside an instance closes it): the line answers nothing more.
+		p.raidLineOpen = false;
+		assertEquals(Integer.valueOf(144), p.killCountFor("Tombs of Amascut"));
+	}
+
+	@Test
+	public void aRaidCountNeverLeaksOntoAnotherSource()
+	{
+		AnvilPlugin p = sawLine("Tombs of Amascut: Expert Mode", 144, 5 * 60_000L);
+		p.killCounts.put("zulrah", 50);
+		// Another boss's drop answers with its own count, never the raid's.
+		assertEquals(Integer.valueOf(50), p.killCountFor("Zulrah"));
+		assertEquals(null, p.killCountFor("Vorkath"));
+		// Another raid's chest neither.
+		assertEquals(null, p.killCountFor("Chambers of Xeric"));
+		assertEquals(null, p.killCountFor("Theatre of Blood"));
+		// A clue casket or a skilling pet has no kill line of its own.
+		assertEquals(null, p.killCountFor("Clue Scroll (elite)"));
+	}
+
+	@Test
+	public void theNextKillReplacesTheRaidLine()
+	{
+		AnvilPlugin p = sawLine("Tombs of Amascut: Expert Mode", 11, 5 * 60_000L);
+		// A Zulrah kill after the raid: the old raid line no longer answers anything, even for ToA.
+		p.lastKcName = "Zulrah";
+		p.raidLineOpen = false;
+		p.lastKcValue = 51;
+		p.lastKcAtMs = AnvilPlugin.now() - 2 * 60_000L;
+		assertFalse(p.kcLineFresh());
+		assertEquals(Integer.valueOf(144), p.killCountFor("Tombs of Amascut")); // the stored count, not the line's 11
+	}
+
+	@Test
+	public void aRaidDropNamesTheModeItsCountIsFrom()
+	{
+		AnvilPlugin p = sawLine("Chambers of Xeric Challenge Mode", 17, 60_000L);
+		assertEquals("Chambers of Xeric Challenge Mode", p.kcLineFor("Chambers of Xeric"));
+		assertEquals(null, p.kcLineFor("Zulrah"));
+		p.raidLineOpen = false;
+		p.lastKcAtMs = AnvilPlugin.now() - 5 * 60_000L;
+		assertEquals(null, p.kcLineFor("Chambers of Xeric"));
+	}
+
+	@Test
+	public void aBossLineStillGoesStaleAfterAMinute()
+	{
+		assertTrue(sawLine("Zulrah", 50, 30_000L).kcLineFresh());
+		assertFalse(sawLine("Zulrah", 50, 3 * 60_000L).kcLineFresh());
 	}
 
 	@Test

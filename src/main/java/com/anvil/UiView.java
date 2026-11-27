@@ -4,7 +4,7 @@ import static javax.swing.BorderFactory.*;
 import static java.awt.BorderLayout.*;
 import static java.lang.Math.*;
 import static net.runelite.client.ui.ColorScheme.*;
-import lombok.RequiredArgsConstructor;
+import lombok.*;
 import com.google.gson.*;
 import java.awt.*;
 import java.awt.event.*;
@@ -16,12 +16,12 @@ import javax.swing.*;
 import net.runelite.api.Skill;
 import net.runelite.client.game.*;
 import net.runelite.client.hiscore.*;
-import net.runelite.client.ui.components.ProgressBar;
-import net.runelite.client.util.ImageUtil;
+import net.runelite.client.ui.components.*;
+import net.runelite.client.util.*;
 
 import static com.anvil.Ui.*;
 import static com.anvil.GlyphIcon.Shape.*;
-import java.awt.image.BufferedImage;
+import java.awt.image.*;
 import javax.swing.Timer;
 
 /**
@@ -36,7 +36,7 @@ import javax.swing.Timer;
  * Answers that arrive after a newer request for the same place are dropped.</p>
  */
 
-final class UiView extends JPanel {
+class UiView extends JPanel {
 	/** Where this view's fetches and outward clicks go: the panel. Calls arrive on the EDT. */
 	interface Host {
 		/** {@code GET /api/plugin/ui?v=view&args}; {@code done} gets the view (null on failure) on the EDT. */
@@ -46,6 +46,18 @@ final class UiView extends JPanel {
 		void post(String act, Map<String, String> args, Map<String, String> fields, Consumer<JsonObject> done);
 
 		void site(String path);
+
+		/** A click asked for a trip check: push what is held before it loads. */
+		default void held() {
+		}
+
+		/** Show only these items in the bank (comma-separated ids). */
+		default void bank(String ids, String layout) {
+		}
+
+		/** Fetch a site path and put its {@code text} on the clipboard (a guide's bank tag, setup, markers). */
+		default void copy(String path) {
+		}
 
 		void lookup(String rsn);
 
@@ -88,7 +100,7 @@ final class UiView extends JPanel {
 	static final Map<String, String> TABS = new HashMap<>();
 	static final int WRAP_PT = 170;
 	static final String OFFLINE = "Couldn't reach Anvil — try again in a moment.";
-	static final Color DONE_DOT = new Color(0x5fd35f);
+	static final Color DONE_DOT = new Color(0x6fdc6f);
 
 	final Host host;
 	final ItemManager items;
@@ -107,8 +119,6 @@ final class UiView extends JPanel {
 	static final long CLICK_SETTLE_MS = 400;
 	boolean pressing;
 	long pressedAt;
-	static final long PRESS_STALE_MS = 2_000;
-	static final long WARM_EVERY_MS = 60_000;
 
 	/** What each place last drew, so an unchanged answer leaves it alone (its scroll, its open folds). */
 	final Map<String, JsonElement> drawn = new HashMap<>();
@@ -132,7 +142,7 @@ final class UiView extends JPanel {
 	int requests;
 
 	@RequiredArgsConstructor
-	static final class Slot {
+	static class Slot {
 		final JPanel holder;
 		final JsonObject panes;
 		/** {@code nav}: a pane replaces the page; the panes left keep their build and the row clicked to leave. */
@@ -147,6 +157,7 @@ final class UiView extends JPanel {
 	/** Where each nav pane was scrolled to ("slot:pane"), kept across redraws. */
 	final Map<String, Integer> scrolls = new HashMap<>();
 	static final Color RAISED = new Color(0x3a3a3a);
+	static final Color INK = new Color(0x1e1e1e);
 	static final Color RAISED_HOVER = new Color(0x474747);
 
 	UiView(Host host, ItemManager items, SpriteManager sprites, SkillIconManager skills) {
@@ -314,7 +325,7 @@ final class UiView extends JPanel {
 		// A press older than PRESS_STALE_MS is over: a redraw under it can swallow its release, and the
 		// flag would otherwise hold every later background refresh off for good.
 		var sincePress = System.currentTimeMillis() - pressedAt;
-		if (background && ((pressing && sincePress < PRESS_STALE_MS) || sincePress < CLICK_SETTLE_MS)) {
+		if (background && ((pressing && sincePress < 2_000 /* PRESS_STALE_MS */) || sincePress < CLICK_SETTLE_MS)) {
 			// Redrawing now would swap the row out from under the press, and the click would be lost.
 			once((int) CLICK_SETTLE_MS, e -> land(into, n, answer, true));
 			return;
@@ -368,12 +379,19 @@ final class UiView extends JPanel {
 	void act(JsonObject a) {
 		var into = str(a, "into");
 		var place = into.isEmpty() ? null : into;
-		switch (str(a, "a")) {
+		var kind = str(a, "a");
+		switch (kind) {
 			case "site":
+			case "copy":
 				var path = str(a, "path");
 				// A path on the site, never a host: "//" and a backslash ("/\\evil.example") both resolve
 				// to another host.
-				if (path.startsWith("/") && !path.startsWith("//") && path.indexOf('\\') < 0) host.site(path);
+				if (!path.startsWith("/") || path.startsWith("//") || path.indexOf('\\') >= 0) break;
+				if (kind.equals("copy")) host.copy(path);
+				else host.site(path);
+				break;
+			case "bank":
+				host.bank(str(a, "ids"), str(a, "layout"));
 				break;
 			case "lookup":
 				host.lookup(str(a, "rsn"));
@@ -392,6 +410,7 @@ final class UiView extends JPanel {
 					drawn.remove(into);
 					replace(busy.holder, small("Loading…", MUTED));
 				}
+				if ("trip".equals(str(a, "v"))) host.held();
 				fetch(place, str(a, "v"), strings(a.get("args")));
 				break;
 			case "pane":
@@ -549,8 +568,27 @@ final class UiView extends JPanel {
 				return input(n);
 			case "button":
 				var on = n.has("on") ? n.getAsJsonObject("on") : new JsonObject();
-				var button = AnvilSidebarPanel.fullWidthButton(plainText(str(n, "label")), tip(n), () -> act(on));
-				button.getComponent(0).setEnabled(!bool(n, "off"));
+				var label = plainText(str(n, "label"));
+				var button = AnvilSidebarPanel.fullWidthButton(label, tip(n), () -> act(on));
+				var b = (JButton) button.getComponent(0);
+				b.setEnabled(!bool(n, "off"));
+				// kind: primary (orange fill), outline (orange edge), plain (grey edge); else the default.
+				var kind = str(n, "kind");
+				var primary = kind.equals("primary");
+				var plain = kind.equals("plain");
+				if (primary || plain || kind.equals("outline")) {
+					b.setBackground(primary ? BRAND_ORANGE : INK);
+					b.setForeground(primary ? INK : plain ? new Color(0xe0e0e0) : BRAND_ORANGE);
+					if (!plain) b.setFont(BOLD);
+					b.putClientProperty("edge", primary ? null : plain ? RAISED : BRAND_ORANGE);
+				}
+				// A copy answers on the button itself: "Copied ✓" for a moment, then its own label.
+				if ("copy".equals(str(on, "a"))) b.addActionListener(e -> {
+					b.setText("Copied ✓");
+					var back = new Timer(1500, x -> b.setText(label));
+					back.setRepeats(false);
+					back.start();
+				});
 				return button;
 			case "gap":
 				return (JComponent) gap(num(n, "h", 0));
@@ -600,13 +638,14 @@ final class UiView extends JPanel {
 		var bg = str(n, "bg");
 		var edge = color(str(n, "edge"), null);
 		var fill = card || "card".equals(bg) ? DARKER_GRAY_COLOR
-			: "raised".equals(bg) ? RAISED : "panel".equals(bg) ? DARK_GRAY_COLOR : null;
+			: "raised".equals(bg) ? RAISED : "panel".equals(bg) ? DARK_GRAY_COLOR : teamColor(bg, null);
 		if (fill == null && edge == null && !n.has("on")) {
 			var p = new JPanel(layout);
 			p.setOpaque(false);
 			return left(p);
 		}
-		return left(new Round(layout, card ? num(n, "rad", 6) : 4, fill, edge, "raised".equals(bg) ? RAISED_HOVER : null));
+		return left(new Round(layout, card ? num(n, "rad", 6) : 4, fill, edge,
+			"raised".equals(bg) ? RAISED_HOVER : fill == DARKER_GRAY_COLOR ? new Color(0x262626) : null));
 	}
 
 	JComponent col(JsonObject n) {
@@ -912,7 +951,7 @@ final class UiView extends JPanel {
 		if (spec.has("glyph")) {
 			var shape = glyph(str(spec, "glyph"));
 			if (shape == null) return false;
-			l.setIcon(new GlyphIcon(shape, size, color(str(spec, "color"), MUTED)));
+			l.setIcon(new GlyphIcon(shape, size, color(str(spec, "color"), QUILLS.getOrDefault(str(spec, "glyph"), MUTED))));
 			return true;
 		}
 		if (spec.has("item") && items != null) {
@@ -1108,7 +1147,7 @@ final class UiView extends JPanel {
 		return wrap;
 	}
 
-	/** A segmented switch: a dark rounded track, the picked segment raised with an orange underline. */
+	/** A segmented switch: a dark rounded track, the picked segment filled orange with dark bold text. */
 	static JComponent segments(List<String> labels, String first, Consumer<String> picked) {
 		var strip = new Round(new GridLayout(1, labels.size(), 2, 0), 4, DARKER_GRAY_COLOR, null, null);
 		strip.setBorder(createEmptyBorder(2, 2, 2, 2));
@@ -1117,16 +1156,14 @@ final class UiView extends JPanel {
 			var on = k.equals(name);
 			seg.setOpaque(on);
 			var l = (JLabel) seg.getComponent(0);
-			l.setForeground(on ? Color.WHITE : MUTED);
-			l.setBorder(createCompoundBorder(
-				createMatteBorder(0, 0, 2, 0, on ? BRAND_ORANGE : new Color(0, 0, 0, 0)),
-				createEmptyBorder(3, 2, 2, 2)));
+			l.setForeground(on ? INK : new Color(0xe0e0e0));
+			l.setFont(on ? BOLD : SMALL);
 			seg.repaint();
 		});
 		for (var name : labels) {
-			var seg = new Round(new BorderLayout(), 3, RAISED, null, null);
+			var seg = new Round(new BorderLayout(), 3, BRAND_ORANGE, null, null);
 			var l = new ClipLabel(plainText(name), JLabel.CENTER);
-			l.setFont(SMALL);
+			l.setBorder(createEmptyBorder(3, 2, 4, 2));
 			seg.add(l, CENTER);
 			onClick(seg, () -> {
 				paint.accept(name);
@@ -1149,7 +1186,7 @@ final class UiView extends JPanel {
 		var body = node(n.getAsJsonObject("c"));
 		var chev = bool(n, "chev");
 		Runnable paint = () -> chevron.setIcon(chev
-			? new GlyphIcon(body.isVisible() ? CHEVRON_LEFT : CHEVRON_RIGHT, 8, MUTED) : null);
+			? new GlyphIcon(body.isVisible() ? CHEVRON_DOWN : CHEVRON_RIGHT, 11, LIGHT_GRAY_COLOR) : null);
 		body.setVisible(bool(n, "open"));
 		paint.run();
 		clickable(capH(head), () -> {
@@ -1194,10 +1231,32 @@ final class UiView extends JPanel {
 				box.removeAll();
 				for (int i = 0; i < rows.size(); i++) {
 					var spec = specs.get(i).getAsJsonObject();
-					if ((!bool(spec, "q") || !query[0].isEmpty()) && matches(query[0], spec.has("k") ? str(spec, "k") : words(spec)) && shown[0] < max) {
-						box.add(rows.get(i));
+					var key = spec.has("k") ? str(spec, "k") : words(spec);
+					if ((!bool(spec, "q") || !query[0].isEmpty()) && matches(query[0], key) && shown[0] < max) {
+						box.add(alt(n, spec, key, query[0], rows.get(i)));
 						shown[0]++;
 					}
+				}
+				box.revalidate();
+				box.repaint();
+			});
+			lists.add(box);
+		}
+		// Search-only rows ("x", filled into template "xt"): built when first matched, so a long list costs nothing until typed.
+		var xs = arr(n, "x");
+		var xt = obj(n, "xt");
+		if (xs != null && xt != null) {
+			var box = column();
+			box.setOpaque(false);
+			Map<Integer, JComponent> built = new HashMap<>();
+			refills.add(() -> {
+				box.removeAll();
+				for (int i = 0; i < xs.size() && shown[0] < max && !query[0].isEmpty(); i++) {
+					var v = xs.get(i).getAsJsonArray();
+					if (!matches(query[0], v.get(0).getAsString())) continue;
+					if (box.getComponentCount() == 0 && obj(n, "xh") != null) box.add(built.computeIfAbsent(-1, j -> node(obj(n, "xh"))));
+					box.add(built.computeIfAbsent(i, j -> node(fill(xt, v))));
+					shown[0]++;
 				}
 				box.revalidate();
 				box.repaint();
@@ -1216,7 +1275,7 @@ final class UiView extends JPanel {
 			styleSearch(search);
 			search.setFont(SMALL);
 			search.setBackground(DARK_GRAY_COLOR);
-			search.setBorder(createEmptyBorder(4, 6, 4, 6));
+			search.setBorder(createCompoundBorder(createLineBorder(RAISED_HOVER), createEmptyBorder(4, 6, 4, 6)));
 			onEdit(search, () -> {
 				query[0] = search.getText().trim();
 				refill.run();
@@ -1227,9 +1286,50 @@ final class UiView extends JPanel {
 			wrap.add(gap(6));
 		}
 		wrap.add(none);
-		wrap.add(lists);
+		wrap.add(n.has("h") ? scrollBox(lists, num(n, "h", 300)) : lists);
 		wrap.add(more);
 		return wrap;
+	}
+
+	/** {@code view} in a box {@code h} px tall that scrolls inside, with the feed's slim bar. */
+	static JScrollPane scrollBox(JComponent view, int h) {
+		var sp = new JScrollPane(view, ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED, ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+		sp.setBorder(createEmptyBorder());
+		sp.setOpaque(false);
+		sp.getViewport().setOpaque(false);
+		sp.getVerticalScrollBar().setUnitIncrement(16);
+		SlimScrollBarUI.applyTo(sp);
+		sp.setPreferredSize(new Dimension(0, h));
+		sp.setMaximumSize(new Dimension(Integer.MAX_VALUE, h));
+		sp.setAlignmentX(0f);
+		return sp;
+	}
+
+	/** A row found only by a later "|" part of its key: template "at" filled with that part and the row's "av", else the row. */
+	Component alt(JsonObject n, JsonObject spec, String key, String q, Component row) {
+		var at = obj(n, "at");
+		var parts = key.split("\\|");
+		if (at == null || q.isEmpty() || parts.length < 2 || matches(q, parts[0])) return row;
+		for (var part : parts) {
+			if (!matches(q, part)) continue;
+			var v = new JsonArray();
+			v.add(part);
+			var av = arr(spec, "av");
+			if (av != null) v.addAll(av);
+			return node(fill(at, v));
+		}
+		return row;
+	}
+
+	/** Template {@code t} with each "{i}" made v[i] (a number stays a number) and {i} inside a text made its words. */
+	static JsonObject fill(JsonObject t, JsonArray v) {
+		var s = t.toString();
+		for (int i = 0; i < v.size(); i++) {
+			var e = v.get(i);
+			var q = new JsonPrimitive(e.getAsString()).toString();
+			s = s.replace("\"{" + i + "}\"", e.toString()).replace("{" + i + "}", q.substring(1, q.length() - 1));
+		}
+		return new JsonParser().parse(s).getAsJsonObject();
 	}
 
 	/**
@@ -1296,7 +1396,7 @@ final class UiView extends JPanel {
 		var key = str(on, "v") + on.get("args");
 		var now = System.currentTimeMillis();
 		var last = warmed.get(key);
-		if (last == null || now - last >= WARM_EVERY_MS) {
+		if (last == null || now - last >= 60_000 /* WARM_EVERY_MS */) {
 			warmed.put(key, now);
 			host.load(str(on, "v"), strings(on.get("args")), v -> { });
 		}
@@ -1371,6 +1471,15 @@ final class UiView extends JPanel {
 				row.add(small(str(n, "label"), MUTED), WEST);
 				row.add(spinner, CENTER);
 				return capH(row);
+			case "text":
+				// A typed answer (a sign-up question). One line; the site caps the length.
+				var box = new JTextField(value);
+				box.setFont(SMALL);
+				box.setBackground(DARKER_GRAY_COLOR);
+				box.setForeground(Color.WHITE);
+				box.setCaretColor(Color.WHITE);
+				inputs.put(name, box::getText);
+				return capH(box);
 			case "check":
 				var check = new JCheckBox(plainText(str(n, "label")), "1".equals(value));
 				check.setFont(SMALL);
@@ -1388,8 +1497,17 @@ final class UiView extends JPanel {
 	JComponent countdown(JsonObject n) {
 		var l = label("", font(str(n, "font")), color(str(n, "color"), Color.WHITE));
 		var at = utcMillis(str(n, "at"));
+		// A clock that runs out while on screen asks for the page again: what it counted down to (a
+		// start, an end) has changed it. Once, a few seconds on, so the site's own clock has turned too.
+		var armed = new boolean[]{at > System.currentTimeMillis()};
 		Runnable paint = () -> {
 			var secs = max(0, (at - System.currentTimeMillis()) / 1000);
+			if (armed[0] && secs == 0) {
+				armed[0] = false;
+				var later = new Timer(3_000 /* DUE_REFRESH_MS */, e -> refresh(true));
+				later.setRepeats(false);
+				later.start();
+			}
 			// Past a day, "4d 4h" — "100:15:48" reads as a clock, not as four days.
 			var clock = secs >= 86400
 				? String.format(Locale.ROOT, "%dd %dh", secs / 86400, secs % 86400 / 3600)
@@ -1479,7 +1597,7 @@ final class UiView extends JPanel {
 	}
 
 	static final Map<String, Color> COLORS = Map.of("white", Color.WHITE, "text", TEXT_COLOR, "muted", MUTED, "brand", BRAND_ORANGE,
-		"done", PROGRESS_COMPLETE_COLOR, "error", PROGRESS_ERROR_COLOR, "claim", new Color(0x7D_C4_F0), "progress", PROGRESS_INPROGRESS_COLOR);
+		"done", DONE_DOT, "error", PROGRESS_ERROR_COLOR, "claim", new Color(0x7D_C4_F0), "progress", PROGRESS_INPROGRESS_COLOR);
 
 	static Color color(String c, Color fallback) {
 		var k = COLORS.get(c);
@@ -1509,11 +1627,14 @@ final class UiView extends JPanel {
 		return g != null && g.length() == 8 && g.startsWith("tenure-") && g.charAt(7) >= '1' && g.charAt(7) <= '6' ? g.charAt(7) - '0' : 0;
 	}
 
-	static final Map<String, GlyphIcon.Shape> GLYPHS = Map.of("check", CHECK, "chevron-right", CHEVRON_RIGHT, "chevron-left", CHEVRON_LEFT,
+	/** The writer-rank quills (guide bylines), each in its own colour. */
+	static final Map<String, Color> QUILLS = Map.of("quill-bronze", new Color(0xc27c3e), "quill-silver", new Color(0xc9d1d9), "quill-gold", new Color(0xe0b453), "quill-star", new Color(0xffd35c));
+
+	static final Map<String, GlyphIcon.Shape> GLYPHS = Map.of("check", CHECK, "chevron-right", CHEVRON_RIGHT, "chevron-left", CHEVRON_LEFT, "chevron-down", CHEVRON_DOWN,
 		"external", EXTERNAL, "close", CLOSE, "star", STAR, "up", UP, "down", DOWN);
 
 	static GlyphIcon.Shape glyph(String g) {
-		return GLYPHS.get(g);
+		return QUILLS.containsKey(g) ? g.endsWith("star") ? QUILL_STAR : QUILL : "lock".equals(g) ? LOCK : "unlock".equals(g) ? UNLOCK : GLYPHS.get(g);
 	}
 
 	static Skill skill(String key) {

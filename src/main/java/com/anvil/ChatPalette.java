@@ -1,7 +1,8 @@
 package com.anvil;
 
+import static java.lang.Math.*;
 import java.util.*;
-import java.util.regex.Pattern;
+import java.util.regex.*;
 import java.awt.Color;
 
 /**
@@ -10,7 +11,7 @@ import java.awt.Color;
  * colours apply. "Plain" means the plugin's own text colour for everything (its existing setting).
  */
 
-final class ChatPalette {
+class ChatPalette {
 	enum Tone {
 		DONE, NEAR, DROP, FEED, WARN, INFO;
 
@@ -25,7 +26,6 @@ final class ChatPalette {
 	}
 
 	static final Pattern HEX = Pattern.compile("[0-9a-fA-F]{6}");
-	static final String HEX_DIGITS = "0123456789abcdef";
 
 	static final ChatPalette ANVIL = anvil();
 
@@ -117,13 +117,13 @@ final class ChatPalette {
 		if (p < 0) p += 2;
 		p = p > 1 ? 2 - p : p;
 		var t = p * (rgb.size() - 1);
-		int seg = Math.min((int) t, rgb.size() - 2);
+		int seg = min((int) t, rgb.size() - 2);
 		var f = t - seg;
 		int[] a = rgb.get(seg);
 		int[] b = rgb.get(seg + 1);
-		return (int) Math.round(a[0] + (b[0] - a[0]) * f) << 16
-			| (int) Math.round(a[1] + (b[1] - a[1]) * f) << 8
-			| (int) Math.round(a[2] + (b[2] - a[2]) * f);
+		return (int) round(a[0] + (b[0] - a[0]) * f) << 16
+			| (int) round(a[1] + (b[1] - a[1]) * f) << 8
+			| (int) round(a[2] + (b[2] - a[2]) * f);
 	}
 
 	static String gradientName(String safeName, List<String> stops, double shift) {
@@ -154,13 +154,9 @@ final class ChatPalette {
 
 	/** Six lower-case hex digits without the allocation-heavy Formatter used by the static path. */
 	static void appendHex(StringBuilder out, int rgb) {
-		for (int shift = 20; shift >= 0; shift -= 4) out.append(HEX_DIGITS.charAt(rgb >> shift & 0xf));
+		for (int shift = 20; shift >= 0; shift -= 4) out.append("0123456789abcdef" /* HEX_DIGITS */.charAt(rgb >> shift & 0xf));
 	}
 
-	// What the chatbox's text sits on: the opaque box's parchment, and a dark game scene behind the
-	// transparent one (the worst case: night, a cave, the Wilderness). Approximations, not exact pixels.
-	static final int OPAQUE_BG = 0xC4B48C;
-	static final int TRANSPARENT_BG = 0x262626;
 	/** WCAG's floor for large or bold text; chat text is small but heavy and shadowed on the dark box. */
 	static final double MIN_CONTRAST = 3.0;
 	static final Pattern COL = Pattern.compile("<col=([0-9a-fA-F]{6})>");
@@ -191,7 +187,7 @@ final class ChatPalette {
 
 	static String readableHex(String hex, boolean opaque) {
 		int source = Integer.parseInt(hex, 16);
-		int bg = opaque ? OPAQUE_BG : TRANSPARENT_BG;
+		int bg = opaque ? 0xC4B48C /* OPAQUE_BG */ : 0x262626 /* TRANSPARENT_BG */;
 		int toward = opaque ? 0x000000 : 0xFFFFFF;
 		if (contrast(source, bg) >= MIN_CONTRAST) return hex.toLowerCase(Locale.ROOT);
 		// The old 10% staircase made a moving gradient visibly snap whenever a glyph crossed into the
@@ -217,7 +213,7 @@ final class ChatPalette {
 	static double contrast(int a, int b) {
 		var la = luminance(a);
 		var lb = luminance(b);
-		return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+		return (max(la, lb) + 0.05) / (min(la, lb) + 0.05);
 	}
 
 	static double luminance(int rgb) {
@@ -226,13 +222,13 @@ final class ChatPalette {
 
 	static double channel(int v) {
 		var c = (v & 0xff) / 255.0;
-		return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+		return c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4);
 	}
 
 	static int mix(int a, int b, double t) {
-		int r = (int) Math.round(((a >> 16) & 0xff) * (1 - t) + ((b >> 16) & 0xff) * t);
-		int g = (int) Math.round(((a >> 8) & 0xff) * (1 - t) + ((b >> 8) & 0xff) * t);
-		int bl = (int) Math.round((a & 0xff) * (1 - t) + (b & 0xff) * t);
+		int r = (int) round(((a >> 16) & 0xff) * (1 - t) + ((b >> 16) & 0xff) * t);
+		int g = (int) round(((a >> 8) & 0xff) * (1 - t) + ((b >> 8) & 0xff) * t);
+		int bl = (int) round((a & 0xff) * (1 - t) + (b & 0xff) * t);
 		return (r << 16) | (g << 8) | bl;
 	}
 

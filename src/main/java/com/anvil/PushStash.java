@@ -2,10 +2,10 @@ package com.anvil;
 
 import lombok.*;
 import com.google.gson.*;
-import java.io.IOException;
+import java.io.*;
 import java.util.*;
-import lombok.extern.slf4j.Slf4j;
-import net.runelite.client.util.Filepath;
+import lombok.extern.slf4j.*;
+import net.runelite.client.util.*;
 
 /**
  * Unsent KC / XP / activity counts and highlight-feed moments, saved per CHARACTER across a logout or a
@@ -20,11 +20,11 @@ import net.runelite.client.util.Filepath;
  */
 @RequiredArgsConstructor
 @Slf4j
-final class PushStash {
+class PushStash {
 	static final long MAX_AGE_MS = 24L * 60 * 60 * 1000;
 
 	/** One character's waiting pushes. Plain fields only: it round-trips through Gson as-is. */
-	static final class Data {
+	static class Data {
 		long savedAt;
 		Map<String, Integer> kc = new HashMap<>();
 		Map<String, Integer> xp = new HashMap<>();
@@ -113,7 +113,7 @@ final class PushStash {
 		var old = DiskFiles.readJson(gson, f, Data.class);
 		try {
 			DiskFiles.writeAtomic(f, gson.toJson(merge(old == null ? new Data() : old, data)));
-		} catch (IOException | RuntimeException e) {
+		} catch (Exception e) {
 		}
 	}
 

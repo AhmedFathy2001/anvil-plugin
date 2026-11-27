@@ -116,19 +116,19 @@ public class FeedListTest
 		UiView v = drawn(host, "{\"t\":\"feed\",\"id\":\"moments:clan:3\",\"rows\":[" + row("m2") + "," + row("m1") + "]}");
 		FeedList f = find(v);
 		assertNotNull(f);
-		assertEquals(2, f.rowCount());
+		assertEquals(2, FeedListKit.rowCount(f));
 
 		v.feedPush(json("{\"t\":\"rows\",\"feeds\":[\"moments:clan:3\",\"moments:clan:3:drops\"],\"rows\":[" + row("m3") + "]}"));
 		v.feedPush(json("{\"t\":\"rows\",\"feeds\":[\"moments:clan:3\"],\"rows\":[" + row("m5") + "," + row("m4") + "]}"));
 		v.feedPush(json("{\"t\":\"rows\",\"feeds\":[\"moments:clan:3\"],\"rows\":[" + row("m2") + "]}"));
 		v.feedPush(json("{\"t\":\"rows\",\"feeds\":[\"moments:clan:9\"],\"rows\":[" + row("x1") + "]}"));
-		assertEquals("nothing lands before the flush", 2, f.rowCount());
+		assertEquals("nothing lands before the flush", 2, FeedListKit.rowCount(f));
 		f.flush();
-		assertEquals(5, f.rowCount());
-		assertEquals("m5", f.rowId(0));
-		assertEquals("m4", f.rowId(1));
-		assertEquals("m3", f.rowId(2));
-		assertEquals("m2", f.rowId(3));
+		assertEquals(5, FeedListKit.rowCount(f));
+		assertEquals("m5", FeedListKit.rowId(f, 0));
+		assertEquals("m4", FeedListKit.rowId(f, 1));
+		assertEquals("m3", FeedListKit.rowId(f, 2));
+		assertEquals("m2", FeedListKit.rowId(f, 3));
 	}
 
 	@Test
@@ -144,9 +144,9 @@ public class FeedListTest
 		}
 		v.feedPush(json("{\"t\":\"rows\",\"feeds\":[\"chat:9\"],\"rows\":[" + rows + "]}"));
 		f.flush();
-		assertEquals(20, f.rowCount());
-		assertEquals("c30", f.rowId(0));
-		assertEquals("c11", f.rowId(19));
+		assertEquals(20, FeedListKit.rowCount(f));
+		assertEquals("c30", FeedListKit.rowId(f, 0));
+		assertEquals("c11", FeedListKit.rowId(f, 19));
 	}
 
 	@Test
@@ -158,7 +158,7 @@ public class FeedListTest
 		v.feedPush(json("{\"t\":\"rows\",\"feeds\":[\"chat:9\"],\"rows\":[" + row("c2") + "]}"));
 		v.feedPush(json("{\"t\":\"rowsdel\",\"feeds\":[\"chat:9\"],\"ids\":[\"c2\",\"c1\"]}"));
 		f.flush();
-		assertEquals(0, f.rowCount());
+		assertEquals(0, FeedListKit.rowCount(f));
 	}
 
 	private static final String REACT_ROWS = "{\"t\":\"feed\",\"id\":\"moments:clan:3\",\"rows\":["
@@ -175,12 +175,12 @@ public class FeedListTest
 		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:3\"],\"id\":\"m7\",\"gz\":4,\"gold\":0,\"sad\":0,\"sit\":0,"
 			+ "\"who\":{\"gz\":\"GZ · Rikkert and 3 others\"}}"));
 
-		JsonObject chip = f.reactionChip(0, "gz");
+		JsonObject chip = FeedListKit.reactionChip(f, 0, "gz");
 		assertEquals(4, chip.get("n").getAsInt());
 		assertTrue("counts alone must not clear mine", chip.get("mine").getAsBoolean());
 		assertEquals("GZ · Rikkert and 3 others", chip.get("who").getAsString());
-		assertEquals("not reordered", "m7", f.rowId(0));
-		assertEquals(2, f.rowCount());
+		assertEquals("not reordered", "m7", FeedListKit.rowId(f, 0));
+		assertEquals(2, FeedListKit.rowCount(f));
 	}
 
 	@Test
@@ -194,10 +194,10 @@ public class FeedListTest
 		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:3\"],\"id\":\"m6\",\"gz\":0,\"gold\":0,\"sad\":1,\"sit\":1,"
 			+ "\"mineGz\":false,\"mineGold\":false,\"mineSad\":true,\"mineSit\":false,\"who\":{\"sad\":\"Sad · Drenvox\",\"sit\":\"\"}}"));
 
-		assertEquals(0, f.reactionChip(0, "gz").get("n").getAsInt());
-		assertFalse(f.reactionChip(0, "gz").get("mine").getAsBoolean());
-		JsonObject sad = f.reactionChip(1, "sad");
-		JsonObject sit = f.reactionChip(1, "sit");
+		assertEquals(0, FeedListKit.reactionChip(f, 0, "gz").get("n").getAsInt());
+		assertFalse(FeedListKit.reactionChip(f, 0, "gz").get("mine").getAsBoolean());
+		JsonObject sad = FeedListKit.reactionChip(f, 1, "sad");
+		JsonObject sit = FeedListKit.reactionChip(f, 1, "sit");
 		assertEquals(1, sad.get("n").getAsInt());
 		assertTrue(sad.get("mine").getAsBoolean());
 		assertEquals("Sad · Drenvox", sad.get("who").getAsString());
@@ -215,9 +215,9 @@ public class FeedListTest
 		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:4\"],\"id\":\"m7\",\"gz\":9,\"mineGz\":false}"));
 		f.flush();
 
-		assertEquals(2, f.rowCount());
-		assertEquals(1, f.reactionChip(0, "gz").get("n").getAsInt());
-		assertTrue(f.reactionChip(0, "gz").get("mine").getAsBoolean());
+		assertEquals(2, FeedListKit.rowCount(f));
+		assertEquals(1, FeedListKit.reactionChip(f, 0, "gz").get("n").getAsInt());
+		assertTrue(FeedListKit.reactionChip(f, 0, "gz").get("mine").getAsBoolean());
 	}
 
 	@Test
@@ -227,31 +227,31 @@ public class FeedListTest
 		UiView v = drawn(host, REACT_ROWS);
 		FeedList f = find(v);
 		// Off, then on again quickly: the screen says on (n 1).
-		f.pressChip(0, "gz");
-		f.pressChip(0, "gz");
+		FeedListKit.pressChip(f, 0, "gz");
+		FeedListKit.pressChip(f, 0, "gz");
 		assertEquals(2, host.posts.size());
-		assertEquals(1, f.reactionChip(0, "gz").get("n").getAsInt());
-		assertTrue(f.reactionChip(0, "gz").get("mine").getAsBoolean());
+		assertEquals(1, FeedListKit.reactionChip(f, 0, "gz").get("n").getAsInt());
+		assertTrue(FeedListKit.reactionChip(f, 0, "gz").get("mine").getAsBoolean());
 
 		// The first press's confirmation (off) arrives: held, nothing flickers.
 		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:3\"],\"id\":\"m7\",\"gz\":0,\"mineGz\":false}"));
-		assertTrue(f.reactionChip(0, "gz").get("mine").getAsBoolean());
+		assertTrue(FeedListKit.reactionChip(f, 0, "gz").get("mine").getAsBoolean());
 		host.pending.get(0).accept(json("{\"ui\":{\"t\":\"gap\",\"h\":0}}"));
-		f.settleNow();
-		assertTrue("still one post out: still held", f.reactionChip(0, "gz").get("mine").getAsBoolean());
+		FeedListKit.settleNow(f);
+		assertTrue("still one post out: still held", FeedListKit.reactionChip(f, 0, "gz").get("mine").getAsBoolean());
 
 		// The second press's (on) and a clanmate's GZ land; once settled they replay in order.
 		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:3\"],\"id\":\"m7\",\"gz\":1,\"mineGz\":true}"));
 		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:3\"],\"id\":\"m7\",\"gz\":2}"));
 		host.pending.get(1).accept(json("{\"ui\":{\"t\":\"gap\",\"h\":0}}"));
-		assertEquals(1, f.reactionChip(0, "gz").get("n").getAsInt());
-		f.settleNow();
-		assertEquals(2, f.reactionChip(0, "gz").get("n").getAsInt());
-		assertTrue(f.reactionChip(0, "gz").get("mine").getAsBoolean());
+		assertEquals(1, FeedListKit.reactionChip(f, 0, "gz").get("n").getAsInt());
+		FeedListKit.settleNow(f);
+		assertEquals(2, FeedListKit.reactionChip(f, 0, "gz").get("n").getAsInt());
+		assertTrue(FeedListKit.reactionChip(f, 0, "gz").get("mine").getAsBoolean());
 
 		// Settled: the next push applies at once.
 		v.feedPush(json("{\"t\":\"rowsreact\",\"feeds\":[\"moments:clan:3\"],\"id\":\"m7\",\"gz\":3}"));
-		assertEquals(3, f.reactionChip(0, "gz").get("n").getAsInt());
+		assertEquals(3, FeedListKit.reactionChip(f, 0, "gz").get("n").getAsInt());
 	}
 
 	@Test
@@ -261,22 +261,22 @@ public class FeedListTest
 		UiView v = drawn(host, "{\"t\":\"feed\",\"id\":\"chat:9:team:4\",\"rows\":[],"
 			+ "\"send\":{\"act\":\"chat-send\",\"args\":{\"e\":\"9\",\"to\":\"team\"},\"hint\":\"Message your team\",\"max\":10}}");
 		FeedList f = find(v);
-		f.box().setText("hello there everyone");
-		assertEquals("capped at max", "hello ther", f.box().getText());
-		f.box().postActionEvent();
+		FeedListKit.box(f).setText("hello there everyone");
+		assertEquals("capped at max", "hello ther", FeedListKit.box(f).getText());
+		FeedListKit.box(f).postActionEvent();
 		assertEquals(1, host.posts.size());
 		assertTrue(host.posts.get(0).startsWith("chat-send{"));
 		assertTrue(host.posts.get(0).contains("msg=hello ther"));
 		host.pending.get(0).accept(json("{\"ui\":{\"t\":\"text\",\"s\":\"Slow mode — wait 4s.\",\"color\":\"error\"}}"));
-		assertEquals("Slow mode - wait 4s.", f.errorLine());
-		assertEquals("kept for another try", "hello ther", f.box().getText());
+		assertEquals("Slow mode - wait 4s.", FeedListKit.errorLine(f));
+		assertEquals("kept for another try", "hello ther", FeedListKit.box(f).getText());
 		assertSame("the view was not redrawn", f, find(v));
 
 		assertEquals("a refused line keeps the keyboard in the box", 0, host.gameFocus);
-		f.box().postActionEvent();
+		FeedListKit.box(f).postActionEvent();
 		host.pending.get(1).accept(json("{\"ui\":{\"t\":\"gap\",\"h\":0}}"));
-		assertNull(f.errorLine());
-		assertEquals("", f.box().getText());
+		assertNull(FeedListKit.errorLine(f));
+		assertEquals("", FeedListKit.box(f).getText());
 		assertEquals("a sent line hands the keyboard back to the game", 1, host.gameFocus);
 	}
 
@@ -286,13 +286,13 @@ public class FeedListTest
 		Host host = new Host();
 		UiView v = drawn(host, "{\"t\":\"feed\",\"id\":\"chat:9:team:4\",\"rows\":[],\"send\":{\"act\":\"chat-send\",\"hint\":\"x\"}}");
 		FeedList f = find(v);
-		assertTrue(f.box().isEnabled());
+		assertTrue(FeedListKit.box(f).isEnabled());
 		v.feedPush(json("{\"t\":\"rowslock\",\"feeds\":[\"chat:9\"],\"locked\":\"The host has paused chat.\"}"));
-		assertFalse(f.box().isEnabled());
+		assertFalse(FeedListKit.box(f).isEnabled());
 		v.feedPush(json("{\"t\":\"rowslock\",\"feeds\":[\"chat:99\"],\"locked\":null}"));
-		assertFalse("another board's lock is not ours", f.box().isEnabled());
+		assertFalse("another board's lock is not ours", FeedListKit.box(f).isEnabled());
 		v.feedPush(json("{\"t\":\"rowslock\",\"feeds\":[\"chat:9\"],\"locked\":null}"));
-		assertTrue(f.box().isEnabled());
+		assertTrue(FeedListKit.box(f).isEnabled());
 	}
 
 	@Test
@@ -306,8 +306,8 @@ public class FeedListTest
 		v.feedPush(json("{\"t\":\"rows\",\"feeds\":[\"chat:9\",\"chat:9:team:4\"],\"rows\":[" + row("c1") + "]}"));
 		old.flush();
 		now.flush();
-		assertEquals(0, old.rowCount());
-		assertEquals(1, now.rowCount());
+		assertEquals(0, FeedListKit.rowCount(old));
+		assertEquals(1, FeedListKit.rowCount(now));
 	}
 
 	@Test
@@ -317,10 +317,10 @@ public class FeedListTest
 		UiView v = drawn(host, "{\"t\":\"feed\",\"id\":\"chat:9\",\"empty\":\"<html><img src=x>\",\"rows\":[],"
 			+ "\"send\":{\"act\":\"chat-send\",\"hint\":\"<html><b>hi\"}}");
 		FeedList f = find(v);
-		f.box().setText("x");
-		f.box().postActionEvent();
+		FeedListKit.box(f).setText("x");
+		FeedListKit.box(f).postActionEvent();
 		host.pending.get(0).accept(json("{\"ui\":{\"t\":\"text\",\"s\":\"<html><font size=99>boom\",\"color\":\"error\"}}"));
-		assertFalse(f.errorLine().startsWith("<html>"));
+		assertFalse(FeedListKit.errorLine(f).startsWith("<html>"));
 	}
 
 	@Test
@@ -330,12 +330,12 @@ public class FeedListTest
 		UiView v = drawn(host, "{\"t\":\"feed\",\"id\":\"chat:9\",\"cap\":20,\"rows\":[" + row("c2") + "," + row("c1") + "],"
 			+ "\"send\":{\"act\":\"chat-send\",\"hint\":\"x\"}}");
 		FeedList f = find(v);
-		assertEquals("c1", f.rowId(0));
-		assertEquals("c2", f.rowId(1));
+		assertEquals("c1", FeedListKit.rowId(f, 0));
+		assertEquals("c2", FeedListKit.rowId(f, 1));
 		v.feedPush(json("{\"t\":\"rows\",\"feeds\":[\"chat:9\"],\"rows\":[" + row("c4") + "," + row("c3") + "]}"));
 		f.flush();
-		assertEquals("c1", f.rowId(0));
-		assertEquals("c4", f.rowId(3));
+		assertEquals("c1", FeedListKit.rowId(f, 0));
+		assertEquals("c4", FeedListKit.rowId(f, 3));
 		StringBuilder more = new StringBuilder();
 		for (int i = 30; i >= 5; i--)
 		{
@@ -343,9 +343,9 @@ public class FeedListTest
 		}
 		v.feedPush(json("{\"t\":\"rows\",\"feeds\":[\"chat:9\"],\"rows\":[" + more + "]}"));
 		f.flush();
-		assertEquals(20, f.rowCount());
-		assertEquals("the oldest went from the top", "c11", f.rowId(0));
-		assertEquals("c30", f.rowId(19));
+		assertEquals(20, FeedListKit.rowCount(f));
+		assertEquals("the oldest went from the top", "c11", FeedListKit.rowId(f, 0));
+		assertEquals("c30", FeedListKit.rowId(f, 19));
 	}
 
 	@Test
@@ -417,17 +417,17 @@ public class FeedListTest
 	{
 		java.awt.Color white = java.awt.Color.WHITE, team = new java.awt.Color(0xff8800);
 		JsonObject patron = new JsonParser().parse("{\"who\":\"Drenvox\",\"whoColor\":\"#f5c542\",\"grad\":[\"#f5c542\",\"#c86bff\"],\"tag\":\"Lab\",\"tagColor\":\"#ff8800\"}").getAsJsonObject();
-		String html = FeedList.whoHtml(patron, "Drenvox", "Lab", new java.awt.Color(0xf5c542), team);
+		String html = FeedListKit.whoHtml(patron, "Drenvox", "Lab", new java.awt.Color(0xf5c542), team);
 		assertTrue(html, html.startsWith("<html><font color='#f5c542'>D</font>"));
 		assertTrue(html, html.contains("<font color='#c86bff'>x</font>"));
 		assertTrue(html, html.endsWith("<font color='#ff8800'> \u00b7 Lab</font>"));
 
 		JsonObject plain = new JsonParser().parse("{\"who\":\"Mossy\",\"whoColor\":\"muted\",\"tag\":\"Ruby\"}").getAsJsonObject();
 		assertEquals("<html><font color='#ff8800'>Mossy</font><font color='#ff8800'> \u00b7 Ruby</font>",
-				FeedList.whoHtml(plain, "Mossy", "Ruby", white, team));
+				FeedListKit.whoHtml(plain, "Mossy", "Ruby", white, team));
 
 		JsonObject sneaky = new JsonParser().parse("{\"who\":\"<b>x\"}").getAsJsonObject();
-		assertFalse(FeedList.whoHtml(sneaky, "<b>x", "", white, team).contains("<b>"));
+		assertFalse(FeedListKit.whoHtml(sneaky, "<b>x", "", white, team).contains("<b>"));
 	}
 
 	@Test
@@ -477,7 +477,7 @@ public class FeedListTest
 		assertEquals(1, f.unread("chat:9:announce"));
 		assertEquals("the open channel takes its lines, it doesn't count them", 0, f.unread("chat:9:team:4"));
 		f.flush();
-		assertEquals(1, f.rowCount());
+		assertEquals(1, FeedListKit.rowCount(f));
 	}
 
 	@Test

@@ -1,17 +1,17 @@
 package com.anvil;
 
-import lombok.Setter;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-import java.util.Set;
-import java.util.function.Predicate;
+import lombok.*;
+import java.net.*;
+import java.nio.charset.*;
+import java.util.*;
+import java.util.function.*;
 import javax.inject.*;
 import net.runelite.api.*;
 import net.runelite.api.events.*;
 import net.runelite.api.gameval.InterfaceID;
-import net.runelite.api.widgets.WidgetUtil;
+import net.runelite.api.widgets.*;
 import net.runelite.client.eventbus.*;
-import net.runelite.client.menus.MenuManager;
+import net.runelite.client.menus.*;
 import net.runelite.client.util.*;
 
 /**
@@ -33,7 +33,8 @@ import net.runelite.client.util.*;
  * — character pages are not clan-scoped, a character belongs to its player wherever they play.</p>
  */
 @Singleton
-final class ProfileLookup {
+@RequiredArgsConstructor(onConstructor_ = @Inject)
+class ProfileLookup {
 	static final String OPTION = "Anvil";
 
 	/** List options our entry goes AFTER (below) / BEFORE (above), matching the hiscores plugin. */
@@ -48,14 +49,6 @@ final class ProfileLookup {
 	boolean playerItemShown;
 	/** Opens a name in the side panel's Lookup tab; false when it can't (no card support), and we browse. */
 	@Setter volatile Predicate<String> panelOpener;
-
-	@Inject
-	ProfileLookup(Client client, MenuManager menuManager, AnvilConfig config, EventBus eventBus) {
-		this.client = client;
-		this.menuManager = menuManager;
-		this.config = config;
-		this.eventBus = eventBus;
-	}
 
 	/** {@code rsn} as a path segment, or null when there is no name to look up. */
 	static String pathName(String rsn) {

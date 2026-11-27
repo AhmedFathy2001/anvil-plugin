@@ -1,8 +1,8 @@
 package com.anvil;
 
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.function.DoubleSupplier;
-import lombok.RequiredArgsConstructor;
+import java.util.concurrent.*;
+import java.util.function.*;
+import lombok.*;
 
 /**
  * How long to wait before trying a failed push again.
@@ -17,7 +17,7 @@ import lombok.RequiredArgsConstructor;
  * The second is the caller's job — a permanent failure drops the batch instead of backing off.
  */
 @RequiredArgsConstructor
-final class SyncBackoff {
+class SyncBackoff {
 	static final long FIRST_MS = 30_000L;
 	static final long MAX_MS = 600_000L;
 

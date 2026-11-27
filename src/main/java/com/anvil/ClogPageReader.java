@@ -2,7 +2,7 @@ package com.anvil;
 
 import java.util.*;
 import java.util.regex.*;
-import net.runelite.api.Client;
+import net.runelite.api.*;
 import net.runelite.api.widgets.*;
 
 /**
@@ -20,7 +20,7 @@ import net.runelite.api.widgets.*;
  * <p>Runs on the client thread (its only caller is the COLLECTION_DRAW_LIST script hook), so it
  * allocates nothing beyond the page it returns and never blocks.
  */
-final class ClogPageReader {
+class ClogPageReader {
 	/** "Obtained: 5/9" — the log's own progress line, and our correctness check. */
 	static final Pattern OBTAINED = Pattern.compile("obtained:\\s*(\\d+)\\s*/\\s*(\\d+)");
 	/** "Abyssal Sire kills: 1,204" / "Chest openings: 87" — label and value, commas stripped. */

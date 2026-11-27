@@ -19,7 +19,7 @@ package com.anvil;
  * <p>Pure, and RuneLite-free, so the decision can be tested without a client: the plugin supplies
  * the token and the count, and gets back what to print.</p>
  */
-public final class SetupNudge {
+public class SetupNudge {
 	/** How many logins a never-configured install is told where to go before it stops asking. */
 	static final int FIRST_RUN_NUDGES = 3;
 

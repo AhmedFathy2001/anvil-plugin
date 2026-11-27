@@ -1,6 +1,8 @@
 package com.anvil;
 
-import lombok.RequiredArgsConstructor;
+import static java.lang.Math.*;
+import static com.anvil.AnvilPlugin.empty;
+import lombok.*;
 import java.util.*;
 import java.util.regex.*;
 import java.util.function.*;
@@ -16,10 +18,10 @@ import java.util.function.*;
  * so readers on any thread see one consistent list.
  */
 
-final class ChatFlair {
+class ChatFlair {
 	/** A look: solid colour, optional gradient stops, Patron star. */
 	/** A per-surface look the owner picked themselves: a colour, plus gradient stops when 2+. */
-	static final class Surface {
+	static class Surface {
 		String c;
 		List<String> g;
 
@@ -28,7 +30,7 @@ final class ChatFlair {
 		}
 	}
 
-	static final class Entry {
+	static class Entry {
 		String c;
 		List<String> g;
 		Boolean s;
@@ -49,7 +51,7 @@ final class ChatFlair {
 	 * GET chat-flair/v/&lt;v&gt; ({v, styles, names, ix}), and a push delta ({t:"flair", v, from, styles,
 	 * names, ix, del} — or full:true, "fetch it").
 	 */
-	static final class Wire {
+	static class Wire {
 		int v;
 		Integer from;
 		Boolean full;
@@ -60,7 +62,7 @@ final class ChatFlair {
 	}
 
 	/** GET chat-flair/v?since=: the current version, and the deltas to it when few. */
-	static final class Since {
+	static class Since {
 		int v;
 		Integer n;
 		List<Wire> deltas;
@@ -68,7 +70,7 @@ final class ChatFlair {
 
 	/** One version of the list. */
 	@RequiredArgsConstructor
-	static final class Held {
+	static class Held {
 		final int v;
 		final String[] names;
 		final char[] ix;
@@ -232,7 +234,7 @@ final class ChatFlair {
 	 * draws it (tags and icons included), so only the name itself answers, not the whole line.
 	 */
 	String tierInLine(String raw, int x, ToIntFunction<String> width) {
-		if (raw == null || raw.isEmpty() || isEmpty() || x < 0) return null;
+		if (empty(raw) || isEmpty() || x < 0) return null;
 		// The visible characters (lower case), and where each one sits in the raw text.
 		var s = shown(raw);
 		var at = s.at;
@@ -245,7 +247,7 @@ final class ChatFlair {
 			if (from > 0 && Character.isLetterOrDigit(text.charAt(from - 1)) || !Character.isLetterOrDigit(text.charAt(from))) continue;
 			var before = raw.substring(0, at[from]);
 			if (!paintedJustBefore(before)) continue;
-			for (int to = Math.min(text.length(), from + MAX_NAME_LENGTH); to > from; to--) {
+			for (int to = min(text.length(), from + MAX_NAME_LENGTH); to > from; to--) {
 				if (to < text.length() && Character.isLetterOrDigit(text.charAt(to))) continue;
 				var e = entry(text.substring(from, to));
 				if (e == null) continue;
@@ -283,7 +285,7 @@ final class ChatFlair {
 	 * this so a pushed name matches the same name in chat.
 	 */
 	String paintNameFor(String safeName, boolean opaque) {
-		var e = safeName == null || safeName.isEmpty() ? null : entry(safeName);
+		var e = empty(safeName) ? null : entry(safeName);
 		return e == null ? null : ChatPalette.paintName(safeName, readableColor(e, opaque), readableGradient(e, opaque), 0);
 	}
 
@@ -346,7 +348,7 @@ final class ChatFlair {
 
 	/** Raw chat text's visible characters (tags out, nbsp as a space), and where each sits in the raw. */
 	@RequiredArgsConstructor
-	static final class Shown {
+	static class Shown {
 		final String text;
 		final int[] at;
 	}
@@ -443,7 +445,7 @@ final class ChatFlair {
 	}
 
 	String paintSender(String raw, String star, boolean opaque, boolean pmLine, double shift) {
-		if (raw == null || raw.isEmpty() || isEmpty() || raw.indexOf(':') < 0) return null;
+		if (empty(raw) || isEmpty() || raw.indexOf(':') < 0) return null;
 		var s = shown(raw);
 		var m = SENDER_SHOWN.matcher(s.text);
 		// A sender column ends at the colon; a split-PM line is "From/To Name: …". A typed "[Clan] Bob: hi"
@@ -458,7 +460,7 @@ final class ChatFlair {
 
 	/** Whether a validated sender column belongs to a Patron with a movable gradient. */
 	boolean movingSender(String raw) {
-		if (raw == null || raw.isEmpty()) return false;
+		if (empty(raw)) return false;
 		var m = SENDER_SHOWN.matcher(shown(raw).text);
 		if (!m.matches()) return false;
 		var name = m.group(3).trim();
@@ -486,7 +488,7 @@ final class ChatFlair {
 	static boolean senderColumn(int i, int n, IntUnaryOperator x, IntUnaryOperator y, IntFunction<String> text) {
 		for (int j = i + 1; j < n && j <= i + 3; j++) {
 			var t = text.apply(j);
-			if (t != null && !t.isEmpty() && y.applyAsInt(j) == y.applyAsInt(i) && x.applyAsInt(j) > x.applyAsInt(i)) return true;
+			if (!empty(t) && y.applyAsInt(j) == y.applyAsInt(i) && x.applyAsInt(j) > x.applyAsInt(i)) return true;
 		}
 		return false;
 	}
@@ -522,9 +524,9 @@ final class ChatFlair {
 			int by = shift(d, need, ax[j] - ax[at]);
 			if (by <= 0) continue;
 			x[j] += by;
-			w[j] = Math.max(1, w[j] - by);
+			w[j] = max(1, w[j] - by);
 			recX[j] = x[j];
-			if (d <= 0) grow = Math.max(grow, by);
+			if (d <= 0) grow = max(grow, by);
 			moved = true;
 		}
 		if (grow > 0 && w[at] != recW[at]) {
@@ -541,7 +543,7 @@ final class ChatFlair {
 	 * the message, e.g. an icon another plugin added after the layout. 0 {@code need}: just {@code d}.
 	 */
 	static int shift(int d, int need, int offset) {
-		return Math.max(d, need > 0 ? need - offset : 0);
+		return max(d, need > 0 ? need - offset : 0);
 	}
 
 	/** The drawn width of a whole painted sender (every icon, the star, the text) plus a one-space gap; 0 with no font. */
@@ -612,7 +614,7 @@ final class ChatFlair {
 	 * text isn't that clan's title. Markup is ignored so a game-coloured count still matches.
 	 */
 	static String clanTitleSuffix(String text, String name) {
-		if (text == null || name == null || name.isEmpty()) return null;
+		if (text == null || empty(name)) return null;
 		var plain = AnvilPlugin.MARKUP_TAG.matcher(text).replaceAll("");
 		if (!plain.regionMatches(true, 0, name, 0, name.length())) return null;
 		if (plain.length() == name.length()) return "";
@@ -663,7 +665,7 @@ final class ChatFlair {
 	 * widgets are those broadcasts without a name lookup per widget.
 	 */
 	String leadKey(String raw) {
-		if (raw == null || raw.isEmpty() || isEmpty()) return null;
+		if (empty(raw) || isEmpty()) return null;
 		var s = shown(raw);
 		return leadName(s) < 0 ? null : key(s);
 	}
@@ -690,7 +692,7 @@ final class ChatFlair {
 
 	/** A broadcast's leading name at one point in the Patron animation cycle. */
 	String paintLead(String raw, String star, boolean opaque, double shift) {
-		if (raw == null || raw.isEmpty() || isEmpty()) return null;
+		if (empty(raw) || isEmpty()) return null;
 		var s = shown(raw);
 		int end = leadName(s);
 		return end < 0 ? null : paintAt(raw, s, leadEnd(s.text), end, star, opaque, shift);
@@ -698,7 +700,7 @@ final class ChatFlair {
 
 	/** Whether a broadcast begins with a Patron name whose gradient should move. */
 	boolean movingLead(String raw) {
-		if (raw == null || raw.isEmpty()) return false;
+		if (empty(raw)) return false;
 		var s = shown(raw);
 		int end = leadName(s);
 		return end >= 0 && movingName(s.text.substring(leadEnd(s.text), end));
@@ -709,13 +711,13 @@ final class ChatFlair {
 	 * boards). Callers scope this to those interfaces; arbitrary game text is never scanned.
 	 */
 	String paintNames(String raw, boolean opaque, double shift) {
-		if (raw == null || raw.isEmpty() || isEmpty()) return null;
+		if (empty(raw) || isEmpty()) return null;
 		var shown = shown(raw);
 		var out = raw;
 		var changed = false;
 		for (int from = shown.text.length() - 1; from >= 0; from--) {
 			if (from > 0 && nameChar(shown.text.charAt(from - 1))) continue;
-			int limit = Math.min(shown.text.length(), from + MAX_NAME_LENGTH);
+			int limit = min(shown.text.length(), from + MAX_NAME_LENGTH);
 			for (int to = limit; to > from; to--) {
 				if (to < shown.text.length() && nameChar(shown.text.charAt(to)) || entry(shown.text.substring(from, to)) == null) continue;
 				var painted = paintAt(out, shown, from, to, null, opaque, shift);
@@ -731,11 +733,11 @@ final class ChatFlair {
 
 	/** Whether a trusted interface text contains at least one moving Patron name. */
 	boolean movingNames(String raw) {
-		if (raw == null || raw.isEmpty()) return false;
+		if (empty(raw)) return false;
 		var text = shown(raw).text;
 		for (int from = 0; from < text.length(); from++) {
 			if (from > 0 && nameChar(text.charAt(from - 1))) continue;
-			for (int to = Math.min(text.length(), from + MAX_NAME_LENGTH); to > from; to--) {
+			for (int to = min(text.length(), from + MAX_NAME_LENGTH); to > from; to--) {
 				if ((to == text.length() || !nameChar(text.charAt(to))) && movingName(text.substring(from, to))) return true;
 			}
 		}
@@ -751,7 +753,7 @@ final class ChatFlair {
 		var t = s.text;
 		int from = leadEnd(t);
 		for (int to
- = Math.min(t.length(), from + MAX_NAME_LENGTH); to > from; to--) {
+ = min(t.length(), from + MAX_NAME_LENGTH); to > from; to--) {
 			if (!Character.isLetterOrDigit(t.charAt(to - 1)) || to < t.length() && nameChar(t.charAt(to))) continue;
 			if (entry(t.substring(from, to)) != null) return to;
 		}

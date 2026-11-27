@@ -683,6 +683,17 @@ public class RuleEngineTest
 	}
 
 	@Test
+	public void anItemsOtherIdsOnAGainTileAreItsSiblings()
+	{
+		// A sceptre tile lists every id of the item; charging swaps one for another, never a gain.
+		RuleEngine e = events("{\"t\":16,\"label\":\"Sceptre\",\"have\":0,\"of\":1,\"on\":\"gain\",\"keys\":[\"26945\",\"26948\",\"26950\"]},"
+			+ "{\"t\":17,\"label\":\"Sharks\",\"have\":0,\"of\":5,\"on\":\"gain\",\"keys\":[\"383\"]}");
+		assertEquals(new HashSet<>(Arrays.asList("26948", "26950")), e.keysWith("gain", "26945"));
+		assertTrue(e.keysWith("gain", "383").isEmpty());
+		assertTrue(e.keysWith("timed", "26945").isEmpty());
+	}
+
+	@Test
 	public void eventRulesBuildOnLocalCountsTakeTheSitesAnswerAndAPushButNeverWhenUncounted()
 	{
 		RuleEngine e = events("{\"t\":14,\"label\":\"Gains\",\"have\":2,\"of\":10,\"on\":\"gain\",\"keys\":[\"1\"]},"

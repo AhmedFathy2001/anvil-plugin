@@ -33,7 +33,7 @@ import java.util.regex.*;
  *                — no signature entry needed: both flanking lines name the trial, so the
  *                activity-name fallback matches tiles like "gwenith glide" / "tempor tantrum".
  */
-final class TimedClearParser {
+class TimedClearParser {
 	TimedClearParser() {}
 
 	static final Pattern SPACES = Pattern.compile("\\s+");
@@ -162,8 +162,6 @@ final class TimedClearParser {
 	}
 
 	// A TzHaar-Ket-Rak challenge clear kills TzTok-Jad and mentions the Inferno nearby, so without a
-	// veto it reads as a Fight Caves (boss just died) or Inferno clear. Its count line is unique.
-	static final String KET_RAK_CLEAR = "your completion count for tzhaar-ket-rak";
 
 	/**
 	 * True when the lines around a duration show it belongs to a different activity than
@@ -172,7 +170,7 @@ final class TimedClearParser {
 	static boolean clearBelongsElsewhere(Iterable<String> nearbyLines, String activity) {
 		if (norm(activity).contains("tzhaar-ket-rak")) return false;
 		for (String line : nearbyLines) {
-			if (line != null && line.toLowerCase(Locale.ROOT).contains(KET_RAK_CLEAR)) return true;
+			if (line != null && line.toLowerCase(Locale.ROOT).contains("your completion count for tzhaar-ket-rak" /* KET_RAK_CLEAR */)) return true;
 		}
 		return false;
 	}

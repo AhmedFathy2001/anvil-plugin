@@ -1,6 +1,6 @@
 package com.anvil;
 
-import lombok.RequiredArgsConstructor;
+import lombok.*;
 import java.util.*;
 
 /**
@@ -37,11 +37,9 @@ class AnvilMoments {
 	/** How many go in one request — matches the site's own cap. */
 	static final int BATCH = 25;
 
-	/** Below this a drop isn't worth reporting on price alone. The site's floors are stricter. */
-	static final long MIN_REPORTABLE_GP = 100_000L;
 
 	@RequiredArgsConstructor
-	static final class Moment {
+	static class Moment {
 		/** 'pet' | 'drop' | 'death' | 'ca' | 'level', and the chat feed's own 'clog' | 'diary'. */
 		final String kind;
 		final Integer itemId;
@@ -56,6 +54,23 @@ class AnvilMoments {
 		final String tier;
 		final long at;
 		final String key;
+		/** Deaths and drops: the raid we stood inside ("cox" | "tob" | "toa", or "-entry"), however we died. */
+		String raid;
+		/** Where it happened, for the site's analytics: map region; in a raid its mode, Tombs level, party. */
+		Integer regionId, raidLevel, party;
+		String raidMode;
+		/** 'death' only: monsters in sight close by, so a minion's or mechanic's death counts at its boss. */
+		List<String> near;
+
+		/** The place fields carried over from {@code from} (a renamed queued entry keeps them). */
+		Moment placedAs(Moment from) {
+			raid = from.raid;
+			regionId = from.regionId;
+			raidLevel = from.raidLevel;
+			party = from.party;
+			raidMode = from.raidMode;
+			return this;
+		}
 
 		Moment(String kind, Integer itemId, String itemName, int quantity, Long valueGp,
 			   String source, String sourceKind, Integer kc, long at, String key) {
@@ -125,7 +140,7 @@ class AnvilMoments {
 		if (existing == null || itemName == null || itemName.isEmpty()) return false;
 		pending.put(key, new Moment(existing.kind, itemId != null ? itemId : existing.itemId, itemName,
 			existing.quantity, existing.valueGp, source != null ? source : existing.source, existing.sourceKind,
-			source != null ? kc : existing.kc, existing.at, existing.key));
+			source != null ? kc : existing.kc, existing.at, existing.key).placedAs(existing));
 		return true;
 	}
 

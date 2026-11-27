@@ -4,19 +4,19 @@ import static net.runelite.client.ui.ColorScheme.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.time.*;
-import java.time.format.DateTimeParseException;
-import java.util.Locale;
-import java.util.regex.Pattern;
+import java.time.format.*;
+import java.util.*;
+import java.util.regex.*;
 import javax.swing.*;
 import net.runelite.client.ui.*;
 import javax.swing.event.*;
-import javax.swing.text.JTextComponent;
+import javax.swing.text.*;
 
 /**
  * The side panel's shared Swing pieces — the labels, rows, cards and click wiring every view builds
  * the same way, so the sidebar and the card views can't drift apart in how they look.
  */
-final class Ui {
+class Ui {
 	/** A copy of {@code g} that draws antialiased; the caller disposes it. */
 	static Graphics2D smooth(Graphics g) {
 		var g2 = (Graphics2D) g.create();
@@ -39,7 +39,7 @@ final class Ui {
 	}
 
 	/** Secondary text: counts, hints, the quieter half of a row. */
-	static final Color MUTED = new Color(0xa8_a8_a8);
+	static final Color MUTED = new Color(0x9a9a9a);
 
 	/**
 	 * Neutralize a site-supplied string for Swing. A {@link JLabel}/{@link javax.swing.JToolTip} renders as
@@ -272,21 +272,18 @@ final class Ui {
 	}
 
 	/** JTextField has no placeholder API; paint one without putting fake text into the query. */
-	static final class SearchField extends JTextField {
+	static class SearchField extends JTextField {
 		final String placeholder;
 
 		SearchField(String placeholder, String value) {
 			super(value == null ? "" : value);
 			this.placeholder = placeholder;
-			addFocusListener(new FocusAdapter() {
-				public void focusGained(FocusEvent e) { repaint(); }
-				public void focusLost(FocusEvent e) { repaint(); }
-			});
 		}
 
+		/** The hint stays until something is typed: a box that takes focus on its own showed none. */
 		protected void paintComponent(Graphics graphics) {
 			super.paintComponent(graphics);
-			if (!getText().isEmpty() || isFocusOwner()) return;
+			if (!getText().isEmpty()) return;
 			var g = (Graphics2D) graphics.create();
 			g.setColor(MUTED);
 			g.setFont(getFont());

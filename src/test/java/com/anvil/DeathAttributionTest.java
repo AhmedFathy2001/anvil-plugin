@@ -167,4 +167,20 @@ public class DeathAttributionTest
 		d.clear();
 		assertEquals(0, d.players(T + 200));
 	}
+
+	@Test
+	public void anAttackerLeftInAnotherRoomIsNotTheKiller()
+	{
+		DeathAttribution d = new DeathAttribution();
+		// The puzzle room's crab still has us targeted when Tekton's room kills us.
+		d.targetedUs("Jewelled Crab (red)", false, T);
+		d.tookDamage(T + 60_000);
+		java.util.function.Predicate<String> near = n -> !n.startsWith("Jewelled Crab");
+		assertNull(d.killer("Tekton", T + 60_100, near));
+		// A crab beside us still is one.
+		assertEquals("Jewelled Crab (red)", d.killer(null, T + 60_100, n -> true));
+		// The nearby attacker wins over the far one.
+		d.targetedUs("Tekton", false, T + 50_000);
+		assertEquals("Tekton", d.killer(null, T + 60_100, near));
+	}
 }

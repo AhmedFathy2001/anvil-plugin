@@ -1,10 +1,12 @@
 package com.anvil;
 
+import static java.lang.Math.*;
+
 /**
  * The two questions every retry path asks, answered once: is this refusal worth trying again, and how
  * long to wait before doing so.
  */
-final class RetryPolicy {
+class RetryPolicy {
 	/**
 	 * A refusal that will never succeed however often it is resent: a 4xx, except 401 (the token may
 	 * refresh, and a push fired in the second after login, before X-RSN is stamped, is refused with one

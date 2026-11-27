@@ -1,9 +1,10 @@
 package com.anvil;
 
-import lombok.RequiredArgsConstructor;
+import static java.lang.Math.*;
+import lombok.*;
 import java.awt.*;
 import java.awt.geom.*;
-import javax.swing.Icon;
+import javax.swing.*;
 
 /**
  * The sidebar's small symbols — chevrons, the external-link arrow, a tick, a cross, an ellipsis —
@@ -18,9 +19,9 @@ import javax.swing.Icon;
  * unless one is fixed at construction.
  */
 @RequiredArgsConstructor
-final class GlyphIcon implements Icon {
+class GlyphIcon implements Icon {
 	enum Shape {
-		CHEVRON_LEFT, CHEVRON_RIGHT, EXTERNAL, CHECK, CLOSE, ELLIPSIS, GEAR, STAR, UP, DOWN
+		CHEVRON_LEFT, CHEVRON_RIGHT, CHEVRON_DOWN, EXTERNAL, CHECK, CLOSE, ELLIPSIS, GEAR, STAR, UP, DOWN, QUILL, QUILL_STAR, LOCK, UNLOCK
 	}
 
 	final Shape shape;
@@ -48,7 +49,7 @@ final class GlyphIcon implements Icon {
 			if (c != null && !c.isEnabled()) ink = ink.darker();
 			g.setColor(ink);
 			float s = size;
-			g.setStroke(new BasicStroke(Math.max(1.4f, s / 7f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+			g.setStroke(new BasicStroke(max(1.4f, s / 7f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
 			g.translate(x, y);
 			var p = new Path2D.Float();
 			switch (shape) {
@@ -57,6 +58,9 @@ final class GlyphIcon implements Icon {
 					break;
 				case CHEVRON_RIGHT:
 					g.draw(stroke(p, s, 0.38, 0.22, 0.66, 0.5, 0.38, 0.78));
+					break;
+				case CHEVRON_DOWN:
+					g.draw(stroke(p, s, 0.22, 0.38, 0.5, 0.66, 0.78, 0.38));
 					break;
 				case EXTERNAL:
 					stroke(p, s, 0.28, 0.72, 0.72, 0.28);
@@ -70,7 +74,7 @@ final class GlyphIcon implements Icon {
 					g.draw(stroke(p, s, 0.72, 0.28, 0.28, 0.72));
 					break;
 				case ELLIPSIS:
-					var d = Math.max(2f, s / 6f);
+					var d = max(2f, s / 6f);
 					for (int i = 0; i < 3; i++) {
 						var cx = s * (0.25f + 0.25f * i);
 						g.fill(new Ellipse2D.Float(cx - d / 2, s * 0.5f - d / 2, d, d));
@@ -82,15 +86,38 @@ final class GlyphIcon implements Icon {
 					var r = s * 0.24f;
 					g.draw(new Ellipse2D.Float(cx - r, cx - r, r * 2, r * 2));
 					for (int i = 0; i < 8; i++) {
-						var a = Math.PI / 4 * i;
-						p.moveTo(cx + Math.cos(a) * s * 0.33, cx + Math.sin(a) * s * 0.33);
-						p.lineTo(cx + Math.cos(a) * s * 0.44, cx + Math.sin(a) * s * 0.44);
+						var a = PI / 4 * i;
+						p.moveTo(cx + cos(a) * s * 0.33, cx + sin(a) * s * 0.33);
+						p.lineTo(cx + cos(a) * s * 0.44, cx + sin(a) * s * 0.44);
 					}
 					g.draw(p);
 					break;
 				case STAR:
 					// Filled five points: an Anvil Supporter, beside their name.
 					g.fill(star(p, s, 1));
+					break;
+				case QUILL_STAR:
+					// A Supporter writer: the gold star with a dark quill across it.
+					g.fill(star(new Path2D.Float(), s, 1));
+					g.setColor(new Color(0x7a4f12));
+				case QUILL:
+					// A writer's rank: a feather leaning right, its colour the rank's.
+					p.moveTo(s * .88, s * .08);
+					p.quadTo(s * .22, s * .2, s * .18, s * .92);
+					p.quadTo(s * .74, s * .62, s * .88, s * .08);
+					g.fill(p);
+					break;
+				case LOCK:
+				case UNLOCK:
+					// A padlock: a trip held on one boss (closed) or free to follow the bank (open, shackle lifted).
+					g.fill(new java.awt.geom.RoundRectangle2D.Double(s * .18, s * .46, s * .64, s * .46, s * .12, s * .12));
+					var lift = shape == Shape.UNLOCK ? .14 : 0;
+					p.moveTo(s * .32, s * (.46 - lift));
+					p.lineTo(s * .32, s * (.3 - lift));
+					p.quadTo(s * .32, s * (.08 - lift), s * .5, s * (.08 - lift));
+					p.quadTo(s * .68, s * (.08 - lift), s * .68, s * (.3 - lift));
+					if (lift == 0) p.lineTo(s * .68, s * .46);
+					g.draw(p);
 					break;
 				case UP:
 				case DOWN:
@@ -108,10 +135,10 @@ final class GlyphIcon implements Icon {
 	/** A five-point star {@code k} of the icon's size, centred. */
 	static Path2D star(Path2D p, float s, double k) {
 		for (int i = 0; i < 10; i++) {
-			var ang = -Math.PI / 2 + Math.PI / 5 * i;
+			var ang = -PI / 2 + PI / 5 * i;
 			var rad = s * k * (i % 2 == 0 ? 0.5 : 0.21);
-			var px = s / 2.0 + Math.cos(ang) * rad;
-			var py = s * (0.5 + 0.03 * k) + Math.sin(ang) * rad;
+			var px = s / 2.0 + cos(ang) * rad;
+			var py = s * (0.5 + 0.03 * k) + sin(ang) * rad;
 			if (i == 0) p.moveTo(px, py);
 			else p.lineTo(px, py);
 		}

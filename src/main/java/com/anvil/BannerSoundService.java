@@ -1,17 +1,17 @@
 package com.anvil;
 
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import net.runelite.client.audio.AudioPlayer;
-import net.runelite.client.util.Filepath;
+import lombok.*;
+import lombok.extern.slf4j.*;
+import net.runelite.client.audio.*;
+import net.runelite.client.util.*;
 
 import javax.inject.*;
-import javax.swing.SwingUtilities;
-import java.io.IOException;
-import java.nio.file.StandardCopyOption;
+import javax.swing.*;
+import java.io.*;
+import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.function.Consumer;
+import java.util.function.*;
 import java.util.stream.*;
 
 /**
@@ -123,7 +123,6 @@ public class BannerSoundService {
 	 * so it is always answered from memory and the re-read happens on {@link #audioExecutor}; a clip
 	 * dropped into the folder by hand shows up this much later at worst (Add sounds re-reads at once).
 	 */
-	static final long LISTING_TTL_MS = 10_000L;
 	final Map<Kind, List<String>> listed = new EnumMap<>(Kind.class);
 	final Map<Kind, Long> listedAt = new EnumMap<>(Kind.class);
 	final Set<Kind> relisting = EnumSet.noneOf(Kind.class);
@@ -145,7 +144,7 @@ public class BannerSoundService {
 		synchronized (this) {
 			cached = listed.getOrDefault(kind, Collections.emptyList());
 			var at = listedAt.get(kind);
-			stale = at == null || System.currentTimeMillis() - at >= LISTING_TTL_MS;
+			stale = at == null || System.currentTimeMillis() - at >= 10_000L /* LISTING_TTL_MS */;
 		}
 		if (stale) relist(kind);
 		return cached;

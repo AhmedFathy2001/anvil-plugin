@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static com.anvil.AnvilPlugin.empty;
 import java.util.*;
 
 /**
@@ -24,7 +25,7 @@ import java.util.*;
  *
  * <p>RuneLite-free, so the correlation and flush rules are unit-testable without a client.
  */
-final class PersonalBests {
+class PersonalBests {
 	/** How long a kill-count line and a duration line can be apart and still be the same kill. */
 	static final long CORRELATION_MS = 6_000;
 	/** Settle time before a push — a raid prints several lines at once. */
@@ -48,7 +49,7 @@ final class PersonalBests {
 
 	/** The activity a kill-count line just named. Cheap: two field writes, no parsing. */
 	void onActivitySeen(String activity, long now) {
-		if (activity == null || activity.isEmpty()) return;
+		if (empty(activity)) return;
 		recentActivity = activity.toLowerCase(Locale.ROOT);
 		recentActivityAt = now;
 		// A duration that arrived first now has its name.
@@ -80,7 +81,7 @@ final class PersonalBests {
 	 * @return how many were adopted as new bests
 	 */
 	int seed(Map<String, Integer> centisByActivity, long now) {
-		if (centisByActivity == null || centisByActivity.isEmpty()) return 0;
+		if (empty(centisByActivity)) return 0;
 		int adopted = 0;
 		for (var e : centisByActivity.entrySet()) {
 			if (e.getKey() == null || e.getValue() == null) continue;
@@ -91,7 +92,7 @@ final class PersonalBests {
 
 	/** Keep the fastest. A PB only ever goes down, so a slower number is noise, not an update. */
 	boolean record(String activity, int centis, long now) {
-		if (activity == null || activity.isEmpty() || centis <= 0) return false;
+		if (empty(activity) || centis <= 0) return false;
 		var current = best.get(activity);
 		if (current != null && current <= centis) return false;
 		best.put(activity, centis);

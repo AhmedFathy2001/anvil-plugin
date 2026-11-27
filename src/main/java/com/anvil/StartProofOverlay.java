@@ -1,36 +1,32 @@
 package com.anvil;
 
 import java.awt.*;
-import javax.inject.Inject;
+import javax.inject.*;
 import net.runelite.client.ui.overlay.*;
 import net.runelite.client.ui.overlay.components.*;
 
 /**
  * The starting shot, on screen from the whistle until it's filed: where to stand and the same live
  * checks the sidebar card shows, then a short "you're tracked" before it gets out of the way. Shares
- * its toggle with the arrow to the spot (config startSpotGuide).
+ * the event's guide switch with the arrow to the spot (site-set, {@code startProof.guide}).
  */
 class StartProofOverlay extends OverlayPanel {
-	/** How long "you're tracked" stays up once the shot is filed. */
-	static final long DONE_SHOWN_MS = 10_000;
 	static final Color ORANGE = new Color(255, 152, 31);
 
 	final AnvilPlugin plugin;
-	final AnvilConfig config;
 
 	@Inject
-	StartProofOverlay(AnvilPlugin plugin, AnvilConfig config) {
+	StartProofOverlay(AnvilPlugin plugin) {
 		super(plugin);
 		this.plugin = plugin;
-		this.config = config;
 		setPosition(OverlayPosition.TOP_CENTER);
 	}
 
 	public Dimension render(Graphics2D graphics) {
-		if (!config.startSpotGuide()) return null;
+		var cfg = plugin.getPluginConfig();
+		var proof = cfg == null ? null : cfg.startProof;
+		if (proof != null && !proof.guide()) return null;
 		if (plugin.needsStartProof()) {
-			var cfg = plugin.getPluginConfig();
-			var proof = cfg == null ? null : cfg.startProof;
 			if (proof == null) return null;
 			title("Starting shot needed", ORANGE);
 			if (proof.location != null) line("Go to", proof.location, Color.WHITE);
@@ -42,13 +38,13 @@ class StartProofOverlay extends OverlayPanel {
 			if (plugin.startProofSending()) {
 				line("Checking tracking", "sending…", Color.YELLOW);
 			} else {
-				line(plugin.autoStartShotEnabled() ? "Taken automatically once all green" : "Press Take starting shot in the Anvil panel",
+				line(proof.auto() ? "Taken automatically once all green" : "Press Take starting shot in the Anvil panel",
 					"", Color.LIGHT_GRAY);
 			}
 			return super.render(graphics);
 		}
 		var filedAt = plugin.startProofFiledAt();
-		if (filedAt > 0 && System.currentTimeMillis() - filedAt < DONE_SHOWN_MS) {
+		if (filedAt > 0 && System.currentTimeMillis() - filedAt < 10_000 /* DONE_SHOWN_MS */) {
 			title("You're tracked", Color.GREEN);
 			line("Starting shot filed — drops and tiles count now", "", Color.WHITE);
 			return super.render(graphics);

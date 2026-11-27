@@ -138,6 +138,13 @@ public class PluginConfigResponse {
 		return boards != null && !boards.isEmpty();
 	}
 
+	/** Set while this character is in a running Boss Rush: its kills are reported with no board live. */
+	Boolean rush;
+
+	boolean rushLive() {
+		return Boolean.TRUE.equals(rush);
+	}
+
 	/** Is this board one of them? */
 	boolean live(int eventId) {
 		return boards != null && boards.stream().anyMatch(b -> b.eventId == eventId);
@@ -169,6 +176,10 @@ public class PluginConfigResponse {
 	 * Null on sites that predate it — then nothing is read.
 	 */
 	List<Integer> caVarps;
+	/** Regions where a trip starts (a content's bank or lobby): closing the bank there runs the pre-trip check. Null/empty = off. */
+	List<Integer> tripRegions;
+	/** Each trip region's content, short ("ToA"): the overlay's "Checking ToA…". */
+	Map<Integer, String> tripNames;
 	/**
 	 * Counters read off a varbit/varp (site lib/gameCounters): each
 	 * positive change credits kill tiles targeting the entry's name (GameValueCounters). Null on
@@ -207,6 +218,19 @@ public class PluginConfigResponse {
 		String windowEndsAt;
 		/** "pending" | "accepted" | "rejected", or null when nothing is on file. */
 		String status;
+		/**
+		 * The host's switches: take the shot by itself once every check is green, and show the guide
+		 * (on-screen card, hint arrow, map pin). Null on sites that predate them: both on.
+		 */
+		Boolean autoShot, guide;
+
+		boolean auto() {
+			return autoShot == null || autoShot;
+		}
+
+		boolean guide() {
+			return guide == null || guide;
+		}
 
 		/** The drawn spot on the world map: where, and how many squares from it still counts. */
 		static class Spot {

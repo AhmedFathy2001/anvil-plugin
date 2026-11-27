@@ -25,7 +25,7 @@ public class TileTrackerDoneTest
 	@Test
 	public void freshPinComesDownAfterTheLinger()
 	{
-		TileTracker.Widget w = new TileTracker.Widget(0, 0, (id, site) -> site);
+		TileTracker.Widget w = new TileTracker.Widget(0, (id, site) -> site);
 		w.keepWhenDone = null; // a fresh pin
 		assertFalse(TileTracker.finishedAndShown(w, progress(false), 0));
 		assertFalse(TileTracker.finishedAndShown(w, progress(true), 1_000)); // "Done" goes up
@@ -36,7 +36,7 @@ public class TileTrackerDoneTest
 	@Test
 	public void tilePinnedAlreadyDoneStaysUp()
 	{
-		TileTracker.Widget w = new TileTracker.Widget(0, 0, (id, site) -> site);
+		TileTracker.Widget w = new TileTracker.Widget(0, (id, site) -> site);
 		w.keepWhenDone = null;
 		assertFalse(TileTracker.finishedAndShown(w, progress(true), 0));
 		assertFalse(TileTracker.finishedAndShown(w, progress(true), 60_000));
@@ -45,7 +45,7 @@ public class TileTrackerDoneTest
 	@Test
 	public void restoredPinFinishedWhileOfflineComesDown()
 	{
-		TileTracker.Widget w = new TileTracker.Widget(0, 0, (id, site) -> site); // restored from config: keepWhenDone false
+		TileTracker.Widget w = new TileTracker.Widget(0, (id, site) -> site); // restored from config: keepWhenDone false
 		assertFalse(TileTracker.finishedAndShown(w, progress(true), 100_000));
 		assertTrue(TileTracker.finishedAndShown(w, progress(true), 130_000));
 	}
@@ -53,7 +53,7 @@ public class TileTrackerDoneTest
 	@Test
 	public void anotherTeamFinishingDoesNotUnpin()
 	{
-		TileTracker.Widget w = new TileTracker.Widget(0, 0, (id, site) -> site);
+		TileTracker.Widget w = new TileTracker.Widget(0, (id, site) -> site);
 		assertFalse(TileTracker.finishedAndShown(w, progress(false), 0));
 		assertFalse(TileTracker.finishedAndShown(w, progress(false), 60_000));
 	}
@@ -61,7 +61,7 @@ public class TileTrackerDoneTest
 	@Test
 	public void finishingAPinAsksAgainAfterTheLingerThenComesDown()
 	{
-		TileTracker.Widget w = new TileTracker.Widget(0, 0, (id, site) -> site); // pinned with Track on screen
+		TileTracker.Widget w = new TileTracker.Widget(0, (id, site) -> site); // pinned with Track on screen
 		assertEquals(TileTracker.KEEP, TileTracker.afterFetch(w, progress(false), 0));
 		// Completed: "Done" goes up once, and that is when the plugin schedules the next look.
 		assertEquals(TileTracker.DONE_SHOWN, TileTracker.afterFetch(w, progress(true), 1_000));

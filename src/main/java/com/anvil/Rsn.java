@@ -1,6 +1,6 @@
 package com.anvil;
 
-import java.util.Locale;
+import java.util.*;
 
 /**
  * One way to fold an OSRS name into a comparison key — the SAME way the site does it.
@@ -33,7 +33,7 @@ import java.util.Locale;
  * lower-cases 'I' to 'ı', so "IRON MIKE" would fold to something the server has never seen and that
  * player would silently stop matching their own roster row.</p>
  */
-public final class Rsn {
+public class Rsn {
 	Rsn() {
 	}
 

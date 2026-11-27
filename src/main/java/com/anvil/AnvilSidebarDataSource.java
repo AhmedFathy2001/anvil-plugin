@@ -64,7 +64,7 @@ public class AnvilSidebarDataSource {
 	PanelActions actionsFor() {
 		var p = plugin;
 		if (p == null) return PanelActions.NONE;
-		var profile = p.canSyncProfileFromPanel();
+		var profile = p.clogOpen && p.supportsProfileSync();
 		if (!p.isAdmin()) return new PanelActions(false, profile, null);
 		// Admin — but the roster comes from the clan channel, so it has to be readable. The CACHED
 		// answer: this runs while the panel paints, on the EDT, where asking the client directly is a
@@ -100,7 +100,7 @@ public class AnvilSidebarDataSource {
 
 	/** Is this clip in the play cycle? */
 	boolean bannerSoundOn(String clip) {
-		return fromPlugin(p -> p.bannerSoundSelected(clip), false);
+		return fromPlugin(p -> p.bannerSound.isSelected(clip), false);
 	}
 
 	/** Flip one clip in or out of the cycle. */
@@ -120,7 +120,7 @@ public class AnvilSidebarDataSource {
 
 	/** {@code kind}'s clips; for missions, the folder that decides between a clip and the built-in chime. */
 	List<String> sounds(BannerSoundService.Kind kind) {
-		return fromPlugin(p -> p.soundClips(kind), Collections.emptyList());
+		return fromPlugin(p -> p.bannerSound.listClips(kind), Collections.emptyList());
 	}
 
 	/**
@@ -142,11 +142,6 @@ public class AnvilSidebarDataSource {
 	 */
 	List<StartProofRules.Check> startProofChecks(PluginConfigResponse.StartProof proof) {
 		return fromPlugin(p -> p.startProofChecks(proof), Collections.emptyList());
-	}
-
-	/** Will the plugin take the starting shot by itself once the checks pass? (config autoStartShot) */
-	boolean autoStartShot() {
-		return fromPlugin(AnvilPlugin::autoStartShotEnabled, false);
 	}
 
 	/** Ask Shortest Path for a route to the starting shot's spot. */
@@ -236,9 +231,10 @@ public class AnvilSidebarDataSource {
 		withPlugin(p -> {
 			p.refreshConfigForSidebar(force);
 			if (force) {
-				p.reprobeAdminNow();
-				p.refreshLook();
-				p.refreshChatFlairNow();
+				// Each on its own: one failing must not skip the rest (or the panel redraw after them).
+				p.safely("admin probe", p::reprobeAdminNow);
+				p.safely("look", p::refreshLook);
+				p.safely("chat flair", p::refreshChatFlairNow);
 			}
 		});
 	}
@@ -286,7 +282,7 @@ public class AnvilSidebarDataSource {
 
 	/** One line about the logged-in character. */
 	@RequiredArgsConstructor
-	static final class AccountRow {
+	static class AccountRow {
 		enum State {
 			/** Linked to (or linking to) the signed-in Anvil account. Offers Not my account. */
 			TRACKING,
@@ -314,7 +310,7 @@ public class AnvilSidebarDataSource {
 	 * channel readable. A profile sync goes to the site the plugin is authenticated against.
 	 */
 	@RequiredArgsConstructor
-	static final class PanelActions {
+	static class PanelActions {
 		static final PanelActions NONE = new PanelActions(false, false, null);
 
 		/** Show "Sync clan roster": admin, at home, with a readable clan channel. */

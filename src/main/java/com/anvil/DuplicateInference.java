@@ -1,8 +1,8 @@
 package com.anvil;
 
 import java.util.*;
-import java.util.function.Predicate;
-import net.runelite.api.gameval.ItemID;
+import java.util.function.*;
+import net.runelite.api.gameval.*;
 
 /**
  * Which item a "funny feeling" line was about.
@@ -15,7 +15,7 @@ import net.runelite.api.gameval.ItemID;
  * <p>Every answer here is a guess the site flags for staff, so ambiguity returns null rather than a
  * pick: a wrong credit costs a reviewer more than a manual proof does.
  */
-final class DuplicateInference {
+class DuplicateInference {
 	/** The one pet {@code source} drops, or null when it drops none or several. */
 	static String petForSource(PluginConfigResponse.DropFacts facts, String source) {
 		var want = source == null ? "" : source.trim().toLowerCase(Locale.ROOT);

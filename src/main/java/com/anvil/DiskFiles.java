@@ -1,14 +1,14 @@
 package com.anvil;
 
-import com.google.gson.Gson;
+import com.google.gson.*;
 import java.io.*;
-import java.nio.charset.StandardCharsets;
+import java.nio.charset.*;
 import java.nio.file.*;
 import java.security.*;
 import java.util.*;
-import java.util.function.Predicate;
+import java.util.function.*;
 import java.util.stream.*;
-import net.runelite.client.util.Filepath;
+import net.runelite.client.util.*;
 
 /**
  * The few disk primitives the caches and the outbox share, all through RuneLite's {@link Filepath}.
@@ -17,14 +17,14 @@ import net.runelite.client.util.Filepath;
  * a client killed mid-write leaves the previous copy (or nothing), never half a JSON file. Every
  * method here blocks on disk — callers run them on the plugin executor, never the client thread.
  */
-final class DiskFiles {
+class DiskFiles {
 	/** {@code dir}, created on demand; null when it can't be. */
 	static Filepath ensureDir(Filepath dir) {
 		if (dir == null) return null;
 		try {
 			if (!dir.exists()) dir.createDirectories();
 			return dir;
-		} catch (IOException | RuntimeException e) {
+		} catch (Exception e) {
 			return null;
 		}
 	}
@@ -50,7 +50,7 @@ final class DiskFiles {
 		if (file == null || !file.isFile()) return null;
 		try (var in = file.openInputStream()) {
 			return in.readAllBytes();
-		} catch (IOException | RuntimeException e) {
+		} catch (Exception e) {
 			return null;
 		}
 	}
@@ -75,7 +75,7 @@ final class DiskFiles {
 		if (dir == null) return new ArrayList<>();
 		try (var walk = dir.walk(1)) {
 			return walk.filter(f -> f.isFile() && name.test(f.getFileName())).collect(Collectors.toList());
-		} catch (IOException | RuntimeException e) {
+		} catch (Exception e) {
 			return new ArrayList<>();
 		}
 	}

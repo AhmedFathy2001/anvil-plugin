@@ -16,7 +16,7 @@ import java.util.*;
  * be withheld too. RuneLite-free and immutable so it is unit-testable; the plugin persists
  * {@link #serialize()} in its own config.
  */
-final class AccountOptOut {
+class AccountOptOut {
 	static final AccountOptOut EMPTY = new AccountOptOut(Collections.emptySet());
 
 	final Set<String> digests;

@@ -1,7 +1,7 @@
 package com.anvil;
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.*;
+import java.util.concurrent.*;
 
 /**
  * Progress this client has seen on a tile that the site hasn't confirmed yet — a kill, a drop, a KC
@@ -13,7 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * floor goes away once the site reaches it, when the push failed ({@link #clear}), or after
  * {@link #TTL_MS} — a floor the site never reaches was wrong, and the site's number wins.
  */
-final class OptimisticProgress {
+class OptimisticProgress {
 	// Tile ids may be negative: a capped tile's cap counters carry virtual ids (-(tileId * 8 + slot),
 	// TileNotes). Only 0 means "no tile".
 	static final long TTL_MS = 120_000;

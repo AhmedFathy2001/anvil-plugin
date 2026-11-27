@@ -1,7 +1,7 @@
 package com.anvil;
 
 import java.util.*;
-import net.runelite.client.game.ItemStack;
+import net.runelite.client.game.*;
 
 /**
  * Items a chat line already credited, held until the loot event for the same acquisition turns up.
@@ -11,21 +11,19 @@ import net.runelite.client.game.ItemStack;
  * when the player opens it, minutes later — far outside the 3s per-tile window — and used to credit
  * the same item a second time. Each chat credit now cancels exactly one later loot copy of the item.
  */
-final class ChatCredits {
+class ChatCredits {
 	/** Long enough to sit in the raid lobby before opening the chest. */
 	static final long WINDOW_MS = 30 * 60_000;
 
 	/** itemId → {quantity still owed, when it was credited}. */
 	final Map<Integer, long[]> owed = new HashMap<>();
 
-	/** Lines naming the same item this close together (drop line + clog line) are one acquisition. */
-	static final long SAME_DROP_MS = 10_000;
 
 	synchronized void note(Collection<ItemStack> credited, long now) {
 		for (var s : credited) {
 			var o = owed.get(s.getId());
 			var qty = o == null || now - o[1] > WINDOW_MS ? s.getQuantity()
-				: now - o[1] <= SAME_DROP_MS ? Math.max(o[0], s.getQuantity())
+				: now - o[1] <= 10_000 /* SAME_DROP_MS */ ? Math.max(o[0], s.getQuantity())
 				: o[0] + s.getQuantity();
 			owed.put(s.getId(), new long[]{qty, now});
 		}

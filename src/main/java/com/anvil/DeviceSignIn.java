@@ -1,11 +1,12 @@
 package com.anvil;
 
-import lombok.RequiredArgsConstructor;
+import static com.anvil.AnvilPlugin.empty;
+import lombok.*;
 import java.net.*;
 import java.util.concurrent.*;
 import java.util.function.*;
-import lombok.extern.slf4j.Slf4j;
-import net.runelite.client.util.LinkBrowser;
+import lombok.extern.slf4j.*;
+import net.runelite.client.util.*;
 
 /**
  * The plugin's "Sign in with Discord" — the home-native device-code flow (site: /api/plugin/auth/*).
@@ -22,13 +23,8 @@ import net.runelite.client.util.LinkBrowser;
  */
 @RequiredArgsConstructor
 @Slf4j
-public final class DeviceSignIn {
-	/** Fixed path of the approval page on the home site — the only page this flow will ever open. */
-	static final String LINK_PATH = "/link-device";
+public class DeviceSignIn {
 
-	/** Fallback pacing/deadline when the server response omits them. */
-	static final int DEFAULT_INTERVAL_S = 5;
-	static final int DEFAULT_EXPIRES_S = 600;
 
 	enum Outcome {
 		SIGNED_IN, DENIED, EXPIRED, UNAVAILABLE
@@ -36,7 +32,7 @@ public final class DeviceSignIn {
 
 	/** Result: outcome + the account token when {@link Outcome#SIGNED_IN}. */
 	@RequiredArgsConstructor
-	static final class Result {
+	static class Result {
 		final Outcome outcome;
 		final String token;
 	}
@@ -65,13 +61,13 @@ public final class DeviceSignIn {
 
 	void start(Consumer<String> status, Consumer<Result> done) {
 		var start = apiClient.authStart();
-		if (start == null || start.device_code == null || start.device_code.isEmpty()) {
+		if (start == null || empty(start.device_code)) {
 			fail(status, done, "Couldn't reach " + SetupNudge.SITE_HOST + " — check your connection and try again.", Outcome.UNAVAILABLE);
 			return;
 		}
 
 		var full = start.verification_url_complete;
-		var url = full != null && !full.isEmpty() ? full : start.verification_url;
+		var url = !empty(full) ? full : start.verification_url;
 		// Checked against the fixed site, not the client's address — that stays empty until there is a
 		// token (BingoApiClient.configure), which is exactly the state sign-in runs in.
 		if (!isConfiguredHomeUrl(BingoApiClient.site(), url)) {
@@ -86,9 +82,9 @@ public final class DeviceSignIn {
 		browserOpener.accept(url);
 		status.accept("Approve code " + start.user_code + " in your browser. If it didn't open: " + url);
 
-		var intervalMs = Math.max(1, start.interval > 0 ? start.interval : DEFAULT_INTERVAL_S) * 1000L;
+		var intervalMs = Math.max(1, start.interval > 0 ? start.interval : 5 /* DEFAULT_INTERVAL_S */) * 1000L;
 		var deadline = System.currentTimeMillis()
-			+ (start.expires_in > 0 ? start.expires_in : DEFAULT_EXPIRES_S) * 1000L;
+			+ (start.expires_in > 0 ? start.expires_in : 600 /* DEFAULT_EXPIRES_S */) * 1000L;
 		poll(status, done, start.device_code, intervalMs, deadline);
 	}
 
@@ -105,7 +101,7 @@ public final class DeviceSignIn {
 			if (poll != null && poll.status != null) {
 				switch (poll.status) {
 					case "complete":
-						if (poll.token != null && !poll.token.isEmpty()) {
+						if (!empty(poll.token)) {
 							status.accept("Signed in.");
 							done.accept(new Result(Outcome.SIGNED_IN, poll.token));
 						} else done.accept(new Result(Outcome.UNAVAILABLE, null));
@@ -156,14 +152,14 @@ public final class DeviceSignIn {
 	 * HTTP is tolerated only when the home itself is HTTP (local dev builds).
 	 */
 	static boolean isConfiguredHomeUrl(String configuredApiUrl, String url) {
-		if (configuredApiUrl == null || configuredApiUrl.isEmpty() || url == null || url.isEmpty()) return false;
+		if (empty(configuredApiUrl) || empty(url)) return false;
 		try {
 			var home = new URI(configuredApiUrl);
 			var target = new URI(url);
 			return target.getScheme() != null && target.getHost() != null && target.getUserInfo() == null
 				&& target.getScheme().equalsIgnoreCase(home.getScheme())
 				&& target.getHost().equalsIgnoreCase(home.getHost()) && target.getPort() == home.getPort()
-				&& target.getPath() != null && target.getPath().startsWith(LINK_PATH);
+				&& target.getPath() != null && target.getPath().startsWith("/link-device" /* LINK_PATH */);
 		} catch (URISyntaxException e) {
 			return false;
 		}
