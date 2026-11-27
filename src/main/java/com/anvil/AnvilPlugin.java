@@ -37,6 +37,8 @@ import net.runelite.client.events.*;
 import net.runelite.client.game.*;
 import net.runelite.client.plugins.*;
 import net.runelite.client.plugins.banktags.*;
+import net.runelite.client.plugins.banktags.tabs.*;
+import net.runelite.client.plugins.banktags.tabs.LayoutManager;
 import net.runelite.client.plugins.loottracker.*;
 import net.runelite.http.api.loottracker.*;
 import net.runelite.client.ui.*;
@@ -88,9 +90,9 @@ public class AnvilPlugin extends Plugin {
 
 	@Inject BankTagsService bankTags;
 
-	@Inject net.runelite.client.plugins.banktags.tabs.LayoutManager layoutManager;
+	@Inject LayoutManager layoutManager;
 
-	@Inject net.runelite.client.plugins.banktags.tabs.TabManager tabManager;
+	@Inject TabManager tabManager;
 
 	@Inject Client client;
 
@@ -1063,7 +1065,7 @@ public class AnvilPlugin extends Plugin {
 		// A capture cut short by the last shutdown must not keep every overlay hidden.
 		capturing = false;
 		// Every chat parser reads its line shape from here — before anything can see a chat line.
-		ChatPatterns.loadDefaults(gson);
+		loadDefaults(gson);
 		OffThread.bindClientThread(client::isClientThread);
 		// The Patron star's chat icon loads asynchronously; asked for now, it's ready by the first line
 		// that needs it instead of that line going out without it.
@@ -4191,10 +4193,10 @@ public class AnvilPlugin extends Plugin {
 			bankTagGone();
 			tagManager.registerTag("anvil trip", set::contains);
 			if (at != null) {
-				layoutManager.saveLayout(new net.runelite.client.plugins.banktags.tabs.Layout("anvil trip", at));
+				layoutManager.saveLayout(new Layout("anvil trip", at));
 				// The hub's Bank Tag Layouts lays a purely virtual tag out flat over ours; it leaves a real
 				// tab's core layout alone. In memory only (never saved): bankTagGone takes it away.
-				var tab = new net.runelite.client.plugins.banktags.tabs.TagTab();
+				var tab = new TagTab();
 				tab.setTag("anvil trip");
 				tab.setIconItemId(ItemID.BANK_FILLER);
 				tabManager.add(tab);
@@ -6519,7 +6521,7 @@ public class AnvilPlugin extends Plugin {
 		// Cheap checks first, and nothing that reads varbits before login: those aren't loaded yet and
 		// getVarbitValue threw every frame on the login screen.
 		if (!menusFlair() || chatFlair.isEmpty() || !client.isMenuOpen()
-				|| client.getGameState() != GameState.LOGGED_IN
+				|| client.getGameState() != LOGGED_IN
 				|| inDangerousPvp() || client.getWorldType().contains(WorldType.DEADMAN)) return;
 		var frame = currentChatNameFrame();
 		var es = client.getMenuEntries();
@@ -8143,7 +8145,7 @@ public class AnvilPlugin extends Plugin {
 
 	boolean inDangerousPvp() {
 		// Varbits aren't loaded before login; reading one there throws.
-		return client.getGameState() == GameState.LOGGED_IN && client.getVarbitValue(VarbitID.INSIDE_WILDERNESS) == 1 || client.getWorldType().contains(WorldType.PVP);
+		return client.getGameState() == LOGGED_IN && client.getVarbitValue(VarbitID.INSIDE_WILDERNESS) == 1 || client.getWorldType().contains(WorldType.PVP);
 	}
 
 
@@ -9152,7 +9154,7 @@ public class AnvilPlugin extends Plugin {
 		// Once per install: say where the settings went, or nobody finds them.
 		if (!"1".equals(cfgGet("settingsMovedNoted"))) {
 			cfgSet("settingsMovedNoted", "1");
-			whenLoggedIn(() -> sendChatMessage(Tone.INFO, "Your Discord post and screenshot privacy settings are on the Anvil website now: Settings > Announcements. There's a link in the Anvil panel's settings tab."));
+			whenLoggedIn(() -> sendChatMessage(INFO, "Your Discord post and screenshot privacy settings are on the Anvil website now: Settings > Announcements. There's a link in the Anvil panel's settings tab."));
 		}
 		if (String.valueOf(CURRENT_DEFAULTS_VERSION).equals(cfgGet(CFG_DEFAULTS_VERSION))) return;
 		var o = new JsonObject();
@@ -10108,7 +10110,7 @@ public class AnvilPlugin extends Plugin {
 	/** "Sync profile" in the side panel: supported, and the log is open to read from. */
 	/** Client thread: logged in on a separate-save (seasonal) world, cached for the side panel. */
 	void markSeasonalWorld() {
-		var on = client.getGameState() == GameState.LOGGED_IN && WorldInfo.separateSave(client.getWorldType());
+		var on = client.getGameState() == LOGGED_IN && WorldInfo.separateSave(client.getWorldType());
 		if (on == seasonalWorld) return;
 		seasonalWorld = on;
 		if (sidebarPanel != null) invokeLater(sidebarPanel::seasonalChanged);
@@ -10368,7 +10370,7 @@ public class AnvilPlugin extends Plugin {
 			// The game's own slot count, as the log's title shows it: the transmit can carry a few more item
 			// ids than slots (the same slot under two ids), and "497" beside a log reading 493 looked wrong.
 			int slots = client.getVarpValue(VarPlayerID.COLLECTION_COUNT);
-			sendChatMessage(Tone.DONE, "Profile synced — " + (slots > 0 ? slots : count) + " collection log slots.");
+			sendChatMessage(DONE, "Profile synced — " + (slots > 0 ? slots : count) + " collection log slots.");
 		} else if (result.added > 0 || !autoClogReportedThisLogin) {
 			// New slots are news: always said. A push that added nothing still proves the round trip
 			// worked — once a login.
