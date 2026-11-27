@@ -3959,9 +3959,7 @@ public class AnvilPlugin extends Plugin {
 	 * dedup counts the pair exactly once.
 	 */
 	void creditGuaranteedAward(String bossName, String itemName) {
-		if (trackingOff()) return;
-		var synthetic = trackedStacks(itemName, 1);
-		if (!synthetic.isEmpty()) processLoot(bossName, synthetic, "npc"); // else no tile tracks this award item
+		if (!trackingOff()) processLoot(bossName, trackedStacks(itemName, 1), "npc"); // nothing when no tile tracks this award item
 	}
 
 	/* ----------------------------- Rules (site-matched facts) ----------------------------- */
@@ -4024,7 +4022,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	void say(List<String> lines) {
-		RuleEngine.fold(lines).forEach(s -> sendChatMessage(Tone.NEAR, s));
+		RuleEngine.fold(lines).forEach(s -> sendChatMessage(NEAR, s));
 	}
 
 	/** Image-less facts: one POST; on failure they go back in the queue, tried again with the next or in 30s. */
@@ -4118,7 +4116,7 @@ public class AnvilPlugin extends Plugin {
 				// Safe on disk in the pending store and retried with backoff: just make the failure visible.
 				else sendChatMessage(WARN, "Couldn't submit \"" + b.label + "\" — proof saved locally, will keep retrying.");
 			} catch (IOException e) {
-				sendChatMessage(WARN, "Screenshot failed: " + BingoApiClient.forPlayer(e));
+				sendChatMessage(WARN, "Screenshot failed: " + forPlayer(e));
 			}
 		});
 	}
@@ -4287,9 +4285,7 @@ public class AnvilPlugin extends Plugin {
 		gameValueCounters.configure(cfg != null ? cfg.gameCounters : null);
 		if (gameValueCounters.entries().isEmpty()) return;
 		gameValueCounters.onLoggedIn();
-		var credits = gameValueCounters.tick(
-				(varp, id) -> varp ? client.getVarpValue(id) : client.getVarbitValue(id),
-				e -> rules.tracksKill(e.name));
+		var credits = gameValueCounters.tick((varp, id) -> varp ? client.getVarpValue(id) : client.getVarbitValue(id), e -> rules.tracksKill(e.name));
 		if (credits.isEmpty()) return;
 		var amounts = new HashMap<String, Integer>();
 		var unverified = new HashSet<String>();
@@ -4374,13 +4370,13 @@ public class AnvilPlugin extends Plugin {
 			itemsDirty = true;
 			itemsAt = client.getTickCount();
 		}
-		boolean bank = client.getWidget(InterfaceID.Bankmain.UNIVERSE) != null;
+		var bank = client.getWidget(InterfaceID.Bankmain.UNIVERSE) != null;
 		// Banking: read worn and inventory afresh (an emptied one may send no change event).
 		if (bank) for (int id : new int[] {InventoryID.WORN, InventoryID.INV}) seeItems(id, client.getItemContainer(id));
 		int quiet = client.getTickCount() - itemsAt;
 		// Every item push's guard: signed in and not paused, on a character, sharing on, a site that takes them.
 		if (!itemsDirty || quiet < 2 || !apiClient.isConfigured() || apiClient.getCurrentRsn() == null || !config.shareItems() || !siteHas("guides-panel")) return;
-		boolean all = (bank || quiet >= 5) && now() >= itemsNextAt;
+		var all = (bank || quiet >= 5) && now() >= itemsNextAt;
 		if (!all && (!wornDirty || now() < wornNextAt)) return;
 		wornDirty = false;
 		itemsDirty = !all;
@@ -4408,7 +4404,7 @@ public class AnvilPlugin extends Plugin {
 				tripArmed = apiClient.postJson("/api/plugin/items", body, "Items push failed", false).contains("\"armed\":true");
 				if (body.remove("state") != null) stateSent = state;
 				for (var k : SHARED.values()) if (body.has(k)) itemsSent.put(k, body.getAsJsonObject(k).getAsJsonArray("items"));
-				log.debug("Anvil items pushed: {}", body.keySet());
+				log.debug("Items pushed: {}", body.keySet());
 				var sp = sidebarPanel;
 				if (sp != null && body.size() > 0) sp.itemsPushed();
 				if (sp != null && body.has("equipment")) sp.wornGearSent();
@@ -4504,7 +4500,7 @@ public class AnvilPlugin extends Plugin {
 		// Why not, for the card ("held" arg) and the log; "1" = pushed.
 		var no = !apiClient.isConfigured() ? (apiClient.isAccountPaused() ? "paused" : "signed-out") : apiClient.getCurrentRsn() == null ? "no-character" : !config.shareItems() ? "sharing-off" : !siteHas("guides-panel") ? "no-site" : null;
 		if (no != null) {
-			log.debug("Anvil trip check: push skipped, {}", no);
+			log.debug("Trip check: push skipped, {}", no);
 			return no;
 		}
 		var body = new JsonObject();
@@ -4516,10 +4512,10 @@ public class AnvilPlugin extends Plugin {
 		body.addProperty("region", region);
 		try {
 			apiClient.postJson("/api/plugin/items", body, "Items push failed", false);
-			log.debug("Anvil trip check: pushed what is held first");
+			log.debug("Trip check: pushed what is held first");
 			return "1";
 		} catch (Exception e) {
-			log.debug("Anvil trip check: push failed", e);
+			log.debug("Trip check: push failed", e);
 			return "failed";
 		}
 	}
@@ -4542,7 +4538,7 @@ public class AnvilPlugin extends Plugin {
 				tab.setIconItemId(ItemID.BANK_FILLER);
 				tabManager.add(tab);
 			}
-			log.debug("Anvil bank filter: {} ids, layout {}", set.size(), at == null ? 0 : at.length);
+			log.debug("Bank filter: {} ids, layout {}", set.size(), at == null ? 0 : at.length);
 			bankTags.openBankTag("anvil trip", at == null ? 4 /* OPTION_NO_LAYOUT */ : 0);
 		});
 	}
@@ -4563,7 +4559,7 @@ public class AnvilPlugin extends Plugin {
 		var w = f != null && f.isJsonObject() ? f.getAsJsonObject() : null;
 		if (w != null) tripFight = w;
 		if (v == null || !config.tripWarning() || quiet && !tripOverlay.red()) return;
-		log.debug("Anvil trip check: answered");
+		log.debug("Trip check: answered");
 		tripOverlay.show(w);
 	}
 
@@ -4590,18 +4586,14 @@ public class AnvilPlugin extends Plugin {
 
 	/** Hold an item line the game prints for the local player's own loot (see chat-patterns.json "drop.plain"). */
 	void noteChestDropLine(String line) {
-		String qty = null, name = null;
-		var v = full("drop.valuable", line);
-		var d = v != null ? null : full("drop.plain", line);
-		if (v != null) {
-			qty = v.group("qty");
-			name = v.group("item");
-		} else if (d != null && !line.endsWith(")") && !line.contains(") from ")) {
-			if (!Rsn.same(d.group("rsn"), getLocalPlayerName())) return; // someone else's drop
-			qty = d.group("qty");
-			name = d.group("item");
+		var m = full("drop.valuable", line);
+		if (m == null && (m = full("drop.plain", line)) != null) {
+			if (line.endsWith(")") || line.contains(") from ")) m = null;
+			else if (!Rsn.same(m.group("rsn"), getLocalPlayerName())) return; // someone else's drop
 		}
+		var name = m == null ? null : m.group("item");
 		if (empty(name)) return;
+		var qty = m.group("qty");
 		int n = qty == null ? 1 : max(1, parseCount(qty));
 		int tick = client.getTickCount();
 		recentDropLines.removeIf(l -> tick - l.tick > 1);
@@ -4700,16 +4692,17 @@ public class AnvilPlugin extends Plugin {
 		}
 		for (var e : counts.entrySet()) {
 			int delta = e.getValue() - previous.getOrDefault(e.getKey(), 0);
+			var id = String.valueOf(e.getKey());
 			// Charging or emptying swaps one of a tile's ids for another (an uncharged scythe becomes a
 			// charged one): what left the same tick under a sibling id is no gain.
-			for (var k : delta > 0 ? rules.keysWith("gain", String.valueOf(e.getKey())) : Set.<String>of()) {
+			for (var k : delta > 0 ? rules.keysWith("gain", id) : Set.<String>of()) {
 				int n = min(delta, lost.getOrDefault(k, 0));
 				delta -= n;
 				lost.merge(k, -n, Integer::sum);
 			}
 			// Every tile tracking this item credits, mirroring drops/kills; held for its tile's batch.
 			if (delta <= 0) continue;
-			var o = rules.event("gain", RuleEngine.named(String.valueOf(e.getKey())), delta, null, null);
+			var o = rules.event("gain", RuleEngine.named(id), delta, null, null);
 			emit(o);
 			if (o.held) synchronized (rules) {
 				if (gainsFlush == null) gainsFlush = later(this::flushHeldGains, GAIN_COALESCE_MS);
@@ -4768,9 +4761,10 @@ public class AnvilPlugin extends Plugin {
 	void onMenuOptionClicked(MenuOptionClicked event) {
 		var opt = event.getMenuOption();
 		var target = event.getMenuTarget();
-		if ("Take".equalsIgnoreCase(opt)) lastGroundTakeTick = client.getTickCount();
-		else if (isStorageMove(opt)) lastStorageMoveTick = client.getTickCount();
-		else if ("Cast".equalsIgnoreCase(opt) && target != null && target.contains("Telekinetic Grab")) lastTelegrabTick = client.getTickCount();
+		int t = client.getTickCount();
+		if ("Take".equalsIgnoreCase(opt)) lastGroundTakeTick = t;
+		else if (isStorageMove(opt)) lastStorageMoveTick = t;
+		else if ("Cast".equalsIgnoreCase(opt) && target != null && target.contains("Telekinetic Grab")) lastTelegrabTick = t;
 	}
 
 	/**
@@ -4811,9 +4805,7 @@ public class AnvilPlugin extends Plugin {
 	Set<String> myTeamRoster() {
 		var mine = new HashSet<String>();
 		var cfg = pluginConfig;
-		if (cfg != null && cfg.pvpRoster != null && cfg.team != null) for (var e : cfg.pvpRoster) {
-			if (e != null && e.name != null && e.teamId == cfg.team.id) mine.add(Rsn.normalize(e.name));
-		}
+		if (cfg != null && cfg.pvpRoster != null && cfg.team != null) for (var e : cfg.pvpRoster) if (e != null && e.name != null && e.teamId == cfg.team.id) mine.add(Rsn.normalize(e.name));
 		return mine;
 	}
 
@@ -4856,13 +4848,7 @@ public class AnvilPlugin extends Plugin {
 			// Duration line. The identifying line may already be in the buffer (count-first
 			// content) or may still be coming (Inferno prints the duration first).
 			var submitted = false;
-			for (var m : recentTimedMessages) {
-				if (now - m.ts <= TIMED_CORRELATION_MS) {
-					submitted |= submitTimedForMessage(m.lower, seconds, now);
-					submitted |= submitDeathlessForMessage(m.lower, now);
-					submitted |= submitRaidForMessage(m.lower, seconds, now);
-				}
-			}
+			for (var m : recentTimedMessages) if (now - m.ts <= TIMED_CORRELATION_MS) submitted |= submitTimedForMessage(m.lower, seconds, now) | submitDeathlessForMessage(m.lower, now) | submitRaidForMessage(m.lower, seconds, now);
 			// Table-free fallback: attribute to the boss we just killed.
 			submitted |= lastNpcDeathName != null && now - lastNpcDeathAt <= TIMED_CORRELATION_MS
 					&& submitTimedForMessage(lastNpcDeathName.toLowerCase(), seconds, now);
@@ -5139,11 +5125,11 @@ public class AnvilPlugin extends Plugin {
 				apiClient.submitStartProof(eventId, url, keyword, capturedAt, worldX, worldY, loginAt);
 				startProofFiled = true;
 				startProofFiledAt = now();
-				sendChatMessage(Tone.DONE, "Starting shot sent. You're clear to play.");
+				sendChatMessage(DONE, "Starting shot sent. You're clear to play.");
 				refreshConfig();
 			} catch (IOException e) {
 				log.error("Starting shot failed: {}", e.getMessage());
-				sendChatMessage(WARN, "Starting shot failed: " + BingoApiClient.forPlayer(e) + " — try again.");
+				sendChatMessage(WARN, "Starting shot failed: " + forPlayer(e) + " — try again.");
 			} finally {
 				startProofInFlight = false;
 			}
@@ -5220,7 +5206,7 @@ public class AnvilPlugin extends Plugin {
 			if (otherCharacter(sub)) continue;
 			// A previously-failed proof finally made it — say so, since the original
 			// "submitted" message never fired.
-			if (processPendingSubmission(sub)) sendChatMessage(Tone.DONE, "Queued proof submitted: " + sub.label);
+			if (processPendingSubmission(sub)) sendChatMessage(DONE, "Queued proof submitted: " + sub.label);
 			else anyFailed = true;
 		}
 
@@ -5601,8 +5587,7 @@ public class AnvilPlugin extends Plugin {
 			cb.onResult(false, "Plugin not running");
 			return;
 		}
-		var token = config.playerToken();
-		if (empty(token)) {
+		if (empty(config.playerToken())) {
 			syncFailed(cb, !automatic, null, "Sign in from the Anvil side panel first.");
 			return;
 		}
@@ -5832,7 +5817,7 @@ public class AnvilPlugin extends Plugin {
 					// A combo's part: progress on the combo, not a tile complete (no banner).
 					onTileConfirmedDone(t.partOf);
 					// The combo finished with it: its own "Tile complete" line says so, once.
-					if (!doneNow.contains(t.partOf)) sendChatMessage(Tone.DONE, "Combo part done: " + t.label + "!");
+					if (!doneNow.contains(t.partOf)) sendChatMessage(DONE, "Combo part done: " + t.label + "!");
 				} else if (!locallyShownTiles.contains(t.tileId)) newlyDone.add(t);
 			}
 		}
@@ -5882,8 +5867,8 @@ public class AnvilPlugin extends Plugin {
 			var who = clean(n.trim());
 			var e = who.isEmpty() || !flairOn() ? null : chatFlair.entry(who);
 			// A tenure icon is added by the chatbox pass; a star here as well would show twice.
-			if (e != null) sendChatLine("Anvil", line + " — by ", Tone.DONE, null, (e.t == null && Boolean.TRUE.equals(e.s) ? chatStar() : "") + who + "!");
-			else sendChatMessage(Tone.DONE, line + (who.isEmpty() ? "" : " — by " + who) + "!");
+			if (e != null) sendChatLine("Anvil", line + " — by ", DONE, null, (e.t == null && Boolean.TRUE.equals(e.s) ? chatStar() : "") + who + "!");
+			else sendChatMessage(DONE, line + (who.isEmpty() ? "" : " — by " + who) + "!");
 		}));
 	}
 
@@ -5917,12 +5902,12 @@ public class AnvilPlugin extends Plugin {
 		}
 
 		// --- new missions (revealed + open) ---
-		List<Mission> fresh = new ArrayList<>();
+		var fresh = new ArrayList<Mission>();
 		if (cfg.event.missions != null) for (var m : cfg.event.missions) if (m != null && notifiedMissionTiles.add(m.tileId) && !seeding) fresh.add(m);
 		if (!fresh.isEmpty()) {
 			var top = max(fresh, Comparator.comparingInt(m -> m.points));
 			if (clogBanner.show(tag, "New mission!", top.label)) playMissionSound(false);
-			for (var m : fresh) sendChatMessage(Tone.NEAR, "New mission: " + m.label + " - " + m.points + " pts!");
+			for (var m : fresh) sendChatMessage(NEAR, "New mission: " + m.label + " - " + m.points + " pts!");
 		}
 
 		// --- lock-out claims by OTHER players: the banner for the latest, a line for each ---
@@ -5933,7 +5918,7 @@ public class AnvilPlugin extends Plugin {
 			var by = c.rsn != null && !c.rsn.trim().isEmpty() ? c.rsn.trim() : "Someone";
 			if (first && clogBanner.show(tag, "Mission claimed", by + ": " + c.label)) playMissionSound(true);
 			first = false;
-			sendChatMessage(Tone.DONE, by + " claimed " + c.label + " - " + c.points + " pts!");
+			sendChatMessage(DONE, by + " claimed " + c.label + " - " + c.points + " pts!");
 		}
 	}
 
@@ -6329,7 +6314,7 @@ public class AnvilPlugin extends Plugin {
 		// Shared by every changed row in this pass; do not allocate three closures per animated name.
 		IntUnaryOperator x = j -> lines[j].getOriginalX(), y = j -> lines[j].getOriginalY();
 		IntFunction<String> shown = j -> lines[j] == null || lines[j].isHidden() ? null : lines[j].getText();
-		Rectangle viewport = null;
+		Rectangle runway = null;
 		for (int i = 0; i < lines.length; i++) {
 			var w = lines[i];
 			var c = slots[i];
@@ -6339,9 +6324,10 @@ public class AnvilPlugin extends Plugin {
 			if (w == null || w.isHidden() || empty(text) || same && !(move && (moving || c.deferred))) continue;
 			// The game replaced this slot while it was offscreen; its previous owner no longer applies.
 			if (!same) c.moving = null;
-			if (viewport == null) viewport = area.getBounds();
-			var runway = new Rectangle(viewport);
-			runway.grow(0, 80);
+			if (runway == null) {
+				runway = area.getBounds();
+				runway.grow(0, 80);
+			}
 			if (!runway.intersects(w.getBounds())) {
 				c.seen = text;
 				c.deferred = true;
@@ -7036,7 +7022,7 @@ public class AnvilPlugin extends Plugin {
 		nameListFrame = frame;
 		var shift = interfaceNameShift(frame);
 		// Who's online on the friends list, once: a lookup per row was rows x friends.
-		Set<String> online = new HashSet<>();
+		var online = new HashSet<String>();
 		var fl = client.getFriendContainer();
 		if (fl != null) for (var f : fl.getMembers()) if (f.getWorld() > 0) online.add(Text.standardize(f.getName()));
 		for (int i = 0; i < FLAIR_LISTS.length; i++) {
@@ -7319,7 +7305,7 @@ public class AnvilPlugin extends Plugin {
 				if (own.has("c")) own.getAsJsonObject("c").entrySet().forEach(e -> counts.add(e.getKey(), e.getValue()));
 				var mine = obj("c", counts);
 				if (own.has("y")) mine.add("y", own.get("y"));
-				adoptPushed(cfg, PushMerge.merge(gson.toJsonTree(cfg).getAsJsonObject(), new JsonObject(), mine));
+				adoptPushed(cfg, new JsonObject(), mine);
 			}
 			if (panel != null) panel.countsChanged();
 			return;
@@ -7341,15 +7327,15 @@ public class AnvilPlugin extends Plugin {
 		if (ours && m.has("config")) {
 			var members = m.has("members") ? m.getAsJsonObject("members") : new JsonObject();
 			var mine = members.has(meKey) ? members.getAsJsonObject(meKey) : null;
-			adoptPushed(cfg, PushMerge.merge(gson.toJsonTree(cfg).getAsJsonObject(), m.getAsJsonObject("config"), mine));
+			adoptPushed(cfg, m.getAsJsonObject("config"), mine);
 		}
 		// A whole view (something other than counts changed) or "moved" (the board did, not our team).
 		if (panel != null) panel.boardChanged();
 	}
 
-	/** A config built from a push, taken up like a fetched one — unless a fetch landed meanwhile. */
-	void adoptPushed(PluginConfigResponse held, JsonObject merged) {
-		var fresh = gson.fromJson(merged, PluginConfigResponse.class);
+	/** A config built from a push (laid over the held one, PushMerge), taken up like a fetched one — unless a fetch landed meanwhile. */
+	void adoptPushed(PluginConfigResponse held, JsonObject view, JsonObject mine) {
+		var fresh = gson.fromJson(PushMerge.merge(gson.toJsonTree(held).getAsJsonObject(), view, mine), PluginConfigResponse.class);
 		// Built on the held config: its completions are as old as that fetch, whatever the push changed.
 		fresh.asOf = held.asOf;
 		configFetchLock.lock();
@@ -7358,7 +7344,8 @@ public class AnvilPlugin extends Plugin {
 			if (pluginConfig == held) {
 				adoptTracking(fresh);
 				// A teammate's progress reaches the rule table too, so completion is spotted off it.
-				Map<Integer, Long> have = new HashMap<>();
+				var have = new HashMap<Integer, Long>();
+
 				if (fresh.tiles != null) fresh.tiles.forEach(r -> have.put(r.t, r.have));
 				rules.raise(have);
 				// A count went down (a proof deleted): the rule table can only rise, and a finished tile
