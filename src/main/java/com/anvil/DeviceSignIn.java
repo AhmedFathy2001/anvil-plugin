@@ -43,6 +43,9 @@ public class DeviceSignIn {
 	final BiConsumer<Runnable, Long> scheduler;
 	// Polling runs on RuneLite's shared executor, which outlives the plugin, so stopping it is ours to do.
 	volatile boolean cancelled;
+	/** The run's two callbacks (see {@link #run}); set before its first step is scheduled. */
+	Consumer<String> status;
+	Consumer<Result> done;
 
 	/** Production binding — real system browser + delayed steps on the shared client executor. */
 	DeviceSignIn(BingoApiClient apiClient, ScheduledExecutorService executor) {
@@ -55,14 +58,16 @@ public class DeviceSignIn {
 	/** Run the whole flow. {@code status} receives short human-readable progress lines for the UI;
 	 * {@code done} the terminal {@link Result}. Both called on the executor thread. */
 	void run(Consumer<String> status, Consumer<Result> done) {
+		this.status = status;
+		this.done = done;
 		// The first step runs on the executor too — authStart is network I/O, keep it off the EDT.
-		schedule(() -> start(status, done), 0, status, done);
+		schedule(this::start, 0);
 	}
 
-	void start(Consumer<String> status, Consumer<Result> done) {
+	void start() {
 		var start = apiClient.authStart();
 		if (start == null || empty(start.device_code)) {
-			fail(status, done, "Couldn't reach " + SetupNudge.SITE_HOST + " — check your connection and try again.", Outcome.UNAVAILABLE);
+			fail("Couldn't reach " + SetupNudge.SITE_HOST + " — check your connection and try again.", Outcome.UNAVAILABLE);
 			return;
 		}
 
@@ -73,7 +78,7 @@ public class DeviceSignIn {
 		if (!isConfiguredHomeUrl(BingoApiClient.site(), url)) {
 			// A response steering the browser anywhere but the member's own configured site is hostile.
 			log.warn("Off-site sign-in URL: {}", url);
-			fail(status, done, "Sign-in blocked — the site returned a suspicious login page.", Outcome.UNAVAILABLE);
+			fail("Sign-in blocked — the site returned a suspicious login page.", Outcome.UNAVAILABLE);
 			return;
 		}
 		// The address is on screen whether or not the browser opened. We can't tell the difference
@@ -85,14 +90,14 @@ public class DeviceSignIn {
 		var intervalMs = Math.max(1, start.interval > 0 ? start.interval : 5 /* DEFAULT_INTERVAL_S */) * 1000L;
 		var deadline = System.currentTimeMillis()
 			+ (start.expires_in > 0 ? start.expires_in : 600 /* DEFAULT_EXPIRES_S */) * 1000L;
-		poll(status, done, start.device_code, intervalMs, deadline);
+		poll(start.device_code, intervalMs, deadline);
 	}
 
 	/** One scheduled approval poll; reschedules itself (server {@code slow_down} stretches the delay)
 	 * until a terminal status or the deadline. */
-	void poll(Consumer<String> status, Consumer<Result> done, String deviceCode, long intervalMs, long deadline) {
+	void poll(String deviceCode, long intervalMs, long deadline) {
 		if (System.currentTimeMillis() >= deadline) {
-			fail(status, done, "The code expired — try again.", Outcome.EXPIRED);
+			fail("The code expired — try again.", Outcome.EXPIRED);
 			return;
 		}
 		schedule(() -> {
@@ -107,10 +112,10 @@ public class DeviceSignIn {
 						} else done.accept(new Result(Outcome.UNAVAILABLE, null));
 						return;
 					case "denied":
-						fail(status, done, "Sign-in denied on the site.", Outcome.DENIED);
+						fail("Sign-in denied on the site.", Outcome.DENIED);
 						return;
 					case "expired":
-						fail(status, done, "The code expired — try again.", Outcome.EXPIRED);
+						fail("The code expired — try again.", Outcome.EXPIRED);
 						return;
 					case "slow_down":
 						nextIntervalMs = Math.max(intervalMs, Math.max(1, poll.interval) * 1000L);
@@ -119,13 +124,13 @@ public class DeviceSignIn {
 						break;
 				}
 			}
-			poll(status, done, deviceCode, nextIntervalMs, deadline);
-		}, intervalMs, status, done);
+			poll(deviceCode, nextIntervalMs, deadline);
+		}, intervalMs);
 	}
 
 	/** Schedule a flow step; an escaped {@link RuntimeException} would otherwise vanish inside the
 	 * executor, so surface it as the terminal failure. */
-	static void fail(Consumer<String> status, Consumer<Result> done, String message, Outcome outcome) {
+	void fail(String message, Outcome outcome) {
 		status.accept(message);
 		done.accept(new Result(outcome, null));
 	}
@@ -135,13 +140,13 @@ public class DeviceSignIn {
 		cancelled = true;
 	}
 
-	void schedule(Runnable step, long delayMs, Consumer<String> status, Consumer<Result> done) {
+	void schedule(Runnable step, long delayMs) {
 		scheduler.accept(() -> {
 			if (cancelled) return;
 			try {
 				step.run();
 			} catch (RuntimeException e) {
-				fail(status, done, "Sign-in failed — try again.", Outcome.UNAVAILABLE);
+				fail("Sign-in failed — try again.", Outcome.UNAVAILABLE);
 			}
 		}, delayMs);
 	}

@@ -41,8 +41,7 @@ public class BingoApiClient {
 	final Gson gson;
 	// Package-private so tests can drive a request through the pause gate (AccountOptOutTest).
 	final OkHttpClient httpClient;
-	String apiUrl;
-	String playerToken;
+	String apiUrl, playerToken;
 	// In-game RSN of the locally logged-in account. Sent as `X-RSN` on every player-token
 	// request so the server can scope the per-user plugin token to the correct clan_member
 	// (and reject drops on accounts that aren't signed up for the active event).
@@ -61,8 +60,7 @@ public class BingoApiClient {
 	// activity line. Sent as X-World-Types / X-World-Activity on every request so the site can tell
 	// a Deadman or Leagues drop from a main-game one wherever it lands, and copied into each
 	// notification so one resent later still says where it really happened. Null off a world.
-	volatile String worldTypes;
-	volatile String worldActivity;
+	volatile String worldTypes, worldActivity;
 	// The logged-in character was marked "Not my account" on this install (AccountOptOut). While set,
 	// NOTHING carrying the Account Token leaves the client — isConfigured() says no, so every gated
 	// path stays quiet, and an interceptor refuses anything that slips past a gate. The one exception
@@ -88,12 +86,8 @@ public class BingoApiClient {
 		this.gson = gson;
 		// Read timeout is generous because some server reads do several round-trips to Turso
 		// and can take a while; tighter timeouts here will trip even on healthy servers.
-		httpClient = client.newBuilder()
-			.addInterceptor(pauseGate())
-			.connectTimeout(10, TimeUnit.SECONDS)
-			.readTimeout(90, TimeUnit.SECONDS)
-			.writeTimeout(30, TimeUnit.SECONDS)
-			.build();
+		httpClient = client.newBuilder().addInterceptor(pauseGate()).connectTimeout(10, TimeUnit.SECONDS)
+			.readTimeout(90, TimeUnit.SECONDS).writeTimeout(30, TimeUnit.SECONDS).build();
 		// Its own pool: a reconnect never rides a pooled connection that died quietly, and a handshake that
 		// hangs gives up in 15s (the shared 90s read kept chat on "reconnecting" through each try).
 		pushClient = httpClient.newBuilder().connectionPool(new ConnectionPool(1, 1, TimeUnit.MINUTES))
@@ -101,9 +95,7 @@ public class BingoApiClient {
 		// Reads the sidebar waits on (config, feed, board, cards) give up sooner: a panel stuck on
 		// "Loading…" for a minute and a half is worse than one that says the site is slow and keeps
 		// what it had. Uploads and submissions keep the long timeout above.
-		readClient = httpClient.newBuilder()
-			.readTimeout(20, TimeUnit.SECONDS)
-			.build();
+		readClient = httpClient.newBuilder().readTimeout(20, TimeUnit.SECONDS).build();
 	}
 
 	/**
@@ -600,8 +592,7 @@ public class BingoApiClient {
 	@Setter volatile NotifyOutbox notifyOutbox;
 
 	static RequestBody notifyBody(String payloadJson, byte[] png, String filename) {
-		return png != null && png.length > 0 ? new MultipartBody.Builder()
-			.setType(MultipartBody.FORM)
+		return png != null && png.length > 0 ? form()
 			.addFormDataPart("payload_json", payloadJson)
 			.addFormDataPart("file", !empty(filename) ? filename : "image.png",
 				RequestBody.create(PNG, png))
@@ -715,11 +706,15 @@ public class BingoApiClient {
 
 	/** POST /api/plugin/facts/proof: the screenshot for the credits {@code key} names. A 410: too late, they were reversed. */
 	void postProof(String key, byte[] image, JsonObject proof) throws IOException {
-		post(configUrl("/api/plugin/facts/proof"), new MultipartBody.Builder().setType(MultipartBody.FORM)
+		post(configUrl("/api/plugin/facts/proof"), form()
 			.addFormDataPart("key", key)
 			.addFormDataPart("body", gson.toJson(obj("proof", proof)))
 			.addFormDataPart("file", isJpeg(image) ? "proof.jpg" : "proof.png", image(image))
 			.build(), "Proof", true);
+	}
+
+	static MultipartBody.Builder form() {
+		return new MultipartBody.Builder().setType(MultipartBody.FORM);
 	}
 
 	/** The bytes as a JPEG or PNG part, by their first bytes. */
@@ -1085,7 +1080,7 @@ public class BingoApiClient {
 	 * POST /api/upload — uploads a PNG screenshot, returns the image URL.
 	 */
 	String uploadImage(byte[] pngBytes, String filename) throws IOException {
-		return execute(httpClient, authedRequest(clanUrl("/api/upload")).post(new MultipartBody.Builder().setType(MultipartBody.FORM)
+		return execute(httpClient, authedRequest(clanUrl("/api/upload")).post(form()
 			.addFormDataPart("file", filename, image(pngBytes)).build()), (r, body) -> {
 			if (!r.isSuccessful()) throw new HttpStatusException("Image upload failed: HTTP " + r.code(), r.code());
 			return new JsonParser().parse(body).getAsJsonObject().get("url").getAsString();
@@ -1596,12 +1591,11 @@ public class BingoApiClient {
 	 */
 	void submitPersonalBests(Map<String, Integer> bests) throws IOException {
 		if (empty(bests)) return;
-		Map<String, Integer> valid = new LinkedHashMap<>();
+		var rows = new JsonArray();
 		bests.forEach((k, v) -> {
-			if (!empty(k) && v != null && v > 0) valid.put(k, v);
+			if (!empty(k) && v != null && v > 0) rows.add(obj("activity", k, "centis", v));
 		});
-		if (valid.isEmpty()) return;
-		postJson("/api/plugin/pb", obj("bests", pairs(valid, "activity", "centis")), "Personal best push failed", true);
+		if (rows.size() > 0) postJson("/api/plugin/pb", obj("bests", rows), "Personal best push failed", true);
 	}
 
 	/**
