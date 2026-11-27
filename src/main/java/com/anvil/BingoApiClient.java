@@ -1644,6 +1644,11 @@ public class BingoApiClient {
 			if (m.regionId != null) o.addProperty("regionId", m.regionId);
 			if (m.raidLevel != null) o.addProperty("raidLevel", m.raidLevel);
 			if (m.party != null) o.addProperty("party", m.party);
+			if (m.near != null && !m.near.isEmpty()) {
+				var near = new JsonArray();
+				m.near.forEach(near::add);
+				o.add("near", near);
+			}
 			out.add(o);
 		}
 		// The reply names each new item hunt drop's screenshot key (AnvilPlugin huntKeys).

@@ -80,6 +80,7 @@ public class ApiClientHttpTest
 		death.raidLevel = 540;
 		death.party = 3;
 		death.regionId = 15186;
+		death.near = List.of("Nex", "Blood reaver");
 		var elsewhere = new AnvilMoments.Moment("death", null, null, 1, null, "Vorkath", "npc", null, 2_000L, "death|v");
 		c.submitMoments(List.of(death, elsewhere));
 		assertTrue(seen.get(0).url().encodedPath().endsWith("/api/plugin/moments"));
@@ -89,6 +90,7 @@ public class ApiClientHttpTest
 		assertEquals(540, raid.get("raidLevel").getAsInt());
 		assertEquals(3, raid.get("party").getAsInt());
 		assertEquals(15186, raid.get("regionId").getAsInt());
+		assertEquals("[\"Nex\",\"Blood reaver\"]", raid.get("near").toString());
 		assertFalse(sent.get(1).getAsJsonObject().has("raid"));
 		assertFalse(sent.get(1).getAsJsonObject().has("raidLevel"));
 	}

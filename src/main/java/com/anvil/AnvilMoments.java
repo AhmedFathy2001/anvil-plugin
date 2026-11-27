@@ -59,6 +59,8 @@ class AnvilMoments {
 		/** Where it happened, for the site's analytics: map region; in a raid its mode, Tombs level, party. */
 		Integer regionId, raidLevel, party;
 		String raidMode;
+		/** 'death' only: monsters in sight close by, so a minion's or mechanic's death counts at its boss. */
+		List<String> near;
 
 		/** The place fields carried over from {@code from} (a renamed queued entry keeps them). */
 		Moment placedAs(Moment from) {

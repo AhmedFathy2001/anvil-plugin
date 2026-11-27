@@ -8343,6 +8343,26 @@ public class AnvilPlugin extends Plugin {
 	/** Tiles: room enough for the farthest attacks (a big raid room), short of the room next door. */
 	static final int KILLER_REACH = 20;
 
+	/**
+	 * Client thread, once per death: the monsters within KILLER_REACH we can see (a wall between us is a
+	 * different room: Graardor from the corridor). A death to Nex's Blood reavers, or to a mechanic
+	 * with nobody named, still happened at Nex. Distinct names, a few.
+	 */
+	List<String> monstersInSight() {
+		var me = client.getLocalPlayer();
+		var view = client.getTopLevelWorldView();
+		if (me == null || view == null) return null;
+		var at = me.getWorldLocation();
+		var names = new LinkedHashSet<String>();
+		for (var npc : view.npcs()) {
+			if (names.size() >= 12) break;
+			if (npc == null || npc.getName() == null || npc.getCombatLevel() <= 0) continue;
+			if (npc.getWorldLocation().distanceTo(at) > KILLER_REACH || !npc.getWorldArea().hasLineOfSightTo(view, at)) continue;
+			names.add(stripChatTags(npc.getName()));
+		}
+		return names.isEmpty() ? null : new ArrayList<>(names);
+	}
+
 	/** Resolve one death once, so the Feed and Discord cannot disagree about what killed us. */
 	AttributedDeath resolveDeathSource() {
 		var now = now();
@@ -8375,6 +8395,7 @@ public class AnvilPlugin extends Plugin {
 				killCountFor(death.source), now, AnvilMoments.keyFor("death", death.source, null, now));
 		// A raid death often has no killer to name (Warden skulls, Zebak's waves, Olm's crystals):
 		// say which raid it was, so a competition over that raid can count it.
+		moment.near = monstersInSight();
 		moments.record(placed(moment));
 		scheduleMomentPush(1_000 /* DEATH_PUSH_DELAY_MS */);
 	}
