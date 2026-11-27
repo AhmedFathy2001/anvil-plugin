@@ -173,10 +173,7 @@ class UiView extends JPanel {
 	/** Fetch a view and show it in place of everything; {@code waiting} shows meanwhile. */
 	void show(String view, Map<String, String> args, String waiting) {
 		openPanes.clear();
-		if (waiting != null) {
-			drawn.remove("null");
-			replace(this, message(waiting));
-		}
+		if (waiting != null) say(waiting);
 		fetch(null, view, args);
 	}
 
@@ -213,11 +210,6 @@ class UiView extends JPanel {
 
 	void refetch(String place, Object[] l) {
 		fetch(place, (String) l[0], (Map<String, String>) l[1], true);
-	}
-
-	/** Force the next answers to rebuild their nodes, even when their JSON is structurally unchanged. */
-	void invalidateDrawn() {
-		drawn.clear();
 	}
 
 	/** Show a line of text in place of everything, dropping any answer still on its way. */
@@ -901,22 +893,16 @@ class UiView extends JPanel {
 					// frame goes into a buffer and is painted through the shape instead.
 					var raw = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
 					var rg = raw.createGraphics();
-					try {
-						image.paintIcon(c, rg, 0, 0); // a GifIcon registers c and repaints it per frame itself
-					} finally {
-						rg.dispose();
-					}
+					image.paintIcon(c, rg, 0, 0); // a GifIcon registers c and repaints it per frame itself
+					rg.dispose();
 					var copy = masked.createGraphics();
-					try {
-						copy.setComposite(AlphaComposite.Clear);
-						copy.fillRect(0, 0, w, h);
-						copy.setComposite(AlphaComposite.SrcOver);
-						copy.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-						copy.setPaint(new TexturePaint(raw, new Rectangle(0, 0, w, h)));
-						copy.fill(rad > 0 ? new RoundRectangle2D.Float(0, 0, w, h, rad * 2f, rad * 2f) : new Ellipse2D.Float(0, 0, w, h));
-					} finally {
-						copy.dispose();
-					}
+					copy.setComposite(AlphaComposite.Clear);
+					copy.fillRect(0, 0, w, h);
+					copy.setComposite(AlphaComposite.SrcOver);
+					copy.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+					copy.setPaint(new TexturePaint(raw, new Rectangle(0, 0, w, h)));
+					copy.fill(rad > 0 ? new RoundRectangle2D.Float(0, 0, w, h, rad * 2f, rad * 2f) : new Ellipse2D.Float(0, 0, w, h));
+					copy.dispose();
 					maskedFrame = frame;
 					maskedFor = c;
 				}
@@ -1499,7 +1485,7 @@ class UiView extends JPanel {
 
 	/** A right-click menu on {@code c} and everything in it (Swing doesn't bubble a click up from a label). */
 	void menu(JComponent c, JsonArray items) {
-		AnvilSidebarPanel.addMouseListenerToTree(c, new MouseAdapter() {
+		listenAll(c, new MouseAdapter() {
 			public void mousePressed(MouseEvent e) {
 				show(e);
 			}
@@ -1533,7 +1519,7 @@ class UiView extends JPanel {
 		var opaque = r != null ? r.filled() : c.isOpaque();
 		var base = c.getBackground();
 		var hover = r != null && r.hover != null ? r.hover : DARK_GRAY_HOVER_COLOR;
-		AnvilSidebarPanel.addMouseListenerToTree(c, new MouseAdapter() {
+		listenAll(c, new MouseAdapter() {
 			public void mousePressed(MouseEvent e) {
 				if (SwingUtilities.isLeftMouseButton(e) && ownClick(c, e)) pressing = true;
 			}

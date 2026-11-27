@@ -145,30 +145,24 @@ class GradientLabel extends JLabel {
 		}
 
 		var fg = frame.createGraphics();
-		try {
-			fg.setComposite(AlphaComposite.Src);
-			fg.drawImage(base, 0, 0, null);
-			if (fillR.width > 0) {
-				fg.scale(sx, sy);
-				fg.setComposite(AlphaComposite.SrcIn);
-				// REFLECT repeats every two widths, so a shift over that whole period wraps seamlessly.
-				var period = 2f * fillR.width;
-				var shift = moving && animate ? (animationTimeMillis() % PANEL_CYCLE_MS) / (float) PANEL_CYCLE_MS * period : 0;
-				fg.setPaint(new LinearGradientPaint(fillR.x - shift, 0, fillR.x - shift + fillR.width, 0, fractions, stops,
-					MultipleGradientPaint.CycleMethod.REFLECT));
-				fg.fillRect(fillR.x, fillR.y, fillR.width, fillR.height);
-			}
-		} finally {
-			fg.dispose();
+		fg.setComposite(AlphaComposite.Src);
+		fg.drawImage(base, 0, 0, null);
+		if (fillR.width > 0) {
+			fg.scale(sx, sy);
+			fg.setComposite(AlphaComposite.SrcIn);
+			// REFLECT repeats every two widths, so a shift over that whole period wraps seamlessly.
+			var period = 2f * fillR.width;
+			var shift = moving && animate ? (animationTimeMillis() % PANEL_CYCLE_MS) / (float) PANEL_CYCLE_MS * period : 0;
+			fg.setPaint(new LinearGradientPaint(fillR.x - shift, 0, fillR.x - shift + fillR.width, 0, fractions, stops,
+				MultipleGradientPaint.CycleMethod.REFLECT));
+			fg.fillRect(fillR.x, fillR.y, fillR.width, fillR.height);
 		}
+		fg.dispose();
 
 		var g2 = (Graphics2D) g.create();
-		try {
-			g2.scale(1 / sx, 1 / sy);
-			g2.drawImage(frame, 0, 0, null);
-		} finally {
-			g2.dispose();
-		}
+		g2.scale(1 / sx, 1 / sy);
+		g2.drawImage(frame, 0, 0, null);
+		g2.dispose();
 	}
 
 	void drawBase(Graphics2D g, int w, int h, int iw, int ih, double sx, double sy) {
@@ -177,19 +171,16 @@ class GradientLabel extends JLabel {
 			frame = new BufferedImage(iw, ih, BufferedImage.TYPE_INT_ARGB);
 		}
 		var ig = base.createGraphics();
-		try {
-			ig.setComposite(AlphaComposite.Clear);
-			ig.fillRect(0, 0, iw, ih);
-			ig.setComposite(AlphaComposite.SrcOver);
-			// Swing hands paintComponent a graphics already set to the label's font, colour and hints.
-			ig.setRenderingHints(g.getRenderingHints());
-			ig.scale(sx, sy);
-			ig.setFont(getFont());
-			ig.setColor(getForeground());
-			super.paintComponent(ig);
-		} finally {
-			ig.dispose();
-		}
+		ig.setComposite(AlphaComposite.Clear);
+		ig.fillRect(0, 0, iw, ih);
+		ig.setComposite(AlphaComposite.SrcOver);
+		// Swing hands paintComponent a graphics already set to the label's font, colour and hints.
+		ig.setRenderingHints(g.getRenderingHints());
+		ig.scale(sx, sy);
+		ig.setFont(getFont());
+		ig.setColor(getForeground());
+		super.paintComponent(ig);
+		ig.dispose();
 		var in = getInsets();
 		var view = new Rectangle(in.left, in.top, w - in.left - in.right, h - in.top - in.bottom);
 		textR.setBounds(0, 0, 0, 0);

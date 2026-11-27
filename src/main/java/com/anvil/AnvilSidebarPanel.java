@@ -169,8 +169,10 @@ public class AnvilSidebarPanel extends PluginPanel {
 	final Timer autoRefresh;
 
 	/** Re-checks the starting-shot card's requirements once a second while it's up; null with no card. */
-	final Timer startProofTimer = new Timer(1000, e -> tickStartProof());
 	Runnable startProofTick;
+	final Timer startProofTimer = new Timer(1000, e -> {
+		if (startProofTick != null) startProofTick.run();
+	});
 
 	// Guards against ActionEvents fired while we rebuild the combo model.
 	boolean rebuildingPicker;
@@ -346,18 +348,6 @@ public class AnvilSidebarPanel extends PluginPanel {
 		return tabStrip;
 	}
 
-	/** A creator space is not a clan: its tab says "Space". Follows the config on every refresh. EDT. */
-	void relabelClanTab() {
-		var label = tabLabels.get(CLAN);
-		if (label == null) return;
-		var space = data.activeIsSpace();
-		var text = space ? "Space" : "Clan";
-		if (!text.equals(label.getText())) {
-			label.setText(text);
-			label.setToolTipText(space ? "This creator's space and events" : null);
-		}
-	}
-
 	/** Selected: white with an orange underline. The rest: grey over a hairline; all greyed while signed out. */
 	void styleTabs() {
 		for (var e : tabLabels.entrySet()) {
@@ -433,7 +423,13 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	/** Re-checked on every render: the config's answer brings the tabs, and sign-out takes them away. */
 	void updateTabStrip() {
-		relabelClanTab();
+		// A creator space is not a clan: its tab says "Space". Follows the config on every refresh.
+		var label = tabLabels.get(CLAN);
+		var space = data.activeIsSpace();
+		if (label != null && !(space ? "Space" : "Clan").equals(label.getText())) {
+			label.setText(space ? "Space" : "Clan");
+			label.setToolTipText(space ? "This creator's space and events" : null);
+		}
 		styleLookupModes();
 		var on = playerCardsAvailable();
 		// Signed out the strip still shows, greyed: there is more here once you sign in.
@@ -473,11 +469,15 @@ public class AnvilSidebarPanel extends PluginPanel {
 		redraw(this);
 	}
 
+	void toLookup() {
+		if (tab != LOOKUP) selectTab(LOOKUP);
+	}
+
 	/** Look a character up in the Lookup tab — the right-click "Anvil" entry lands here. */
 	void showLookup(String rawName) {
 		invokeLater(() -> {
 			var name = rawName == null ? "" : rawName.replace(' ', ' ').trim();
-			if (tab != LOOKUP) selectTab(LOOKUP);
+			toLookup();
 			if (name.isEmpty()) return;
 			if (lookupClans || lookupGuides) setLookupMode("Players");
 			lookupSearch.setText(name);
@@ -546,7 +546,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 			public void openTab(String name, Map<String, String> args) {
 				if ("lookup".equals(name)) {
-					if (tab != LOOKUP) selectTab(LOOKUP);
+					toLookup();
 					setLookupMode("guides".equals(args.get("mode")) ? "Guides" : "Players");
 					return;
 				}
@@ -611,7 +611,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			}
 
 			public void clan(String slug) {
-				if (tab != LOOKUP) selectTab(LOOKUP);
+				toLookup();
 				setLookupMode("Clans");
 				lookupView.show("clan", singletonMap("slug", slug), "Loading the clan…");
 			}
@@ -751,7 +751,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			return;
 		}
 		invokeLater(() -> {
-			if (tab != LOOKUP) selectTab(LOOKUP);
+			toLookup();
 			setLookupMode("Guides", args);
 		});
 	}
@@ -1230,7 +1230,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		refreshAccountRow();
 		if (manual) {
 			api.clearThumbs();
-			for (var v : views) v.invalidateDrawn();
+			for (var v : views) v.drawn.clear();
 			// A refresh with nothing new changes nothing on screen: the button says it's working.
 			refreshing(true);
 		}
@@ -1354,10 +1354,6 @@ public class AnvilSidebarPanel extends PluginPanel {
 				countsCatchUp.start();
 			}
 		});
-	}
-
-	void tickStartProof() {
-		if (startProofTick != null) startProofTick.run();
 	}
 
 	/**
@@ -1520,9 +1516,8 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 	/** A wrapped grey paragraph at the panel's width — long copy clips rather than wraps without it. */
 	static JLabel note(String text) {
-		var label = new ClipLabel(wrapHtml(esc(text), STATUS_WRAP_PX));
-		label.setFont(SMALL);
-		label.setForeground(MUTED);
+		var label = small("", MUTED);
+		label.setText(wrapHtml(esc(text), STATUS_WRAP_PX));
 		return label;
 	}
 
@@ -1769,12 +1764,6 @@ public class AnvilSidebarPanel extends PluginPanel {
 	}
 
 	// ---- Tiles and Teams pages --------------------------------------------------------------------
-
-	/** Install one row listener on the panel and every label nested inside it. */
-	static void addMouseListenerToTree(Component component, MouseAdapter listener) {
-		component.addMouseListener(listener);
-		if (component instanceof Container) for (var child : ((Container) component).getComponents()) addMouseListenerToTree(child, listener);
-	}
 
 	static void addAll(Container into, Component... parts) {
 		for (var c : parts) into.add(c);

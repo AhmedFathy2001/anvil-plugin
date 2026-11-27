@@ -22,20 +22,11 @@ class LookupSuggestions extends KeyAdapter {
 	static class Names {
 		static final Names EMPTY = new Names(null, null, null, null);
 
-		final List<String> clanOnline;
-		final List<String> friends;
-		final List<String> nearby;
-		final List<String> clan;
+		/** Friends, clan members online, players nearby, then the rest of the clan: the order they're offered in. */
+		final List<List<String>> lists = new ArrayList<>();
 
 		Names(Collection<String> clanOnline, Collection<String> friends, Collection<String> nearby, Collection<String> clan) {
-			this.clanOnline = copy(clanOnline);
-			this.friends = copy(friends);
-			this.nearby = copy(nearby);
-			this.clan = copy(clan);
-		}
-
-		static List<String> copy(Collection<String> names) {
-			return names == null ? Collections.emptyList() : new ArrayList<>(names);
+			for (var c : Arrays.asList(friends, clanOnline, nearby, clan)) lists.add(c == null ? List.of() : new ArrayList<>(c));
 		}
 	}
 
@@ -47,7 +38,9 @@ class LookupSuggestions extends KeyAdapter {
 		var q = Rsn.normalize(typed);
 		if (q.isEmpty()) return null;
 		var mine = Rsn.normalize(me);
-		for (var list : Arrays.asList(recent, names.friends, names.clanOnline, names.nearby, names.clan)) {
+		var lists = new ArrayList<>(names.lists);
+		lists.add(0, recent);
+		for (var list : lists) {
 			if (list == null) continue;
 			for (var raw : list) {
 				if (raw == null) continue;

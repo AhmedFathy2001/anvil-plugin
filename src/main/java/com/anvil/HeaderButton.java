@@ -5,6 +5,7 @@ import java.util.function.*;
 
 import net.runelite.api.*;
 import net.runelite.api.gameval.SpriteID;
+import net.runelite.api.gameval.SpriteID.*;
 import net.runelite.api.widgets.*;
 
 /**
@@ -47,27 +48,27 @@ class HeaderButton {
 	/** The stone button as it sits: raised, on the light backing. */
 	static final int[] SPRITES_IDLE = {
 		SpriteID.TRADEBACKING,
-		SpriteID.V2StoneButtonOut.A_TOP_LEFT,
-		SpriteID.V2StoneButtonOut.A_TOP_RIGHT,
-		SpriteID.V2StoneButtonOut.A_BOTTOM_LEFT,
-		SpriteID.V2StoneButtonOut.A_BOTTOM_RIGHT,
-		SpriteID.V2StoneButtonOut.A_MAP_EDGE_LEFT,
-		SpriteID.V2StoneButtonOut.A_MAP_EDGE_TOP,
-		SpriteID.V2StoneButtonOut.A_MAP_EDGE_RIGHT,
-		SpriteID.V2StoneButtonOut.A_MAP_EDGE_BOTTOM,
+		V2StoneButtonOut.A_TOP_LEFT,
+		V2StoneButtonOut.A_TOP_RIGHT,
+		V2StoneButtonOut.A_BOTTOM_LEFT,
+		V2StoneButtonOut.A_BOTTOM_RIGHT,
+		V2StoneButtonOut.A_MAP_EDGE_LEFT,
+		V2StoneButtonOut.A_MAP_EDGE_TOP,
+		V2StoneButtonOut.A_MAP_EDGE_RIGHT,
+		V2StoneButtonOut.A_MAP_EDGE_BOTTOM,
 	};
 
 	/** The same button pressed in, on the dark backing — the game's own hover state for it. */
 	static final int[] SPRITES_HOVERED = {
 		SpriteID.TRADEBACKING_DARK,
-		SpriteID.V2StoneButtonIn.A_TOP_LEFT,
-		SpriteID.V2StoneButtonIn.A_TOP_RIGHT,
-		SpriteID.V2StoneButtonIn.A_BOTTOM_LEFT,
-		SpriteID.V2StoneButtonIn.A_BOTTOM_RIGHT,
-		SpriteID.V2StoneButtonIn.A_LEFT,
-		SpriteID.V2StoneButtonIn.A_TOP,
-		SpriteID.V2StoneButtonIn.A_RIGHT,
-		SpriteID.V2StoneButtonIn.A_BOTTOM,
+		V2StoneButtonIn.A_TOP_LEFT,
+		V2StoneButtonIn.A_TOP_RIGHT,
+		V2StoneButtonIn.A_BOTTOM_LEFT,
+		V2StoneButtonIn.A_BOTTOM_RIGHT,
+		V2StoneButtonIn.A_LEFT,
+		V2StoneButtonIn.A_TOP,
+		V2StoneButtonIn.A_RIGHT,
+		V2StoneButtonIn.A_BOTTOM,
 	};
 
 	/** The frame's nine pieces, then the text on top. */
@@ -152,19 +153,19 @@ class HeaderButton {
 		int h = anchor.getOriginalHeight() > 0 ? anchor.getOriginalHeight() : 20 /* FALLBACK_HEIGHT */;
 		int y = anchor.getOriginalY();
 		int yMode = anchor.getYPositionMode();
-		int span = WIDTH - (CORNER * 2);
+		int span = WIDTH - (CORNER * 2), c = CORNER, r = x + WIDTH - c, b = y + h - c;
 		var made = new Widget[PARTS];
 
 		// Background first so every edge draws over it, then the corners, then the edges between.
 		made[0] = piece(parent, 0, x, y, WIDTH, h, yMode);
-		made[1] = piece(parent, 1, x + WIDTH - CORNER, y, CORNER, CORNER, yMode);
-		made[2] = piece(parent, 2, x, y, CORNER, CORNER, yMode);
-		made[3] = piece(parent, 3, x + WIDTH - CORNER, y + h - CORNER, CORNER, CORNER, yMode);
-		made[4] = piece(parent, 4, x, y + h - CORNER, CORNER, CORNER, yMode);
-		made[5] = piece(parent, 5, x + WIDTH - CORNER, y + CORNER, CORNER, EDGE, yMode);
-		made[7] = piece(parent, 7, x, y + CORNER, CORNER, EDGE, yMode);
-		made[6] = piece(parent, 6, x + CORNER, y, span, CORNER, yMode);
-		made[8] = piece(parent, 8, x + CORNER, y + h - CORNER, span, CORNER, yMode);
+		made[1] = piece(parent, 1, r, y, c, c, yMode);
+		made[2] = piece(parent, 2, x, y, c, c, yMode);
+		made[3] = piece(parent, 3, r, b, c, c, yMode);
+		made[4] = piece(parent, 4, x, b, c, c, yMode);
+		made[5] = piece(parent, 5, r, y + c, c, EDGE, yMode);
+		made[7] = piece(parent, 7, x, y + c, c, EDGE, yMode);
+		made[6] = piece(parent, 6, x + c, y, span, c, yMode);
+		made[8] = piece(parent, 8, x + c, b, span, c, yMode);
 
 		// The text covers the whole button, so it is what the mouse actually meets: one layer owns
 		// the click, the hover and the label, and the nine underneath are decoration.

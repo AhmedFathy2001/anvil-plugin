@@ -126,7 +126,7 @@ class Ui {
 	static <T extends JComponent> T onClick(T c, Runnable action) {
 		c.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 		c.putClientProperty(CLICKS, Boolean.TRUE);
-		AnvilSidebarPanel.addMouseListenerToTree(c, new MouseAdapter() {
+		listenAll(c, new MouseAdapter() {
 			boolean down;
 
 			public void mousePressed(MouseEvent e) {
@@ -139,6 +139,12 @@ class Ui {
 			}
 		});
 		return c;
+	}
+
+	/** Install one listener on {@code c} and every component nested inside it. */
+	static void listenAll(Component c, MouseAdapter listener) {
+		c.addMouseListener(listener);
+		if (c instanceof Container) for (var child : ((Container) c).getComponents()) listenAll(child, listener);
 	}
 
 	/** Whether the press is {@code c}'s: no clickable part inside it is nearer the pointer. */
