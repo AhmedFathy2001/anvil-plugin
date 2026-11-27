@@ -991,18 +991,8 @@ class FeedList extends JPanel {
 	 * moving row; drawing the same letters in the same colours costs only the drawString calls.
 	 */
 	static class WhoLine extends JComponent {
+		/** The row, whose name, team and the colours the site picked for them are drawn. */
 		JsonObject r;
-		String who = "", tag = "";
-		Color whoInk = Color.WHITE, tagInk = MUTED;
-
-
-		void show(JsonObject r, String who, String tag, Color whoInk, Color tagInk) {
-			this.r = r;
-			this.who = who;
-			this.tag = tag;
-			this.whoInk = whoInk;
-			this.tagInk = tagInk;
-		}
 
 		public Dimension getPreferredSize() {
 			var fm = getFontMetrics(SMALL);
@@ -1020,9 +1010,10 @@ class FeedList extends JPanel {
 			int max = getWidth();
 			// A Supporter's tenure badge in front of the name, at the art's own 13px.
 			int step = tenureStep(str(r, "whoGlyph"));
+			var whoInk = color(str(r, "whoColor"), Color.WHITE);
 			// Centred on the name's capitals, measured off the font (its box has leading on top).
 			if (step > 0) x[0] = badge(g, g.getFont(), step, stops(r), whoInk, 0, y);
-			whoRuns(r, who, tag, whoInk, tagInk, (text, ink) -> {
+			whoRuns(r, str(r, "who"), str(r, "tag"), whoInk, color(str(r, "tagColor"), MUTED), (text, ink) -> {
 				if (x[0] >= max) return;
 				g.setColor(ink);
 				g.drawString(text, x[0], y);
@@ -1176,10 +1167,6 @@ class FeedList extends JPanel {
 			icon.setIcon(ic);
 			icon.setVisible(ic != null);
 
-			var who = str(r, "who");
-			var whoInk = color(str(r, "whoColor"), Color.WHITE);
-			var tag = str(r, "tag");
-			var tagInk = color(str(r, "tagColor"), MUTED);
 			var when = when(r);
 			var title = str(r, "title");
 			if (!title.isEmpty()) {
@@ -1188,7 +1175,7 @@ class FeedList extends JPanel {
 				line1.setForeground(color(str(r, "textColor"), Color.WHITE));
 				// Who got it, in the colours the site picked (a Supporter's own, else their team's), then
 				// "· Team" in the team's colour on a board.
-				line2.show(r, who, tag, whoInk, tagInk);
+				line2.r = r;
 				line2.setVisible(true);
 			} else {
 				// A roll-up line ("+214 smaller drops…"): one plain line.
@@ -1215,8 +1202,7 @@ class FeedList extends JPanel {
 	}
 
 	/** The row and pill under the mouse, lit by the renderer (-1: none). EDT. */
-	int hoverRow = -1;
-	int hoverChip = -1;
+	int hoverRow = -1, hoverChip = -1;
 
 	void setHover(int row, int chip) {
 		if (row == hoverRow && chip == hoverChip) return;
@@ -1228,14 +1214,10 @@ class FeedList extends JPanel {
 	}
 
 	/** Inside a reaction pill: the text's side padding; and the space between two pills. */
-	static final int CHIP_PAD = 6;
-	static final int CHIP_SPACE = 3;
+	static final int CHIP_PAD = 6, CHIP_SPACE = 3;
 	/** Soft fills, no outline: quiet when idle, a little lighter under the mouse, tinted when yours. */
-	static final Color CHIP_FILL = new Color(0x303030);
-	static final Color CHIP_FILL_HOVER = new Color(0x404040);
-	static final Color CHIP_MINE = new Color(255, 152, 31, 52);
-	static final Color CHIP_MINE_HOVER = new Color(255, 152, 31, 84);
-	static final Color CHIP_INK = new Color(0xb4b4b4);
+	static final Color CHIP_FILL = new Color(0x303030), CHIP_FILL_HOVER = new Color(0x404040), CHIP_MINE = new Color(255, 152, 31, 52),
+		CHIP_MINE_HOVER = new Color(255, 152, 31, 84), CHIP_INK = new Color(0xb4b4b4);
 
 	/** "Sit 3", or just "Sit" before anyone has. */
 	static String chipText(JsonObject c) {
