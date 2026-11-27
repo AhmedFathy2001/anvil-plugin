@@ -8101,20 +8101,16 @@ public class AnvilPlugin extends Plugin {
 
 	/** Push the current absolute per-event counters. Absolute + server max-merge → a failure just retries. */
 	void flushCounterPush() {
-		int deaths, pvpKills, biggestHit, minutes, caTasks;
+		int[] v;
 		long lootGp;
 		synchronized (counterLock) {
 			persistCounters();
-			deaths = eventDeaths;
+			v = new int[]{eventDeaths, eventPvpKills, eventBiggestHit, eventMinutes, eventCaTasks};
 			lootGp = eventLootGp;
-			pvpKills = eventPvpKills;
-			biggestHit = eventBiggestHit;
-			minutes = eventMinutes;
-			caTasks = eventCaTasks;
 		}
 		if (!pvpCounterActive()) return; // event ended between schedule and flush — drop; nothing feeds scoring off this.
 		try {
-			apiClient.submitEventCounters(deaths, lootGp, pvpKills, biggestHit, minutes, caTasks);
+			apiClient.submitEventCounters(v[0], lootGp, v[1], v[2], v[3], v[4]);
 		} catch (IOException e) {
 			log.warn("Counter push failed, retrying: {}", e.getMessage());
 			scheduleCounterPush();
@@ -8217,25 +8213,6 @@ public class AnvilPlugin extends Plugin {
 	}
 
 
-	/**
-	 * Note a death, and what killed us.
-	 *
-	 * <p>The killer is inferred from what had us TARGETED when we last took damage, not from what we
-	 * were hitting — see DeathAttribution for why the client cannot simply be asked, and for what
-	 * the difference looked like in the feed ("died to Jug"). What we were fighting is still used,
-	 * but only to break a tie between several things attacking us at once.
-	 *
-	 * <p>Null when nothing had us targeted, which is a mechanic or a fall, and the feed then says
-	 * only that someone died. A death with no killer is a smaller story than one with the wrong.
-	 */
-	@RequiredArgsConstructor
-	static class AttributedDeath {
-		final String source;
-		final String sourceKind;
-		/** Players that had us targeted (the death post's pile-on). */
-		final int pile;
-	}
-
 	/** Something of this name is within reach of us now: an attacker left behind in another room isn't. */
 	boolean nearUs(String name) {
 		var me = client.getLocalPlayer();
@@ -8269,37 +8246,6 @@ public class AnvilPlugin extends Plugin {
 		return names.isEmpty() ? null : new ArrayList<>(names);
 	}
 
-	/** Resolve one death once, so the Feed and Discord cannot disagree about what killed us. */
-	AttributedDeath resolveDeathSource() {
-		var now = now();
-		var fighting = lastCombatTarget != null && now - lastCombatTargetAt <= 30_000 /* DEATH_ATTRIBUTION_MS */ ? lastCombatTarget : null;
-		var killer = deathAttribution.killer(fighting, now, this::nearUs);
-		// Breadcrumb so client.log can explain an attribution that looks odd: how many things had us
-		// and which one we picked, next to what we were hitting.
-		log.info("Death: {} ({} attackers, fighting {})", killer, deathAttribution.attackerCount(), fighting);
-		// Nothing had us targeted, yet we were mid-fight: some bosses never show as targeting you
-		// (Alchemical Hydra), and a mechanic has nobody behind it. Send what we were fighting, marked as
-		// a guess; the site keeps it only when it's a boss, so "died to Jug" can't come back.
-		var sourceKind = deathAttribution.isPlayer(killer) ? "player" : "npc";
-		// Nobody named, but poisoned or venomed (the game's poison value: 1,000,000 and up is venom):
-		// that is what killed us. Name the likely culprit, what we fought or the nearest monster in sight.
-		int poison = client.getVarpValue(VarPlayerID.POISON);
-		if (killer == null && poison > 0) {
-			var near = monstersInSight();
-			killer = fighting != null ? fighting : near != null ? near.get(0) : null;
-			sourceKind = poison >= 1_000_000 /* VENOM_FROM */ ? "venom" : "poison";
-		}
-		if (killer == null && fighting != null) {
-			killer = fighting;
-			sourceKind = "fought";
-		}
-		var death = new AttributedDeath(killer, sourceKind, deathAttribution.players(now));
-		// The fight is over: whatever had us targeted has no claim on the next one. Cleared here
-		// rather than waiting for each attacker to drop us, which an instance tear-down never
-		// reports — a stale attacker would otherwise be the prime suspect for the next death.
-		deathAttribution.clear();
-		return death;
-	}
 
 
 	/**
@@ -8627,10 +8573,43 @@ public class AnvilPlugin extends Plugin {
 		// the boss everyone is racing that week is the story; dying in general is a number.
 		// Recorded here rather than beside the post below, so the drops channel being off can't
 		// erase it.
-		var death = resolveDeathSource();
+		// Resolved once, so the Feed and Discord cannot disagree about what killed us.
+		// The killer is inferred from what had us TARGETED when we last took damage, not from what we
+		// were hitting — see DeathAttribution for why the client cannot simply be asked, and for what
+		// the difference looked like in the feed ("died to Jug"). What we were fighting is still used,
+		// but only to break a tie between several things attacking us at once.
+		//
+		// Null when nothing had us targeted, which is a mechanic or a fall, and the feed then says
+		// only that someone died. A death with no killer is a smaller story than one with the wrong.
+		var now = now();
+		var fighting = lastCombatTarget != null && now - lastCombatTargetAt <= 30_000 /* DEATH_ATTRIBUTION_MS */ ? lastCombatTarget : null;
+		var killer = deathAttribution.killer(fighting, now, this::nearUs);
+		// Breadcrumb so client.log can explain an attribution that looks odd: how many things had us
+		// and which one we picked, next to what we were hitting.
+		log.info("Death: {} ({} attackers, fighting {})", killer, deathAttribution.attackerCount(), fighting);
+		// Nothing had us targeted, yet we were mid-fight: some bosses never show as targeting you
+		// (Alchemical Hydra), and a mechanic has nobody behind it. Send what we were fighting, marked as
+		// a guess; the site keeps it only when it's a boss, so "died to Jug" can't come back.
+		var sourceKind = deathAttribution.isPlayer(killer) ? "player" : "npc";
+		// Nobody named, but poisoned or venomed (the game's poison value: 1,000,000 and up is venom):
+		// that is what killed us. Name the likely culprit, what we fought or the nearest monster in sight.
+		int poison = client.getVarpValue(VarPlayerID.POISON);
+		if (killer == null && poison > 0) {
+			var near = monstersInSight();
+			killer = fighting != null ? fighting : near != null ? near.get(0) : null;
+			sourceKind = poison >= 1_000_000 /* VENOM_FROM */ ? "venom" : "poison";
+		}
+		if (killer == null && fighting != null) {
+			killer = fighting;
+			sourceKind = "fought";
+		}
+		var pile = deathAttribution.players(now);
+		// The fight is over: whatever had us targeted has no claim on the next one. Cleared here
+		// rather than waiting for each attacker to drop us, which an instance tear-down never
+		// reports — a stale attacker would otherwise be the prime suspect for the next death.
+		deathAttribution.clear();
 		if (momentsEnabled()) {
-			var now = now();
-			var moment = new Moment("death", null, null, 1, null, death.source, death.sourceKind, killCountFor(death.source), now, AnvilMoments.keyFor("death", death.source, null, now));
+			var moment = new Moment("death", null, null, 1, null, killer, sourceKind, killCountFor(killer), now, AnvilMoments.keyFor("death", killer, null, now));
 			// A raid death often has no killer to name (Warden skulls, Zebak's waves, Olm's crystals):
 			// say which raid it was, so a competition over that raid can count it.
 			moment.near = monstersInSight();
@@ -8641,8 +8620,9 @@ public class AnvilPlugin extends Plugin {
 		var me = me();
 		if (me == null || !me.deaths) return;
 		// The site words the post (the person's death message, or now and then a fun one).
-		var facts = facts("death").put("source", death.source).put("sourceKind", death.sourceKind);
-		if (death.pile > 0) facts.put("pile", death.pile);
+		// pile: players that had us targeted (the death post's pile-on).
+		var facts = facts("death").put("source", killer).put("sourceKind", sourceKind);
+		if (pile > 0) facts.put("pile", pile);
 		postWithScreenshot("deaths", facts, "anvil-death.png");
 	}
 
@@ -8858,11 +8838,8 @@ public class AnvilPlugin extends Plugin {
 	 * defaults included, so a clan can remove one); the baked-in copy is only for no config yet.
 	 */
 	boolean isAlwaysNotifyItem(String name) {
-		if (empty(name)) return false;
-		var n = name.toLowerCase();
 		var cfg = pluginConfig;
-		for (var pattern : cfg == null || cfg.alwaysNotifyItems == null ? text.alwaysNotify : alwaysNotifyLower) if (n.contains(pattern)) return true;
-		return false;
+		return !empty(name) && (cfg == null || cfg.alwaysNotifyItems == null ? text.alwaysNotify : alwaysNotifyLower).stream().anyMatch(name.toLowerCase()::contains);
 	}
 
 	/**
@@ -8922,10 +8899,9 @@ public class AnvilPlugin extends Plugin {
 	 */
 	void maybeNotifyClogSlot(String itemName) {
 		var me = me();
-		if (me == null || !me.clog || empty(itemName)) return;
 		// The prestige path already posted this one to the drops channel. And the unlock line can echo
 		// on more than one chat channel; the shared name dedup keeps this to one post per item.
-		if (isAlwaysNotifyItem(itemName) || !claimAllowlistNotify(itemName, now())) return;
+		if (me == null || !me.clog || empty(itemName) || isAlwaysNotifyItem(itemName) || !claimAllowlistNotify(itemName, now())) return;
 		// How much of the log this fills in (0 until the log has synced this session; the site then
 		// leaves the count and rank out rather than guessing).
 		var f = facts("clogSlot").put("item", itemName).put("itemId", resolveItemIdByName(itemName))
@@ -9023,8 +8999,7 @@ public class AnvilPlugin extends Plugin {
 	 * regular drop.
 	 */
 	boolean isLootKeyEvent(String source) {
-		if (source == null) return false;
-		var s = source.toLowerCase();
+		var s = String.valueOf(source).toLowerCase();
 		return s.equals("loot chest") || s.contains("loot key");
 	}
 
@@ -9065,9 +9040,7 @@ public class AnvilPlugin extends Plugin {
 		if (source == null || kcName == null) return false;
 		var want = normalizeBossName(source);
 		var seen = normalizeBossName(kcName);
-		if (want.isEmpty() || seen.isEmpty()) return false;
-		if (seen.equals(want)) return true;
-		return seen.startsWith(want + " ") && RAID_MODE_SUFFIXES.contains(seen.substring(want.length() + 1));
+		return !want.isEmpty() && !seen.isEmpty() && (seen.equals(want) || seen.startsWith(want + " ") && RAID_MODE_SUFFIXES.contains(seen.substring(want.length() + 1)));
 	}
 
 	/**
@@ -9163,15 +9136,6 @@ public class AnvilPlugin extends Plugin {
 	int petFollowerBefore = -1;
 	Set<Integer> petPackBefore = emptySet();
 
-	/** Client thread, at the pet line. */
-	void notePetSurroundings() {
-		var follower = client.getFollower();
-		petFollowerBefore = follower == null ? -1 : follower.getIndex();
-		Set<Integer> pack = new HashSet<>();
-		var inv = client.getItemContainer(InventoryID.INV);
-		if (inv != null) for (var it : inv.getItems()) if (it != null && it.getId() > 0) pack.add(it.getId());
-		petPackBefore = pack;
-	}
 
 	/** Client thread, each tick while a pet waits unnamed: name it off a new follower or a new pet item. */
 	void namePetFromSurroundings() {
@@ -9233,7 +9197,7 @@ public class AnvilPlugin extends Plugin {
 			pet.itemId = resolveItemIdByName(itemName);
 		}
 		// The queued feed entry, named now that the collection-log line says which one it was.
-		if (pet.momentKey != null && momentsEnabled()) moments.nameQueued(pet.momentKey, itemName, resolveItemIdByName(itemName), resolved, pet.resolvedKc);
+		if (pet.momentKey != null && momentsEnabled()) moments.nameQueued(pet.momentKey, itemName, pet.itemId, resolved, pet.resolvedKc);
 		return pet;
 	}
 
@@ -9269,7 +9233,13 @@ public class AnvilPlugin extends Plugin {
 		// park a pet nothing will ever collect: the next collection-log line would claim it.
 		if (!announce && momentKey == null) return;
 		var pet = new PendingPet(duplicate, getLocalPlayerName(), source, src[1], kc, announce, momentKey);
-		notePetSurroundings();
+		// Client thread, at the pet line: what is out and in the pack before it (see petFollowerBefore).
+		var follower = client.getFollower();
+		petFollowerBefore = follower == null ? -1 : follower.getIndex();
+		Set<Integer> pack = new HashSet<>();
+		var inv = client.getItemContainer(InventoryID.INV);
+		if (inv != null) for (var it : inv.getItems()) if (it != null && it.getId() > 0) pack.add(it.getId());
+		petPackBefore = pack;
 		synchronized (petLock) {
 			pendingPet = pet;
 		}
@@ -9345,8 +9315,8 @@ public class AnvilPlugin extends Plugin {
 
 		for (var pending : batch) {
 			var key = pending.task == null ? "" : pending.task.toLowerCase();
-			if (key.isEmpty() || !notifiedCaTasks.add(key)) continue; // unparseable, or already announced this session
-			if (total <= before) continue; // a recompletion: it changed nothing, so it is not news
+			// Unparseable, or already announced this session; or a recompletion: it changed nothing, so it is not news.
+			if (key.isEmpty() || !notifiedCaTasks.add(key) || total <= before) continue;
 			// The feed and the counter take every genuinely new task and let the SITE decide which
 			// are worth showing — a tier floor belongs where the clan can change it without a
 			// plugin release. The chat announcement keeps its own local floor.
@@ -9507,8 +9477,9 @@ public class AnvilPlugin extends Plugin {
 			// take the @ codes too, and the quest scroll is styled by the same game.
 			var plain = CHAT_TAG.matcher(raw).replaceAll(" ").replaceAll("\\s+", " ").trim();
 			var quest = parseQuestScroll(plain);
-			if (quest == null || quest.contains("partial completion")) return; // unparseable, or Hazeel Cult's "kind of completed" — not a completion
-			if (!announcedQuests.add(quest.toLowerCase())) return; // widget re-loaded for a quest already posted this session
+			// Unparseable, or Hazeel Cult's "kind of completed" (not a completion), or the widget re-loaded
+			// for a quest already posted this session.
+			if (quest == null || quest.contains("partial completion") || !announcedQuests.add(quest.toLowerCase())) return;
 			postQuestCompletion(quest);
 			// The clan's achievements (the panel's Feed) and the chat feed, whatever the Discord setting:
 			// the site keys it by quest name, so a re-read scroll never lands twice.
@@ -9926,10 +9897,8 @@ public class AnvilPlugin extends Plugin {
 
 	/** A proof frame as a JPEG (no alpha: JPEG has none), at most {@link #PROOF_MAX_WIDTH} wide. */
 	static byte[] jpeg(BufferedImage img) throws IOException {
-		var rgb = img;
 		int w = min(img.getWidth(), 1920 /* PROOF_MAX_WIDTH */);
-		int h = (int) round(img.getHeight() * (w / (double) img.getWidth()));
-		if (img.getType() != BufferedImage.TYPE_INT_RGB || w != img.getWidth()) rgb = scaled(img, w, h, RenderingHints.VALUE_INTERPOLATION_BILINEAR, BufferedImage.TYPE_INT_RGB);
+		var rgb = img.getType() != BufferedImage.TYPE_INT_RGB || w != img.getWidth() ? scaled(img, w, (int) round(img.getHeight() * (w / (double) img.getWidth())), RenderingHints.VALUE_INTERPOLATION_BILINEAR, BufferedImage.TYPE_INT_RGB) : img;
 		var writer = ImageIO.getImageWritersByFormatName("jpg").next();
 		var param = writer.getDefaultWriteParam();
 		param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
@@ -9993,7 +9962,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	void sendChatMessage(Tone tone, String message) {
-		sendChatLine("Anvil", message, tone, null);
+		sendChatLine("Anvil", message, tone, null, null);
 	}
 
 	/** How Anvil lines are coloured; replaced by the site's look with each login brief. */
@@ -10116,7 +10085,7 @@ public class AnvilPlugin extends Plugin {
 	 * push), or pressed Refresh. Without this they only took effect at the next login.
 	 */
 	/** The site's chat look: line colours, the [Anvil] tag's colour, and boards kept out of the chatbox. */
-	void adoptLook(BingoApiClient.Look l) {
+	void adoptLook(Look l) {
 		chatPalette = ChatPalette.from(l.palette, l.colors);
 		chatTag = l.tag != null && ChatPalette.HEX.matcher(l.tag).matches() ? l.tag : null;
 		chatboxOff = l.off != null ? l.off : List.of();
@@ -10651,7 +10620,7 @@ public class AnvilPlugin extends Plugin {
 		var fe = own == null ? null : chatFlair.entry(w);
 		var lead = who.isEmpty() ? null : (fe != null && fe.t != null ? tenureIcon(fe, lastChatboxOpaque, -1, 0) : star ? chatStar() : "") + name;
 		var tone = Tone.of(m.has("tone") ? m.get("tone").getAsString() : null);
-		sendChatLine(tag.isEmpty() ? "Anvil" : "Anvil \u00B7 " + tag, text, tone, lead);
+		sendChatLine(tag.isEmpty() ? "Anvil" : "Anvil \u00B7 " + tag, text, tone, lead, null);
 	}
 
 	synchronized void flushFeedHeld() {
@@ -10660,12 +10629,10 @@ public class AnvilPlugin extends Plugin {
 		feedHeld = 0;
 	}
 
-	/** {@code lead}: markup already made safe (a coloured name, an icon) before the message's own colour. */
-	void sendChatLine(String tag, String message, Tone tone, String lead) {
-		sendChatLine(tag, message, tone, lead, null);
-	}
-
-	/** {@code tail}: already-safe markup after the message (a flaired name), e.g. "<col=…>N</col>!". */
+	/**
+	 * {@code lead}: markup already made safe (a coloured name, an icon) before the message's own colour;
+	 * {@code tail}: already-safe markup after the message (a flaired name), e.g. "<col=…>N</col>!".
+	 */
 	void sendChatLine(String tag, String message, Tone tone, String lead, String tail) {
 		if (empty(message)) return;
 		// A raw '|' in a chat line gets mangled by the chat pipeline (an event named
