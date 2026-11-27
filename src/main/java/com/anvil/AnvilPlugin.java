@@ -7833,15 +7833,13 @@ public class AnvilPlugin extends Plugin {
 		var runs = rules.runs(tileId);
 		if (runs != null) return singletonList(TileNotes.runs(shownProgress(tileId, runs[0]), (int) runs[1]));
 		var combo = combos.get(tileId);
-		if (combo != null && !combo.completed) {
-			Map<Integer, long[]> counts = new HashMap<>();
-			if (combo.parts != null) for (var p : combo.parts) {
-				var g = p == null ? null : tileRows.get(p.tileId);
-				if (g != null) counts.put(p.tileId, new long[]{shownProgress(p.tileId, g.have), g.of});
-			}
-			return TileNotes.comboLines(combo, counts);
+		if (combo == null || combo.completed) return emptyList();
+		Map<Integer, long[]> counts = new HashMap<>();
+		if (combo.parts != null) for (var p : combo.parts) {
+			var g = p == null ? null : tileRows.get(p.tileId);
+			if (g != null) counts.put(p.tileId, new long[]{shownProgress(p.tileId, g.have), g.of});
 		}
-		return emptyList();
+		return TileNotes.comboLines(combo, counts);
 	}
 
 	/**
@@ -8083,8 +8081,8 @@ public class AnvilPlugin extends Plugin {
 		var now = now();
 		synchronized (lastLootValueAt) {
 			lastLootValueAt.values().removeIf(t -> now - t > DEDUP_WINDOW_MS);
+			if (!claim(lastLootValueAt, fp, now, DEDUP_WINDOW_MS)) return;
 		}
-		if (!claim(lastLootValueAt, fp, now, DEDUP_WINDOW_MS)) return;
 		synchronized (counterLock) {
 			if (!ensureCounterEvent()) return;
 			eventLootGp += haulGp;
@@ -8728,8 +8726,7 @@ public class AnvilPlugin extends Plugin {
 
 	boolean inDangerousPvp() {
 		// Varbits aren't loaded before login; reading one there throws.
-		return client.getGameState() == GameState.LOGGED_IN && client.getVarbitValue(VarbitID.INSIDE_WILDERNESS) == 1
-				|| client.getWorldType().contains(WorldType.PVP);
+		return client.getGameState() == GameState.LOGGED_IN && client.getVarbitValue(VarbitID.INSIDE_WILDERNESS) == 1 || client.getWorldType().contains(WorldType.PVP);
 	}
 
 
@@ -9147,10 +9144,8 @@ public class AnvilPlugin extends Plugin {
 			return;
 		}
 		var inv = client.getItemContainer(InventoryID.INV);
-		if (inv == null) return;
-		for (var it : inv.getItems()) {
-			if (it == null || it.getId() <= 0 || petPackBefore.contains(it.getId())) continue;
-			var name = itemManager.getItemComposition(it.getId()).getName();
+		if (inv != null) for (var it : inv.getItems()) {
+			var name = it == null || it.getId() <= 0 || petPackBefore.contains(it.getId()) ? null : itemManager.getItemComposition(it.getId()).getName();
 			// The pack takes all sorts mid-fight; only a name the pet catalogue knows is the pet.
 			if (name != null && DropSource.petEntry(dropFacts(), name) != null) {
 				claimPetName(name);
@@ -10053,7 +10048,7 @@ public class AnvilPlugin extends Plugin {
 		return size == img.getHeight() ? img : scaled(img, img.getWidth() * size / img.getHeight(), size, RenderingHints.VALUE_INTERPOLATION_BICUBIC, BufferedImage.TYPE_INT_ARGB);
 	}
 
-	private static BufferedImage scaled(BufferedImage src, int w, int h, Object how, int type) {
+	static BufferedImage scaled(BufferedImage src, int w, int h, Object how, int type) {
 		var img = new BufferedImage(w, h, type);
 		var g = img.createGraphics();
 		g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, how);
@@ -10540,11 +10535,10 @@ public class AnvilPlugin extends Plugin {
 			// Only someone the game itself shows us as here: in the scene, in one of our channels' member
 			// lists, or online on our friends list. Never more than the game shows (no entry at all).
 			var name = en.getPlayer() == null ? LEVEL.matcher(Text.removeTags(String.valueOf(en.getTarget()))).replaceAll("").trim() : en.getPlayer().getName();
-			if (empty(name)) continue;
 			// A menu opened on the friends list follows it: logged out there (offline, or hidden from us),
 			// no line, whatever we share. Other plugins' entries in the same menu (World Hopper's Hop-to,
 			// lookups) don't carry the list's widget, so this is decided for the menu, not per entry.
-			if (onFriendsList && !friendOnline(name)) continue;
+			if (empty(name) || onFriendsList && !friendOnline(name)) continue;
 			// Visible: the game shows them to us right now. A chat line's name or a friend the game shows
 			// offline still gets a line, but always "disconnected": whoever hides as offline stays so, and
 			// it reads the same as someone without Anvil.
@@ -10761,8 +10755,7 @@ public class AnvilPlugin extends Plugin {
 
 	boolean siteHas(String capability) {
 		var cfg = pluginConfig;
-		return cfg != null ? cfg.serverSupports(capability)
-				: apiClient != null && apiClient.signedInWithoutClan() && apiClient.siteAdvertises(capability);
+		return cfg != null ? cfg.serverSupports(capability) : apiClient != null && apiClient.signedInWithoutClan() && apiClient.siteAdvertises(capability);
 	}
 
 
@@ -10868,8 +10861,7 @@ public class AnvilPlugin extends Plugin {
 	 * null after the matching handler ran — rate-limited (gets the wait in ms), refused for good
 	 * (drop the batch) or failed (backoff bumped, batch kept); the last two get the error message.
 	 */
-	<T> T pushBatch(String what, SyncBackoff backoff, long now, Callable<T> send,
-			LongConsumer limited, Consumer<String> refused, Consumer<String> failed) {
+	<T> T pushBatch(String what, SyncBackoff backoff, long now, Callable<T> send, LongConsumer limited, Consumer<String> refused, Consumer<String> failed) {
 		try {
 			var result = send.call();
 			backoff.onSuccess();
@@ -10901,8 +10893,7 @@ public class AnvilPlugin extends Plugin {
 		if (pushBatch("Collection log pages", clogBackoff, now, () -> {
 			apiClient.submitClogPages(batch, clogSync.syncedPages());
 			return batch;
-		}, ms -> clogPushAllowedAt = now() + max(ms, 1_000L), m -> clogSync.onSent(batch), m -> {
-		}) == null) return;
+		}, ms -> clogPushAllowedAt = now() + max(ms, 1_000L), m -> clogSync.onSent(batch), m -> {}) == null) return;
 		clogSync.onSent(batch);
 		cfgSet(accountKey(CFG_CLOG_STATE, profileSyncRsn), clogSync.serializeState());
 	}
@@ -10915,9 +10906,8 @@ public class AnvilPlugin extends Plugin {
 	void flushFullClogSync() {
 		if (profileSyncRsn == null || !supportsProfileSync()) return;
 		var now = now();
-		if (!clogFullSync.isDue(now) || !clogFullBackoff.ready(now)) return;
 		// The site's own rate limit, respected before the request rather than discovered by it.
-		if (now < clogPushAllowedAt) return;
+		if (!clogFullSync.isDue(now) || !clogFullBackoff.ready(now) || now < clogPushAllowedAt) return;
 		var manual = clogFullSync.isManual();
 		int count = clogFullSync.size();
 		// Opening the log re-transmits everything, and most opens change nothing. Pushing an
@@ -10981,8 +10971,7 @@ public class AnvilPlugin extends Plugin {
 		if (pushBatch("Personal bests", pbBackoff, now, () -> {
 			apiClient.submitPersonalBests(batch);
 			return batch;
-		}, ms -> pbBackoff.onFailure(now()), m -> personalBests.onSent(batch), m -> {
-		}) == null) return;
+		}, ms -> pbBackoff.onFailure(now()), m -> personalBests.onSent(batch), m -> {}) == null) return;
 		personalBests.onSent(batch);
 		cfgSet(accountKey(CFG_PB_STATE, profileSyncRsn), personalBests.serializeState());
 	}
@@ -11043,8 +11032,7 @@ public class AnvilPlugin extends Plugin {
 	 * within the last half hour.
 	 */
 	void autoSyncClanRoster() {
-		if (autoRosterSyncRunning || !isAdmin) return;
-		if (empty(config.playerToken()) || !apiClient.isConfigured()) return;
+		if (autoRosterSyncRunning || !isAdmin || empty(config.playerToken()) || !apiClient.isConfigured()) return;
 		var now = now();
 		if (lastAutoRosterSyncAt != 0 && now - lastAutoRosterSyncAt < (30 * 60 * 1000) /* AUTO_ROSTER_MIN_GAP_MS */) return;
 		autoRosterSyncRunning = true;
