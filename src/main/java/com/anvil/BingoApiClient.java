@@ -1609,7 +1609,7 @@ public class BingoApiClient {
 			if (!empty(m.near)) o.add("near", gson.toJsonTree(m.near));
 			out.add(o);
 		}
-		// The reply names each new item hunt drop's screenshot key (AnvilPlugin huntKeys).
+		// The reply names each new item hunt drop's screenshot key (AnvilPlugin reads them where it posts moments).
 		return out.size() > 0 ? postJson("/api/plugin/moments", obj("moments", out), "Moment push failed", true) : null;
 	}
 

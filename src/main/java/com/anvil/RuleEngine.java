@@ -111,7 +111,7 @@ class RuleEngine {
 		List<Rule> toasts = new ArrayList<>();
 		/** Item hunt popups: the banner's three lines. */
 		List<String[]> banners = new ArrayList<>();
-		/** The hunt targets behind them, by item id: each gets its screenshot (AnvilPlugin huntShot). */
+		/** The hunt targets behind them, by item id: each gets its screenshot (the hunt shot in AnvilPlugin.emit). */
 		Set<Integer> hunted = new LinkedHashSet<>();
 	}
 

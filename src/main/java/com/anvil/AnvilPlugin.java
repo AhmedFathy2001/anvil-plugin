@@ -6605,7 +6605,7 @@ public class AnvilPlugin extends Plugin {
 	 * colours, like their chat lines. Display only, from the same public list as chat (nothing about
 	 * who is listed is sent), and only names the game itself shows as online: the channel lists hold
 	 * only online players, and a friend must be on a world, so a Private-mode friend shown offline
-	 * stays plain. A painted name no longer matches decorate()'s plain-name test, so a repaint is a no-op.
+	 * stays plain. A painted name no longer matches decorateReadable()'s plain-name test, so a repaint is a no-op.
 	 */
 	void flairNameLists() {
 		if (menusOff()) return;
