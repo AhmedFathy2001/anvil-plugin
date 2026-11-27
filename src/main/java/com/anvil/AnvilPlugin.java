@@ -4048,6 +4048,8 @@ public class AnvilPlugin extends Plugin {
 				warnStartProofBeforeCredit();
 				var reply = apiClient.postFacts(facts, null, coop);
 				adoptFacts(reply);
+				var c = pluginConfig;
+				if (c != null && c.rushLive()) boardChanged(); // rush kills score with no board to push them
 				again = PendingSubmissionStore.retries(reply); // only the facts whose filing failed
 			} catch (PermanentSubmissionException e) {
 				log.info("Facts refused for good: {}", e.getMessage());
@@ -8467,6 +8469,8 @@ public class AnvilPlugin extends Plugin {
 		}
 		moments.onSent(batch);
 		huntKeys(reply);
+		// A death can take points off (Boss Rush): show the new score without a Refresh click.
+		if (batch.stream().anyMatch(m -> "death".equals(m.kind))) boardChanged();
 		// More than one batch's worth waiting (a long offline stretch) — keep going.
 		if (!moments.isEmpty()) scheduleMomentPush();
 	}
