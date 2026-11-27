@@ -126,9 +126,7 @@ class HeaderButton {
 			return;
 		}
 		if (stillAttached(parent)) {
-			if (drawnAt == x) {
-				return; // ours, intact, in the right slot — drawing again would only make a second one
-			}
+			if (drawnAt == x) return; // ours, intact, in the right slot — drawing again would only make a second one
 			// THE NEIGHBOURS MOVED. Enabling WikiSync mid-session fills the slot we took while it was
 			// away, and returning early here left the two buttons stacked on the same spot: ours was
 			// still attached, so nothing ever reconsidered where it should be. Hide the old copy and
@@ -171,23 +169,21 @@ class HeaderButton {
 	boolean covers(Widget parent, int x) {
 		var frame = frameId == 0 ? null : client.getWidget(frameId);
 		var kids = frame == null ? null : frame.getDynamicChildren();
-		if (kids != null) {
-			for (var k : kids) {
-				// The frame's one line of text is its title.
-				if (k == null || k.getType() != WidgetType.TEXT || k.getFont() == null || k.getText().isEmpty()) continue;
-				var t = k.getBounds();
-				var bar = parent.getBounds();
-				// Not laid out yet (the window just opened, was resized or was rebuilt; a widget the client
-				// has not placed reports x = -1): no reading to act on. Keep whatever was decided last, so
-				// the button neither appears on the title for a moment nor blinks out during a resize, and
-				// ask again next frame. Before any reading at all, that is "not shown".
-				if (t.width <= 0 || bar.width <= 0 || t.x < 0 || bar.x < 0) {
-					unsure = true;
-					return covered;
-				}
-				unsure = false;
-				return covered = overlaps(t.x, t.width, k.getFont().getTextWidth(k.getText()), bar.x + bar.width, x);
+		if (kids != null) for (var k : kids) {
+			// The frame's one line of text is its title.
+			if (k == null || k.getType() != WidgetType.TEXT || k.getFont() == null || k.getText().isEmpty()) continue;
+			var t = k.getBounds();
+			var bar = parent.getBounds();
+			// Not laid out yet (the window just opened, was resized or was rebuilt; a widget the client
+			// has not placed reports x = -1): no reading to act on. Keep whatever was decided last, so
+			// the button neither appears on the title for a moment nor blinks out during a resize, and
+			// ask again next frame. Before any reading at all, that is "not shown".
+			if (t.width <= 0 || bar.width <= 0 || t.x < 0 || bar.x < 0) {
+				unsure = true;
+				return covered;
 			}
+			unsure = false;
+			return covered = overlaps(t.x, t.width, k.getFont().getTextWidth(k.getText()), bar.x + bar.width, x);
 		}
 		return false;
 	}
@@ -212,17 +208,11 @@ class HeaderButton {
 	int slotFor(Widget parent) {
 		if (nearOffset >= rightOffset) return rightOffset;
 		var children = parent.getDynamicChildren();
-		if (children != null) {
-			for (var child : children) {
-				if (child == null || NAME.equals(child.getName())) {
-					continue; // ours, from a previous render we are about to replace
-				}
-				if (child.getXPositionMode() != WidgetPositionMode.ABSOLUTE_RIGHT) continue;
-				int childX = child.getOriginalX();
-				if (childX >= nearOffset && childX < rightOffset) {
-					return rightOffset; // somebody is in the near slot; take the one beyond it
-				}
-			}
+		if (children != null) for (var child : children) {
+			if (child == null || NAME.equals(child.getName())) continue; // ours, from a previous render we are about to replace
+			if (child.getXPositionMode() != WidgetPositionMode.ABSOLUTE_RIGHT) continue;
+			int childX = child.getOriginalX();
+			if (childX >= nearOffset && childX < rightOffset) return rightOffset; // somebody is in the near slot; take the one beyond it
 		}
 		return nearOffset;
 	}
@@ -284,9 +274,7 @@ class HeaderButton {
 	}
 
 	void hideParts() {
-		if (parts != null) {
-			for (var w : parts) if (w != null) w.setHidden(true);
-		}
+		if (parts != null) for (var w : parts) if (w != null) w.setHidden(true);
 		parts = null;
 		drawnAt = Integer.MIN_VALUE;
 	}

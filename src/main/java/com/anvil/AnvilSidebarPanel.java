@@ -431,11 +431,6 @@ public class AnvilSidebarPanel extends PluginPanel {
 		applyPicker();
 	}
 
-	void setPickerWanted(boolean wanted) {
-		pickerWanted = wanted;
-		applyPicker();
-	}
-
 	void applyPicker() {
 		clanPicker.setVisible(pickerWanted && tab == CLAN);
 	}
@@ -443,7 +438,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	void selectTab(Tab next) {
 		tab = next;
 		feedRead();
-		data.feedOnScreen(onScreen && next == FEED);
+		data.withPlugin(p -> p.feedOnScreen(onScreen && next == FEED));
 		tabBody.removeAll();
 		tabBody.add(next == CLAN ? content : next == FEED ? feedView : next == YOU ? youView : next == LOOKUP ? lookupPanel : settingsPanel,
 			NORTH);
@@ -524,9 +519,10 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 			public void pin(int event, int tile, boolean on) {
 				uiCache.clear();
-				if (tile <= 0) {
-					data.withPlugin(p -> p.tileTracker().clear(event));
-				} else data.withPlugin(p -> p.setTrackedTile(event, tile, on));
+				data.withPlugin(p -> {
+					if (tile <= 0) p.tileTracker().clear(event);
+					else p.setTrackedTile(event, tile, on);
+				});
 			}
 
 			public void switchClan(String slug) {
@@ -640,8 +636,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 				chip.setBorder(createEmptyBorder(2, 6, 2, 6));
 				chip.add(small(plainText(n), LIGHT_GRAY_COLOR));
 				chip.setToolTipText(plainText("Look up " + n));
-				var slot = new JPanel(new BorderLayout());
-				slot.setOpaque(false);
+				var slot = row(0);
 				slot.setBorder(createEmptyBorder(0, 0, 0, 4));
 				slot.add(onClick(chip, () -> showLookup(n)));
 				wrap.add(slot);
@@ -887,18 +882,18 @@ public class AnvilSidebarPanel extends PluginPanel {
 	public void onActivate() {
 		onScreen = true;
 		feedRead();
-		data.feedOnScreen(tab == FEED);
+		data.withPlugin(p -> p.feedOnScreen(tab == FEED));
 		refresh();
 		autoRefresh.start();
-		for (var v : views) v.resume();
+		for (var v : views) if (!v.tickers.isEmpty()) v.ticker.start(); // the countdowns drawn before resume
 		startProofTimer.start();
 	}
 
 	public void onDeactivate() {
 		onScreen = false;
-		data.feedOnScreen(false);
+		data.withPlugin(p -> p.feedOnScreen(false));
 		autoRefresh.stop();
-		for (var v : views) v.stop();
+		for (var v : views) v.ticker.stop(); // no countdowns tick unseen
 		startProofTimer.stop();
 	}
 
@@ -1213,7 +1208,8 @@ public class AnvilSidebarPanel extends PluginPanel {
 		rebuildingPicker = true;
 		clanPicker.removeAllItems();
 		rebuildingPicker = false;
-		setPickerWanted(false); // no config for the new credentials yet, so no clans to choose between
+		pickerWanted = false; // no config for the new credentials yet, so no clans to choose between
+		applyPicker();
 		setSignInStatus("");
 		refreshSignInRow();
 		renderLoading();
@@ -1406,7 +1402,8 @@ public class AnvilSidebarPanel extends PluginPanel {
 			clanPicker.setModel(model);
 			// Nothing chosen — the site is deciding, which is the Auto row.
 			clanPicker.setSelectedItem(toSelect != null ? toSelect : choices.isEmpty() ? null : choices.get(0));
-			setPickerWanted(choices.size() > 2);
+			pickerWanted = choices.size() > 2;
+			applyPicker();
 		} finally {
 			rebuildingPicker = false;
 		}

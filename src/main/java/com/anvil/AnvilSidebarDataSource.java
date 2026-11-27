@@ -25,11 +25,6 @@ public class AnvilSidebarDataSource {
 	/** The plugin behind the panel's buttons, bound after construction like the capture above. */
 	@Setter volatile AnvilPlugin plugin;
 
-	/** The Feed tab came on screen, or went (AnvilPlugin.feedOnScreen). */
-	void feedOnScreen(boolean on) {
-		withPlugin(p -> p.feedOnScreen(on));
-	}
-
 	/** Run {@code f} on the bound plugin; a no-op when none is bound (tests, a panel driven by hand). */
 	void withPlugin(Consumer<AnvilPlugin> f) {
 		var p = plugin;

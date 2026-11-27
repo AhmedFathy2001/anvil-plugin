@@ -81,7 +81,7 @@ class GifIcon implements Icon {
 			TICK.stop();
 			return;
 		}
-		var active = GradientLabel.clientActive();
+		var active = GradientLabel.active;
 		for (var it = LIVE.iterator(); it.hasNext(); ) {
 			var icon = it.next();
 			if (icon.hosts.isEmpty()) {
@@ -133,7 +133,7 @@ class GifIcon implements Icon {
 				int n = reader.getNumImages(true);
 				if (n <= 0 || n > 300 /* MAX_FRAMES */ || (long) lw * lh * n > 6_000_000L /* MAX_PIXELS */) return null;
 				var frames = new BufferedImage[n];
-				int[] ends = new int[n];
+				var ends = new int[n];
 				var canvas = new BufferedImage(lw, lh, BufferedImage.TYPE_INT_ARGB);
 				int at = 0;
 				for (int i = 0; i < n; i++) {

@@ -147,8 +147,7 @@ class UiView extends JPanel {
 		final JsonObject panes;
 		/** {@code nav}: a pane replaces the page; the panes left keep their build and the row clicked to leave. */
 		final String first;
-		Map<String, JComponent> built = new HashMap<>();
-		Map<String, JComponent> from = new HashMap<>();
+		Map<String, JComponent> built = new HashMap<>(), from = new HashMap<>();
 		Round marked;
 	}
 
@@ -174,7 +173,7 @@ class UiView extends JPanel {
 	void show(String view, Map<String, String> args, String waiting) {
 		openPanes.clear();
 		if (waiting != null) say(waiting);
-		fetch(null, view, args);
+		fetch(null, view, args, false);
 	}
 
 	/**
@@ -245,7 +244,7 @@ class UiView extends JPanel {
 		feeds.removeIf(f -> !SwingUtilities.isDescendingFrom(f, this));
 		var fs = arr(m, "feeds");
 		if (feeds.isEmpty() || fs == null) return;
-		Set<String> named = new HashSet<>();
+		var named = new HashSet<String>();
 		for (var e : fs) named.add(e.getAsString());
 		var t = str(m, "t");
 		var rows = "rows".equals(t) ? arr(m, "rows") : null;
@@ -264,23 +263,9 @@ class UiView extends JPanel {
 		}
 	}
 
-	/** The panel went off screen (or the plugin stopped): no countdowns tick unseen. */
-	void stop() {
-		ticker.stop();
-	}
-
-	/** Back on screen: the countdowns drawn before resume. */
-	void resume() {
-		if (!tickers.isEmpty()) ticker.start();
-	}
-
 	int bump(String place) {
 		seq.put(String.valueOf(place), ++requests);
 		return requests;
-	}
-
-	void fetch(String into, String view, Map<String, String> args) {
-		fetch(into, view, args, false);
 	}
 
 	/** {@code background}: a refresh nobody clicked for, which waits for a click in progress to finish. */
@@ -404,7 +389,7 @@ class UiView extends JPanel {
 					replace(busy.holder, small("Loading…", MUTED));
 				}
 				if ("trip".equals(str(a, "v"))) host.held();
-				fetch(place, str(a, "v"), strings(a.get("args")));
+				fetch(place, str(a, "v"), strings(a.get("args")), false);
 				break;
 			case "pane":
 				lastLoads.remove(into); // the reader is on a pane now, not on the page last fetched: a refresh must not replay it
@@ -425,7 +410,7 @@ class UiView extends JPanel {
 				toggles.getOrDefault(key, List.of()).forEach(Runnable::run);
 				break;
 			case "post":
-				Map<String, String> fields = new HashMap<>();
+				var fields = new HashMap<String, String>();
 				inputs.forEach((k, v) -> fields.put(k, v.get()));
 				if (a.has("ask")) {
 					var answer = JOptionPane.showInputDialog(this, plainText(str(a, "ask")), "Anvil", JOptionPane.PLAIN_MESSAGE, null, null, str(a, "askValue"));
@@ -598,7 +583,7 @@ class UiView extends JPanel {
 	}
 
 	List<JComponent> children(JsonObject n, String key) {
-		List<JComponent> out = new ArrayList<>();
+		var out = new ArrayList<JComponent>();
 		for (var e : all(n, key)) if (e.isJsonObject()) out.add(node(e.getAsJsonObject()));
 		return out;
 	}
@@ -715,7 +700,7 @@ class UiView extends JPanel {
 
 	/** A Supporter's name: up to four "#rrggbb" stops ({@code move}: sliding); else the plain colour. */
 	static JLabel gradient(JsonArray grad, Color fallback, boolean move) {
-		List<Color> stops = new ArrayList<>();
+		var stops = new ArrayList<Color>();
 		for (var e : grad) if (stops.size() < 4 && e.isJsonPrimitive()) stops.add(ChatPalette.readableColor(e.getAsString(), false, fallback));
 		return stops.size() < 2 ? new ClipLabel() : new GradientLabel(stops.toArray(new Color[0]), move);
 	}
@@ -982,7 +967,7 @@ class UiView extends JPanel {
 
 	/** A bar in segments, one colour each (a race's steps: done, here, still to come). */
 	static JComponent segs(JsonObject n) {
-		List<Color> cs = new ArrayList<>();
+		var cs = new ArrayList<Color>();
 		for (var e : all(n, "c")) cs.add(color(e.getAsString(), MUTED));
 		int h = num(n, "h", 6);
 		var bar = new JPanel() {
@@ -1048,8 +1033,7 @@ class UiView extends JPanel {
 		};
 		gutter.setOpaque(false);
 		gutter.setPreferredSize(new Dimension(18, 18));
-		var body = new JPanel(new BorderLayout());
-		body.setOpaque(false);
+		var body = Ui.row(0);
 		body.setBorder(createEmptyBorder(0, 0, line != null ? 8 : 0, 0));
 		var c = obj(n, "c");
 		if (c != null) body.add(node(c), CENTER);
@@ -1070,8 +1054,8 @@ class UiView extends JPanel {
 		if (list.size() == 0) return new JPanel();
 		// A tab with {@code on} and no body is a link (Feed | Chat): picking it runs the action, and the
 		// one marked {@code sel} is lit.
-		Map<String, JsonObject> bodies = new LinkedHashMap<>();
-		Map<String, JsonObject> links = new HashMap<>();
+		var bodies = new LinkedHashMap<String, JsonObject>();
+		var links = new HashMap<String, JsonObject>();
 		var wanted = TABS.getOrDefault(key, str(n, "open"));
 		for (var e : list) {
 			var t = e.getAsJsonObject();
@@ -1083,7 +1067,7 @@ class UiView extends JPanel {
 		var first = bodies.containsKey(wanted) ? wanted : bodies.keySet().iterator().next();
 		var wrap = column();
 		var body = Ui.row(0);
-		Map<String, JComponent> built = new HashMap<>();
+		var built = new HashMap<String, JComponent>();
 		Consumer<String> open = name -> {
 			if (bodies.get(name) != null) replace(body, built.computeIfAbsent(name, k -> node(bodies.get(k))));
 		};
@@ -1106,7 +1090,7 @@ class UiView extends JPanel {
 	static JComponent segments(List<String> labels, String first, Consumer<String> picked) {
 		var strip = new Round(new GridLayout(1, labels.size(), 2, 0), 4, DARKER_GRAY_COLOR, null, null);
 		strip.setBorder(createEmptyBorder(2, 2, 2, 2));
-		Map<String, Round> segs = new LinkedHashMap<>();
+		var segs = new LinkedHashMap<String, Round>();
 		Consumer<String> paint = name -> segs.forEach((k, seg) -> {
 			var on = k.equals(name);
 			seg.setOpaque(on);
@@ -1165,7 +1149,7 @@ class UiView extends JPanel {
 		var none = small(str(n, "none"), MUTED);
 		var more = small(str(n, "more"), MUTED);
 		int max = num(n, "max", Integer.MAX_VALUE);
-		List<Runnable> refills = new ArrayList<>();
+		var refills = new ArrayList<Runnable>();
 		String[] query = {""};
 		int[] shown = {0};
 
@@ -1201,7 +1185,7 @@ class UiView extends JPanel {
 		if (xs != null && xt != null) {
 			var box = column();
 			box.setOpaque(false);
-			Map<Integer, JComponent> built = new HashMap<>();
+			var built = new HashMap<Integer, JComponent>();
 			refills.add(() -> {
 				box.removeAll();
 				for (int i = 0; i < xs.size() && shown[0] < max && !query[0].isEmpty(); i++) {
@@ -1362,7 +1346,7 @@ class UiView extends JPanel {
 		var load = obj(n, "load");
 		if (load != null) {
 			drawn.remove(id); // a new slot shows its placeholder: whatever answer comes must replace it
-			fetch(id, str(load, "v"), strings(load.get("args")));
+			fetch(id, str(load, "v"), strings(load.get("args")), false);
 		}
 		return holder;
 	}
@@ -1381,7 +1365,7 @@ class UiView extends JPanel {
 		var value = str(n, "value");
 		switch (str(n, "kind")) {
 			case "select":
-				List<String[]> options = new ArrayList<>();
+				var options = new ArrayList<String[]>();
 				for (var e : all(n, "options")) {
 					var o = e.getAsJsonObject();
 					options.add(new String[]{str(o, "v"), plainText(str(o, "label"))});
@@ -1641,7 +1625,7 @@ class UiView extends JPanel {
 	}
 
 	static Map<String, String> strings(JsonElement e) {
-		Map<String, String> out = new LinkedHashMap<>();
+		var out = new LinkedHashMap<String, String>();
 		if (e != null && e.isJsonObject()) for (var x : e.getAsJsonObject().entrySet()) if (x.getValue().isJsonPrimitive()) out.put(x.getKey(), x.getValue().getAsString());
 		return out;
 	}
