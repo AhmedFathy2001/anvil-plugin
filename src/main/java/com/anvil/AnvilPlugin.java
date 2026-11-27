@@ -1862,24 +1862,11 @@ public class AnvilPlugin extends Plugin {
 			if ("anvil trip".equals(bankTags.getActiveTag())) bankTagLeft = true;
 			else bankTagGone();
 		}
-		if (g == InterfaceID.BANKMAIN && !tripAsked && (inTripRegion() || tripArmed && siteHas("trip-target")) && (config.tripWarning() || config.tripAutoOpen()) && siteHas("trip-check")) {
-			tripAsked = true;
-			tripOut = !inTripRegion();
-			tripAt = now() + 600_000;
-			tripDue = client.getTickCount() + 2;
-			var n = pluginConfig == null ? null : pluginConfig.tripNames;
-			if (config.tripWarning()) tripOverlay.show(BingoApiClient.obj("title", "Checking " + (n != null && n.containsKey(region) ? n.get(region) : "your trip") + "…", "ok", "?"));
-		} else if (g == InterfaceID.BANKMAIN && tripAsked && tripDue < 0) {
-			// Banked again on the same trip: a trip card on screen checks again (no "Checking…" overlay).
+		// The pre-trip check only runs when the player opened it: a trip card on screen checks again on a
+		// bank close (or a Chambers storage unit before the raid begins). Nothing opens or pops up on its own.
+		if ((g == InterfaceID.BANKMAIN || (g == InterfaceID.RAIDS_STORAGE_PRIVATE || g == InterfaceID.RAIDS_STORAGE_SHARED) && coxLobby()) && tripDue < 0 && siteHas("trip-check")) {
 			tripAgain = true;
 			tripDue = client.getTickCount() + 1;
-		}
-		// The Chambers' storage units, in the raid's first room before it begins: the CoX check, asked each close.
-		if ((g == InterfaceID.RAIDS_STORAGE_PRIVATE || g == InterfaceID.RAIDS_STORAGE_SHARED) && coxLobby() && (config.tripWarning() || config.tripAutoOpen()) && siteHas("trip-check")) {
-			tripAsked = true;
-			tripContent = "cox";
-			tripDue = client.getTickCount() + 1;
-			if (config.tripWarning()) tripOverlay.show(BingoApiClient.obj("title", "Checking CoX…", "ok", "?"));
 		}
 		if (movedFrom != null && (g == InterfaceID.SHARED_BANK || g == InterfaceID.TRADEMAIN || g == InterfaceID.TRADECONFIRM)) movedTick = client.getTickCount() + 2;
 		for (int id : MOVE_INTERFACES) if (g == id) lastSuppressCloseTick = client.getTickCount();
@@ -4434,8 +4421,6 @@ public class AnvilPlugin extends Plugin {
 	volatile JsonObject stateSeen, stateSent;
 	volatile boolean tripArmed, tripOver;
 	boolean tripAsked, tripAgain, tripOut, tripInFight, coxBegun;
-	/** A check for this content whatever the region says (the CoX storage, inside the raid's instance). */
-	String tripContent;
 	/** The last answer's warn: its `fight` regions / `instance`, kept after the warning is gone. */
 	volatile JsonObject tripFight;
 	int tripDue = -1, tripAway;
@@ -4511,8 +4496,7 @@ public class AnvilPlugin extends Plugin {
 			if (sidebarPanel != null) sidebarPanel.tripRecheck();
 			return;
 		}
-		var args = tripContent == null ? Map.of("region", "" + region, "why", "bank-close") : Map.of("region", "" + region, "why", "bank-close", "content", tripContent);
-		tripContent = null;
+		var args = Map.of("region", "" + region, "why", "bank-close");
 		var open = config.tripAutoOpen();
 		submit(() -> { if (sidebarPanel != null) sidebarPanel.showTrip(args, open); });
 	}
