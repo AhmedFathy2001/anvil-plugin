@@ -1862,11 +1862,19 @@ public class AnvilPlugin extends Plugin {
 			if ("anvil trip".equals(bankTags.getActiveTag())) bankTagLeft = true;
 			else bankTagGone();
 		}
-		// The pre-trip check only runs when the player opened it: a trip card on screen checks again on a
-		// bank close (or a Chambers storage unit before the raid begins). Nothing opens or pops up on its own.
-		if ((g == InterfaceID.BANKMAIN || (g == InterfaceID.RAIDS_STORAGE_PRIVATE || g == InterfaceID.RAIDS_STORAGE_SHARED) && coxLobby()) && tripDue < 0 && siteHas("trip-check")) {
-			tripAgain = true;
-			tripDue = client.getTickCount() + 1;
+		// A bank close (or a Chambers storage unit before the raid begins): a trip card on screen checks again.
+		// Asking on its own (panel opened, "Checking…") only once the site says "trip-auto", once per trip.
+		var cox = (g == InterfaceID.RAIDS_STORAGE_PRIVATE || g == InterfaceID.RAIDS_STORAGE_SHARED) && coxLobby();
+		if ((g == InterfaceID.BANKMAIN || cox) && tripDue < 0 && siteHas("trip-check")) {
+			if (siteHas("trip-auto") && !tripAsked && (cox || inTripRegion() || tripArmed && siteHas("trip-target")) && (config.tripWarning() || config.tripAutoOpen())) {
+				tripAsked = true;
+				tripOut = !cox && !inTripRegion();
+				tripAt = now() + 600_000;
+				tripContent = cox ? "cox" : null;
+				var n = pluginConfig == null ? null : pluginConfig.tripNames;
+				if (config.tripWarning()) tripOverlay.show(BingoApiClient.obj("title", "Checking " + (cox ? "CoX" : n != null && n.containsKey(region) ? n.get(region) : "your trip") + "…", "ok", "?"));
+			} else tripAgain = true;
+			tripDue = client.getTickCount() + (tripAgain ? 1 : 2);
 		}
 		if (movedFrom != null && (g == InterfaceID.SHARED_BANK || g == InterfaceID.TRADEMAIN || g == InterfaceID.TRADECONFIRM)) movedTick = client.getTickCount() + 2;
 		for (int id : MOVE_INTERFACES) if (g == id) lastSuppressCloseTick = client.getTickCount();
@@ -4421,6 +4429,8 @@ public class AnvilPlugin extends Plugin {
 	volatile JsonObject stateSeen, stateSent;
 	volatile boolean tripArmed, tripOver;
 	boolean tripAsked, tripAgain, tripOut, tripInFight, coxBegun;
+	/** A check for this content whatever the region says (a CoX storage unit, inside the raid). */
+	String tripContent;
 	/** The last answer's warn: its `fight` regions / `instance`, kept after the warning is gone. */
 	volatile JsonObject tripFight;
 	int tripDue = -1, tripAway;
@@ -4496,7 +4506,8 @@ public class AnvilPlugin extends Plugin {
 			if (sidebarPanel != null) sidebarPanel.tripRecheck();
 			return;
 		}
-		var args = Map.of("region", "" + region, "why", "bank-close");
+		var args = tripContent == null ? Map.of("region", "" + region, "why", "bank-close") : Map.of("region", "" + region, "why", "bank-close", "content", tripContent);
+		tripContent = null;
 		var open = config.tripAutoOpen();
 		submit(() -> { if (sidebarPanel != null) sidebarPanel.showTrip(args, open); });
 	}
