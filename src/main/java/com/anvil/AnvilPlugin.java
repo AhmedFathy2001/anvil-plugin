@@ -190,7 +190,33 @@ public class AnvilPlugin extends Plugin {
 	BannerSoundService bannerSound;
 
 	// One-shot guard so the "no banner clips yet" nudge prints at most once per session.
-	boolean bannerSoundHintShown;
+	boolean bannerSoundHintShown,
+	clanCofferOpen,
+	/**
+	 * A raid's count line comes at the last boss and its loot at the chest, minutes later: the line
+	 * holds while we are still in that raid's instance and ends when we leave it (onGameTick).
+	 */
+	raidLineOpen,
+	caPointsInitialized,
+	totalLevelInitialized,
+	// True from the login screen until the game has sent this account's stat table. Until then the
+	// client's levels are placeholders (every skill 1, total 24-ish) and the login burst of StatChanged
+	// is the table ARRIVING, not anyone levelling — so nothing announces and nothing is baselined off
+	// it. Without this, the seed taken at LOGGED_IN read those placeholders and every existing 99
+	// "happened" again on the welcome screen (2026-10-12, a maxed-ish account posted 99 after 99).
+	statsUnsettled,
+	countersLoaded,
+	// Set when INV or WORN changes; drained on the next onGameTick so equip/unequip (which touches
+	// both containers in one tick) is evaluated once, after both have updated.
+	heldItemsDirty,
+	wasInInstance,
+	// Set on LOGGED_IN; the first tick with a name and account hash (or the cap) runs the stamp.
+	identityStampPending,
+	// One-shot per login: say something about the plugin's own setup when there is something to say.
+	// Not signed in is a fresh install, which used to get silence and now gets pointed at the way in;
+	// signed in = connected, nothing to say. See SetupNudge for the rule
+	// and the copy, and for why the fresh-install line is capped instead of repeating forever.
+	setupWarned;
 
 	@Inject
 	DrawManager drawManager;
@@ -224,16 +250,94 @@ public class AnvilPlugin extends Plugin {
 	volatile NotifyOutbox notifyOutbox;
 	volatile PushStash pushStash;
 	/** The last config poll failed to reach the site (down, slow, 5xx) — the next success is a recovery. */
-	volatile boolean siteUnreachable;
+	volatile boolean siteUnreachable,
+	/** The site has answered a config poll this session (a body, a 304, or a definite 4xx). */
+	liveConfigAnswered,
+	/** Set while the client is coming back from the login screen, so a hop can't be mistaken for it. */
+	freshLoginPending,
+	/** moveNotifyPrefs ran (or is running) this session. */
+	notifyPrefsMoved,
+	// ServerNpcLoot is RuneLite's server-authoritative NPC-loot event: it fires once per ACTUAL kill, so it
+	// counts barraged/clumped kills correctly, where the client-side NpcLootReceived under-fires (several
+	// NPCs despawning the same tick get missed/merged by its ground-item inference) — e.g. a slayer task the
+	// game says was 200 but the tile logged fewer. Once we've seen ServerNpcLoot it's the source of truth for
+	// per-kill counting (kill + value tiles); NpcLootReceived stays a fallback for clients that never emit it.
+	serverNpcLootSeen,
+	/** One account action at a time from the panel; a double click is one request. */
+	accountActionRunning,
+	/**
+	 * The next roster push was started by the plugin, not a person, so it reports itself ONLY if the
+	 * roster actually moved. Silence on a login where nothing changed; a line when someone joined,
+	 * left or was renamed, because that is news whether or not you asked for it.
+	 */
+	autoRosterAnnounce,
+	// Last Man Standing is "BR" (battle royale) in the cache. While the BR_INGAME varbit is up
+	// we sample the HUD's survivor counter every tick; dying while it reads N means we placed
+	// Nth (we were one of the N still standing). Winning never fires our death — the game just
+	// ends — so a session that closes with the last reading at "1 survivor" is a win.
+	lmsInGame;
 	/** The board and team a pushed view last made us refetch the config for (applyPush). */
-	volatile String seatRefetchedFor;
+	volatile String seatRefetchedFor,
+	// The last thing we landed a hit on, and when.
+	lastCombatTarget,
+	/** The in-game clan row the site last accepted ("name|rank|title|joined", or "" for none) — see pushGameClan. */
+	lastSentGameClan,
+	// Table-free attribution: the most recent NPC the player killed. When a "Duration:" line lands,
+	// the boss that just died names the activity, so a timed tile configured with that boss's name
+	// matches automatically — no per-boss string table needed (raids/friendly names also match via
+	// the activity name appearing in chat, plus the small optional alias set in TimedClearParser).
+	lastNpcDeathName,
+	/**
+	 * The clan the {@link #isAdmin} answer belongs to.
+	 *
+	 * Authority is per clan on the site — being an admin of one confers nothing in another — so the
+	 * answer does not travel with the member when they switch. Without this, picking a clan you do
+	 * not administer keeps the Sync-roster button on screen, and clicking it collects a 403.
+	 */
+	adminAnswerFor = "",
+	// Last clan-sync result summary, surfaced in chat after a sync.
+	lastSyncSummary,
+	// The roll line from the loot event the drop post is about — postRareDrop runs off the same
+	// event a moment later, so a short window is enough to pair them without threading it through.
+	lastVestigeLine;
 
 	@Inject
 	ProfileLookup profileLookup;
 
-	// The last thing we landed a hit on, and when.
-	volatile String lastCombatTarget;
-	volatile long lastCombatTargetAt;
+	volatile long lastCombatTargetAt,
+	// When this session filed its shot, so the on-screen card can say "you're tracked" before leaving.
+	startProofFiledAt,
+	/**
+	 * When THIS game session began, for the starting shot's session window (see StartProofRules).
+	 * {@link StartProofRules#UNKNOWN_LOGIN} means we didn't see the login that started it — the
+	 * plugin was enabled mid-session, or the client reconnected — and the rule treats not knowing
+	 * exactly like a stale session: log out and back in, and then we do know.
+	 *
+	 * <p>Stamped on the login-screen → in-game transition only. A world hop keeps the older stamp,
+	 * because a hop is not the logout that flushes the hiscores.
+	 */
+	sessionLoginAtMs = StartProofRules.UNKNOWN_LOGIN,
+	/** After a refused push, wait before asking again — an unlinked character would otherwise try every 30s. */
+	gameClanRetryAt,
+	/**
+	 * When another roster push is allowed.
+	 *
+	 * <p>A roster push rewrites every member row on the site, and the button is right there in two
+	 * places — so it was one impatient double-click away from doing that twice, and nothing but the
+	 * in-flight guard stood between a bored admin and a push per second. The collection log has had
+	 * this cooldown since the site started refusing them; the roster deserves the same manners.
+	 */
+	rosterPushAllowedAt,
+	/**
+	 * When the site will accept another whole-log push. The server allows one a minute per member,
+	 * and a client that fires into that anyway learns nothing and spends somebody's server time —
+	 * so we hold the number it gives us and wait instead of guessing.
+	 */
+	clogPushAllowedAt,
+	lastNpcDeathAt,
+	/** When the last probe ran, so a failed one can be retried instead of costing the whole session. */
+	lastAdminProbeAt,
+	lastVestigeLineAt;
 	// Who is attacking US, which is a different question from what we are attacking and the only one
 	// a death should be answered with. See DeathAttribution.
 	final DeathAttribution deathAttribution = new DeathAttribution();
@@ -246,11 +350,60 @@ public class AnvilPlugin extends Plugin {
 	// baseline or signed transition; the server owns cross-client dedupe and the audited ledger.
 	final ClanCofferTracker clanCofferTracker = new ClanCofferTracker();
 	final ModeLines modeLines = new ModeLines();
-	boolean clanCofferOpen;
-	int clanCofferOpenTicks;
+	int clanCofferOpenTicks,
+	/** Consecutive checks that found no clan settings. Two in a row means no clan, not "still loading". */
+	gameClanMissingChecks,
+	lastKcValue,
+	fallbackKillTick = -1,
+	// FALLBACK_KILL_TICKS = 2, inlined at its one use.
+	/** Client tick of the last "You pick the X's pocket" line; ServerNpcLoot in that tick is a pocket. */
+	pickpocketTick = -1,
+	// Last-known total CA points, baselined at login; used only for tier-clear detection now.
+	lastCaPoints = -1,
+	// Last-known total level, baselined at login so we only announce genuine crossings (not the
+	// total we logged in with). Total only ever rises on a skill level-up, so we check it there.
+	lastTotalLevel = -1,
+	statsSettleTicks,
+	counterEventId,
+	eventDeaths,
+	eventPvpKills,
+	/** Hardest single hitsplat we've landed this event — "Heavy Hitter". */
+	eventBiggestHit,
+	/** Minutes logged in during the event. Turns every other counter into a rate. */
+	eventMinutes,
+	/** Combat tasks FIRST completed during the event — "Task Master". Recompletions never count. */
+	eventCaTasks,
+	/** Ticks counted since the last whole minute was banked; 100 ticks ≈ 60s. */
+	eventTickAccumulator,
+	/** Failed moment pushes in a row; the retry wait doubles from MOMENT_PUSH_COALESCE_MS to 5 minutes. Guarded by `moments`. */
+	momentFailures,
+	activityPollCountdown = ACTIVITY_POLL_TICKS,
+	nameCheckCountdown = NAME_CHECK_TICKS,
+	// ---- Deathless-raid tiles --------------------------------------------------------------
+	// Player deaths (anyone — raid instances are private, so any player is a party member)
+	// observed since the local player last entered an instance. Consulted when a raid
+	// completion line correlates to a deathless tile; reset on every instance entry.
+	instancePlayerDeaths,
+	// ToA raid level, last non-zero reading this instance — the fallback if the varbit has already
+	// cleared when the completion line lands. Client thread only.
+	lastToaRaidLevel,
+	/**
+	 * Stamp the API client with the current RSN + account hash so server-side resolution
+	 * can scope per-user tokens to the right clan_member and auto-verify the account on
+	 * play, then fire the login-time round-trips (config, hello, admin probe). Runs on the
+	 * executor. Called on the LOGGED_IN transition, and again from startUp/onConfigChanged
+	 * when the plugin is enabled or configured mid-session — no transition fires then, and
+	 * without the stamp every request until the next relog would go out without X-RSN, so
+	 * the site could never capture the account.
+	 */
+	identityStampRetries,
+	identityWaitTicks;
 
 	// Debounce config refresh — prevents spam when multiple config keys change at once
-	ScheduledFuture<?> pendingRefresh;
+	ScheduledFuture<?> pendingRefresh,
+	counterPushTask,
+	momentPushTask,
+	gainsFlush;
 	// REFRESH_DEBOUNCE_MS = 1000, inlined at its one use.
 
 	@Getter
@@ -264,8 +417,6 @@ public class AnvilPlugin extends Plugin {
 	// The first live answer, of any kind, retires it.
 	volatile ResponseDiskCache responseCache;
 	volatile PluginConfigResponse savedConfig;
-	/** The site has answered a config poll this session (a body, a 304, or a definite 4xx). */
-	volatile boolean liveConfigAnswered;
 	/** Last successful config read; lets an open sidebar tighten freshness without duplicating polls. */
 
 	// STARTING SHOT (site lib/startProof). `startProofFiled` latches the moment one is accepted by
@@ -277,32 +428,19 @@ public class AnvilPlugin extends Plugin {
 	startProofNudged,
 	/** One "this credit is being held" line per login — see {@link #warnStartProofBeforeCredit()}. */
 	startProofCreditWarned;
-	// When this session filed its shot, so the on-screen card can say "you're tracked" before leaving.
-	volatile long startProofFiledAt;
-	/**
-	 * When THIS game session began, for the starting shot's session window (see StartProofRules).
-	 * {@link StartProofRules#UNKNOWN_LOGIN} means we didn't see the login that started it — the
-	 * plugin was enabled mid-session, or the client reconnected — and the rule treats not knowing
-	 * exactly like a stale session: log out and back in, and then we do know.
-	 *
-	 * <p>Stamped on the login-screen → in-game transition only. A world hop keeps the older stamp,
-	 * because a hop is not the logout that flushes the hiscores.
-	 */
-	volatile long sessionLoginAtMs = StartProofRules.UNKNOWN_LOGIN;
 	/** Account progress (quest points, CAs, diaries) as the site last accepted it — see AccountProgress. */
-	final Map<String, Integer> lastSentProgress = new LinkedHashMap<>();
+	final Map<String, Integer> lastSentProgress = new LinkedHashMap<>(),
+	// Kill/clear count per source, scraped from "Your <X> kill count is: N" (and the raid
+	// "Your completed <X> count is: N") chat lines, so a rare-drop post can show the KC it
+	// landed on. Chat + loot events both run on the client thread, so no synchronisation needed.
+	killCounts = new HashMap<>(),
+	announcedLevel = new HashMap<>(),
+	// The last absolute KC seen this session per boss — what a KC line is a delta against.
+	lastSeenKc = new ConcurrentHashMap<>();
 	/** Finished-quest count behind the list the site last accepted — the list is re-sent when it moves. */
 	volatile Integer lastSentQuestCount,
 	/** CA points behind the task list the site last accepted — the list is re-read when it moves. */
 	lastSentCaPoints;
-	/** The in-game clan row the site last accepted ("name|rank|title|joined", or "" for none) — see pushGameClan. */
-	volatile String lastSentGameClan;
-	/** Consecutive checks that found no clan settings. Two in a row means no clan, not "still loading". */
-	int gameClanMissingChecks;
-	/** After a refused push, wait before asking again — an unlinked character would otherwise try every 30s. */
-	volatile long gameClanRetryAt;
-	/** Set while the client is coming back from the login screen, so a hop can't be mistaken for it. */
-	volatile boolean freshLoginPending;
 
 	// Item ID → tracked drops lookup for O(1) loot matching
 	/** The site's rule table, run locally (RuleEngine); the site matches the facts. */
@@ -311,8 +449,6 @@ public class AnvilPlugin extends Plugin {
 		rules.floor = t -> this.optimistic.floor(t, now()); // event rules build on our own unconfirmed counts
 		rules.counts = this::countLine;
 	}
-	/** moveNotifyPrefs ran (or is running) this session. */
-	volatile boolean notifyPrefsMoved;
 	/** Facts that need no screenshot, posted together a moment after the first. */
 	final JsonArray factQueue = new JsonArray(),
 	/** Facts handed to a send that hasn't answered yet. Under the factQueue monitor. */
@@ -335,31 +471,53 @@ public class AnvilPlugin extends Plugin {
 	// event per (tileId, itemId) and ignore repeats within the window. Note this is
 	// separate from the coalesce window below: dedup catches duplicate fire events;
 	// coalesce batches genuine repeated drops within a short window into one upload.
-	final Map<String, Long> lastSubmittedAt = new HashMap<>();
+	final Map<String, Long> lastSubmittedAt = new HashMap<>(),
+	// PvP-kill attribution — when a hitsplat we dealt lands on a player, remember it. If that
+	// player then dies within the window, we count it as our kill (avoids screenshotting random
+	// nearby deaths). Keyed by lowercased player name. Pruned on each kill check.
+	lastDamagedPlayerAt = new HashMap<>(),
+	// PvP min-loot tiles credit off the LOOT (priced at PlayerLootReceived), not the death — so a
+	// kill on a matching victim is parked here at death and consumed when its loot arrives and prices
+	// at/above the tile's floor. Keyed by lowercased victim RSN. Loot-key / no-loot kills never fire
+	// PlayerLootReceived, so their entry just expires and the min-loot tile isn't credited (intended).
+	pendingMinLootKillAt = new HashMap<>(),
+	// Last time the loot path (NpcLootReceived) credited a kill for a given NPC name, so the chat
+	// handler can tell whether the very first KC message of the session is for a kill the loot path
+	// already counted (event ordering isn't guaranteed) and avoid double-counting that one kill.
+	lastLootKillAt = new HashMap<>(),
+	// Achievement-diary tier completion, e.g. "Congratulations! You have completed all of the
+	// easy tasks in the Ardougne area." Fires exactly once per account per tier, at the moment
+	// the final task is done — so it can't re-trigger for tiers finished before an event.
+	// → chat-patterns.json "diary.complete" (ChatPatterns).
+	// The diary completion line is emitted on more than one chat channel, so onChatMessage sees it
+	// twice; dedup by (area|tier) so we announce + credit once. The line never legitimately
+	// re-fires (once per account per tier), so this only needs to span the same-tick echo.
+	// DIARY_DEDUP_MS = 15_000, inlined at its one use.
+	lastDiaryHandledAt = new HashMap<>(),
+	// Slots announced moments ago, so the personal line and the clan broadcast — which can both
+	// arrive for the same unlock — post it once. Item names, lowercased, to when; cleared per account.
+	// A window, not the session: several slots share a name (Decorative armour in each colour).
+	recentClogUnlocks = new HashMap<>(),
+	lastLootValueAt = new HashMap<>();
 
 	// Item ids credited by a REAL loot event (raid chest / NPC drop), with the time last seen. The
 	// collection-log-unlock credit path (creditClogUnlock) skips these so a raid-chest item that
 	// already credited via its loot event can't ALSO credit when its "New item added to your
 	// collection log" line fires on pickup — same acquisition, but the two can land far more than the
 	// 3s loot dedup apart (open the chest, take the items later), which double-counted a CoX unique.
-	final Map<Integer, Long> recentLootItemIds = new HashMap<>();
+	final Map<Integer, Long> recentLootItemIds = new HashMap<>(),
+	// Rare-drop notification dedup — NpcLootReceived + LootReceived fire for the same NPC kill, so
+	// suppress a repeat post of the same item within a short window. Keyed by itemId.
+	lastRareNotifyAt = new HashMap<>(),
+	// ---- Timed-clear tiles ---------------------------------------------------------------
+	// Per-tile dedup so one clear isn't submitted twice (the duration + identity lines correlate,
+	// and some content repeats either line). Parsing/matching lives in TimedClearParser (tested).
+	lastTimedSubmittedAt = new HashMap<>();
 	// The reverse order: a chat line credited first (a raid's unique at raid end), the chest's loot later.
 	final ChatCredits chatCredits = new ChatCredits();
 
-	// PvP-kill attribution — when a hitsplat we dealt lands on a player, remember it. If that
-	// player then dies within the window, we count it as our kill (avoids screenshotting random
-	// nearby deaths). Keyed by lowercased player name. Pruned on each kill check.
-	final Map<String, Long> lastDamagedPlayerAt = new HashMap<>();
 
-	// PvP min-loot tiles credit off the LOOT (priced at PlayerLootReceived), not the death — so a
-	// kill on a matching victim is parked here at death and consumed when its loot arrives and prices
-	// at/above the tile's floor. Keyed by lowercased victim RSN. Loot-key / no-loot kills never fire
-	// PlayerLootReceived, so their entry just expires and the min-loot tile isn't credited (intended).
-	final Map<String, Long> pendingMinLootKillAt = new HashMap<>();
 
-	// Rare-drop notification dedup — NpcLootReceived + LootReceived fire for the same NPC kill, so
-	// suppress a repeat post of the same item within a short window. Keyed by itemId.
-	final Map<Integer, Long> lastRareNotifyAt = new HashMap<>();
 	// Aggregate-loot dedup keyed by source name (same NPC kill fires NpcLootReceived + LootReceived).
 	final Map<String, Long> lastAggregateNotifyAt = new HashMap<>(),
 	// Name-keyed dedup so a prestige item isn't posted twice when both the loot event and the
@@ -380,10 +538,6 @@ public class AnvilPlugin extends Plugin {
 
 
 
-	// Kill/clear count per source, scraped from "Your <X> kill count is: N" (and the raid
-	// "Your completed <X> count is: N") chat lines, so a rare-drop post can show the KC it
-	// landed on. Chat + loot events both run on the client thread, so no synchronisation needed.
-	final Map<String, Integer> killCounts = new HashMap<>();
 
 	/**
 	 * The "Anvil" button in the collection log header.
@@ -413,15 +567,34 @@ public class AnvilPlugin extends Plugin {
 	 *
 	 * The kill line always precedes the loot, so the last one seen is the kill the unlock came from.
 	 */
-	String lastKcName;
-	int lastKcValue;
-	long lastKcAtMs;
+	String lastKcName,
+	// Before the first ServerNpcLoot of a session the fallback below counts the kill — and that first
+	// kill's own ServerNpcLoot can land a tick or two LATER, counting it again (one gorilla, two KC).
+	// The fallback remembers what it credited so the server event can recognise it as the same kill.
+	fallbackKillName,
+	// Last logged tracking summary — config refreshes every ~30s, so the summary only logs when
+	// the tracking state actually changed (event, tile counts, completions).
+	lastTrackingFingerprint,
+	lastLootSource,
+	// Which rarity table the last loot came from ("npc" / "pickpocket" / …). Kept alongside the
+	// source name so a pet post can price its own drop rate — Rocky is a pickpocketing roll and a
+	// Baby mole an NPC one, and asking the wrong service returns nothing rather than a wrong number.
+	lastLootSourceKind,
+	/** The account the two above belong to, so a character switch reloads rather than merges. */
+	profileSyncRsn,
+	lootingBagWatchSource,
+	vestigeRollsRsn,
+	// Warn once per session (per event) when the logged-in RSN is a player in a live bingo that isn't
+	// linked to this account — otherwise tracking is silently off. The server flags it; reset on logout.
+	unlinkedWarnedFor,
+	clueTier;
+	long lastKcAtMs,
+	eventLootGp,
+	lastLootSourceAt,
+	/** Last automatic roster push, so a channel reload storm can't fire a request per event. */
+	lastAutoRosterSyncAt,
+	pendingTimedAt;
 	static final List<String> RAIDS = List.of("chambers of xeric", "theatre of blood", "tombs of amascut");
-	/**
-	 * A raid's count line comes at the last boss and its loot at the chest, minutes later: the line
-	 * holds while we are still in that raid's instance and ends when we leave it (onGameTick).
-	 */
-	boolean raidLineOpen;
 
 	static boolean isRaidLine(String name) {
 		var n = normalizeBossName(name);
@@ -553,26 +726,8 @@ public class AnvilPlugin extends Plugin {
 	// No trailing "(...)" in any counter name: the kill index drops a trailing parenthetical as a wiki
 	// qualifier (DropSource.inGameNpcName).
 
-	// Last time the loot path (NpcLootReceived) credited a kill for a given NPC name, so the chat
-	// handler can tell whether the very first KC message of the session is for a kill the loot path
-	// already counted (event ordering isn't guaranteed) and avoid double-counting that one kill.
-	final Map<String, Long> lastLootKillAt = new HashMap<>();
 	// KILL_DEDUP_MS = 6000, inlined at its one use.
 
-	// ServerNpcLoot is RuneLite's server-authoritative NPC-loot event: it fires once per ACTUAL kill, so it
-	// counts barraged/clumped kills correctly, where the client-side NpcLootReceived under-fires (several
-	// NPCs despawning the same tick get missed/merged by its ground-item inference) — e.g. a slayer task the
-	// game says was 200 but the tile logged fewer. Once we've seen ServerNpcLoot it's the source of truth for
-	// per-kill counting (kill + value tiles); NpcLootReceived stays a fallback for clients that never emit it.
-	volatile boolean serverNpcLootSeen;
-	// Before the first ServerNpcLoot of a session the fallback below counts the kill — and that first
-	// kill's own ServerNpcLoot can land a tick or two LATER, counting it again (one gorilla, two KC).
-	// The fallback remembers what it credited so the server event can recognise it as the same kill.
-	String fallbackKillName;
-	int fallbackKillTick = -1;
-	// FALLBACK_KILL_TICKS = 2, inlined at its one use.
-	/** Client tick of the last "You pick the X's pocket" line; ServerNpcLoot in that tick is a pocket. */
-	int pickpocketTick = -1;
 
 	// Collection-log unlock chat line, e.g. "New item added to your collection log: Infernal cape".
 	// → chat-patterns.json "clog.unlock".
@@ -683,20 +838,21 @@ public class AnvilPlugin extends Plugin {
 	// agreed with the bug rather than with the game. The test now uses the real line.
 	// → chat-patterns.json "level.up" (ChatPatterns).
 
-	// Achievement-diary tier completion, e.g. "Congratulations! You have completed all of the
-	// easy tasks in the Ardougne area." Fires exactly once per account per tier, at the moment
-	// the final task is done — so it can't re-trigger for tiers finished before an event.
-	// → chat-patterns.json "diary.complete" (ChatPatterns).
-	// The diary completion line is emitted on more than one chat channel, so onChatMessage sees it
-	// twice; dedup by (area|tier) so we announce + credit once. The line never legitimately
-	// re-fires (once per account per tier), so this only needs to span the same-tick echo.
-	// DIARY_DEDUP_MS = 15_000, inlined at its one use.
-	final Map<String, Long> lastDiaryHandledAt = new HashMap<>();
 
 	// Quest completions come off the quest scroll (InterfaceID.QUESTSCROLL), whose QUEST_TITLE is
 	// the "You have completed <Quest>!" line. Same signal RuneLite's screenshot plugin keys off.
 	// Session dedup — the scroll widget can reload (resizing, lag) without a new completion.
-	final Set<String> announcedQuests = new LinkedHashSet<>();
+	final Set<String> announcedQuests = new LinkedHashSet<>(),
+	// Task names already announced this session. Dedups recompletions (the in-game "repeat
+	// completion" message) by NAME — which also lets multiple completions in one tick all post,
+	// unlike the old points-delta guard that saw a single rise per tick and dropped the rest.
+	notifiedCaTasks = new LinkedHashSet<>(),
+	// Once-per-session tracking-suppression notices, so a member's client.log answers "why did
+	// nothing track" without a line per suppressed loot event. Keyed by reason; reset at login.
+	loggedSuppressions = new LinkedHashSet<>(),
+	// Distinct players seen in the current instance (party size for tiles that require one).
+	// Raid teams share the entry room, so everyone renders at least once.
+	instancePlayersSeen = new HashSet<>();
 
 	static final List<String> RFD_TAGS = List.of("Another Cook", "freed", "defeated", "saved");
 	static final List<String> WORD_QUEST_IN_NAME_TAGS = List.of(
@@ -706,14 +862,6 @@ public class AnvilPlugin extends Plugin {
 	// A queue (not a single slot): one kill can complete several CA tasks in the same tick — the
 	// game prints a message per task and we must post every one, not just the last.
 	final List<PendingCaTask> pendingCaTasks = new ArrayList<>();
-	// Task names already announced this session. Dedups recompletions (the in-game "repeat
-	// completion" message) by NAME — which also lets multiple completions in one tick all post,
-	// unlike the old points-delta guard that saw a single rise per tick and dropped the rest.
-	final Set<String> notifiedCaTasks = new LinkedHashSet<>();
-	// Slots announced moments ago, so the personal line and the clan broadcast — which can both
-	// arrive for the same unlock — post it once. Item names, lowercased, to when; cleared per account.
-	// A window, not the session: several slots share a name (Decorative armour in each colour).
-	final Map<String, Long> recentClogUnlocks = new HashMap<>();
 	// CLOG_UNLOCK_SAME_MS = 15_000, inlined at its one use.
 	// One nudge per session about the in-game "Repeat completion" CA setting.
 	boolean caRepeatNudgeSent,
@@ -722,25 +870,12 @@ public class AnvilPlugin extends Plugin {
 	// One per login: the in-game collection-log notification is off, so unlocks arrive only if the
 	// clan happens to broadcast them.
 	clogNotifyNudgeSent;
-	// Once-per-session tracking-suppression notices, so a member's client.log answers "why did
-	// nothing track" without a line per suppressed loot event. Keyed by reason; reset at login.
-	final Set<String> loggedSuppressions = new LinkedHashSet<>();
-	// Last logged tracking summary — config refreshes every ~30s, so the summary only logs when
-	// the tracking state actually changed (event, tile counts, completions).
-	String lastTrackingFingerprint;
-	// Last-known total CA points, baselined at login; used only for tier-clear detection now.
-	int lastCaPoints = -1;
-	boolean caPointsInitialized;
 
 	@RequiredArgsConstructor
 	static class PendingCaTask {
 		final CombatAchievementTier tier;
 		final String task;
 	}
-	// Last-known total level, baselined at login so we only announce genuine crossings (not the
-	// total we logged in with). Total only ever rises on a skill level-up, so we check it there.
-	int lastTotalLevel = -1;
-	boolean totalLevelInitialized;
 	// Per-skill real level, so a milestone is detected off the stat event — independent of the in-game
 	// "Level-up interface" setting, which decides whether the chat line even carries the level number.
 	// announcedLevel (highest level posted or already held, per lowercased skill) dedups a level
@@ -753,16 +888,8 @@ public class AnvilPlugin extends Plugin {
 	// NOT on the burst of StatChanged RuneLite emits for every skill on login/resync (which otherwise
 	// mislabels every tracked skill tile as "You"). The first sighting per skill just seeds the baseline.
 	lastSkillXp = new EnumMap<>(Skill.class);
-	final Map<String, Integer> announcedLevel = new HashMap<>();
-	// True from the login screen until the game has sent this account's stat table. Until then the
-	// client's levels are placeholders (every skill 1, total 24-ish) and the login burst of StatChanged
-	// is the table ARRIVING, not anyone levelling — so nothing announces and nothing is baselined off
-	// it. Without this, the seed taken at LOGGED_IN read those placeholders and every existing 99
-	// "happened" again on the welcome screen (2026-10-12, a maxed-ish account posted 99 after 99).
-	boolean statsUnsettled;
 	/** The separate-save / preset world flags the stat baseline was taken on (onWorldChanged); null = unknown. */
 	Set<WorldType> statsRealm;
-	int statsSettleTicks;
 	// Quiet ticks (no stat update) after login before the table counts as arrived. Counted from the
 	// LAST update, not from login: a client switching accounts (legacy logins, several on one RuneLite)
 	// still holds the previous account's real-looking table, so "hitpoints looks loaded" alone would
@@ -792,8 +919,6 @@ public class AnvilPlugin extends Plugin {
 	// Counts this client has seen move but the site hasn't confirmed yet, so the sidebar and pinned
 	// tiles move on the kill rather than on the poll after the push lands (see OptimisticProgress).
 	final OptimisticProgress optimistic = new OptimisticProgress();
-	// The last absolute KC seen this session per boss — what a KC line is a delta against.
-	final Map<String, Integer> lastSeenKc = new ConcurrentHashMap<>();
 	// Debounce buffer: in-game boss name (as seen in chat) → latest ABSOLUTE kill count. Absolute
 	// counts are idempotent, so a kill streak collapses to a single push of the newest value.
 	final CoalescedPush kcPush = statPush("KC", false, b -> apiClient.submitStatKc(b));
@@ -806,39 +931,15 @@ public class AnvilPlugin extends Plugin {
 	// client restart mid-event keeps counting instead of resetting to zero; switching events resets both.
 	// Pushed as ABSOLUTE totals, debounced like KC, and max-merged server-side (idempotent).
 	final Object counterLock = new Object();
-	boolean countersLoaded;
-	int counterEventId;
-	int eventDeaths;
-	long eventLootGp;
-	int eventPvpKills;
-	/** Hardest single hitsplat we've landed this event — "Heavy Hitter". */
-	int eventBiggestHit;
-	/** Minutes logged in during the event. Turns every other counter into a rate. */
-	int eventMinutes;
-	/** Combat tasks FIRST completed during the event — "Task Master". Recompletions never count. */
-	int eventCaTasks;
-	/** Ticks counted since the last whole minute was banked; 100 ticks ≈ 60s. */
-	int eventTickAccumulator;
-	ScheduledFuture<?> counterPushTask;
-	final Map<String, Long> lastLootValueAt = new HashMap<>();
 	// Item ids (by lowercased name) and the source from the last loot event, so a collection-log
 	// unlock line — which carries only text — can still draw the right sprite and name where it came
 	// from. Expired against CLOG_LOOT_DEDUP_MS; guarded by its own monitor.
 	final Map<String, RecentItem> recentLootIds = new HashMap<>();
-	String lastLootSource;
-	// Which rarity table the last loot came from ("npc" / "pickpocket" / …). Kept alongside the
-	// source name so a pet post can price its own drop rate — Rocky is a pickpocketing roll and a
-	// Baby mole an NPC one, and asking the wrong service returns nothing rather than a wrong number.
-	String lastLootSourceKind;
-	long lastLootSourceAt;
 	// ── Highlight feed (AnvilMoments). Pets, uniques, big hauls and deaths, queued as they happen and
 	// pushed in small batches; the SITE decides which competition week or board each one belongs to
 	// and throws away the rest. Cosmetic only — never scoring. Recorded at the event and never inside
 	// a notification gate, so a member with the drops channel off still lands on the clan's feed.
 	final AnvilMoments moments = new AnvilMoments();
-	ScheduledFuture<?> momentPushTask;
-	/** Failed moment pushes in a row; the retry wait doubles from MOMENT_PUSH_COALESCE_MS to 5 minutes. Guarded by `moments`. */
-	int momentFailures;
 	// 2: the notify settings moved to the site (moveNotifyPrefs).
 	static final int CURRENT_DEFAULTS_VERSION = 2,
 	// Ticks between safety re-reads. The varbit hook is what makes a finished clue land in seconds;
@@ -866,8 +967,6 @@ public class AnvilPlugin extends Plugin {
 	// The Account Token names whoever set this RuneLite up, not whoever is playing. Every character
 	// links by default; these two are the way out for a sibling or a visitor (see AccountOptOut).
 	volatile AccountOptOut optedOutAccounts = AccountOptOut.EMPTY, announcedAccounts = AccountOptOut.EMPTY;
-	/** One account action at a time from the panel; a double click is one request. */
-	volatile boolean accountActionRunning;
 
 
 	/** Large teams are recorded as a RANGE, not a count — the buckets the raid chat itself prints. */
@@ -875,18 +974,10 @@ public class AnvilPlugin extends Plugin {
 		"5+ players", "10+ players", "11-15 players", "16-23 players", "24+ players",
 		"25+ players", "50+ players", "100+ players",
 	};
-	/** Last automatic roster push, so a channel reload storm can't fire a request per event. */
-	long lastAutoRosterSyncAt;
 	/** Guard against a second automatic push overlapping the first. */
 	volatile boolean autoRosterSyncRunning,
 	/** Same, for the sidebar button — a double click should be one push, not two. */
 	panelRosterSyncRunning;
-	/**
-	 * The next roster push was started by the plugin, not a person, so it reports itself ONLY if the
-	 * roster actually moved. Silence on a login where nothing changed; a line when someone joined,
-	 * left or was renamed, because that is news whether or not you asked for it.
-	 */
-	volatile boolean autoRosterAnnounce;
 	/**
 	 * Has an automatic sync already reported itself this login?
 	 *
@@ -896,17 +987,17 @@ public class AnvilPlugin extends Plugin {
 	 * every time the collection log is opened, is the noise the silence was protecting against.
 	 */
 	volatile boolean autoRosterReportedThisLogin, autoClogReportedThisLogin;
-	/**
-	 * When another roster push is allowed.
-	 *
-	 * <p>A roster push rewrites every member row on the site, and the button is right there in two
-	 * places — so it was one impatient double-click away from doing that twice, and nothing but the
-	 * in-flight guard stood between a bored admin and a push per second. The collection log has had
-	 * this cooldown since the site started refusing them; the roster deserves the same manners.
-	 */
-	volatile long rosterPushAllowedAt;
 	/** Doubling wait after a push that failed for a reason that might clear (site down, no network). */
-	final SyncBackoff rosterBackoff = new SyncBackoff();
+	final SyncBackoff rosterBackoff = new SyncBackoff(),
+	// A failing push must not become a request every 30 seconds for the rest of the session. One
+	// backoff per path, so a site refusing personal bests doesn't also slow the collection log down.
+	clogBackoff = new SyncBackoff(), clogFullBackoff = new SyncBackoff(),
+	/** How long a pressed sync may take before we admit it didn't work. */
+	// MANUAL_SYNC_TIMEOUT_MS = 15_000L, inlined at its one use.
+	pbBackoff = new SyncBackoff(),
+	// Exponential backoff for pending proof retries: 30s doubling to 5 minutes, reset by any success
+	// (and by the site coming back). The 30s loop asks every tick; this decides whether to try.
+	proofBackoff = new SyncBackoff(30_000L, 300_000L);
 	final ClogSync clogSync = new ClogSync();
 	/** Whole-log sync: the accumulator for a server transmit (see ClogFullSync). */
 	final ClogFullSync clogFullSync = new ClogFullSync();
@@ -917,28 +1008,21 @@ public class AnvilPlugin extends Plugin {
 	/** One in-flight immediate flush at a time — game ticks are 600ms and the push is not. */
 	clogFlushQueued;
 	/** Game tick the transmit was asked for — the guard is held relative to this. */
-	volatile int clogTransmitTick;
+	volatile int clogTransmitTick,
+	// Captured on the client thread (onGameTick) so the party-size tile gates — which can run off the
+	// client thread — read it safely. 0 = not in a recognised raid (gates then fall back to the scene
+	// count, which still covers instanced content without a party varbit).
+	lastRaidPartySize,
+	lmsSurvivors,
+	lmsKills,
+	lmsEndedTick = -100;
 	/** Wall clock of the last request, for the cooldown that backstops the guard. */
 	volatile long lastClogTransmitAt,
 	/** Fingerprint of the last log we successfully pushed, so an unchanged one isn't sent again. */
 	lastClogFingerprint,
 	/** When a button-press sync began, so one that never delivers says so instead of hanging silently. */
 	manualSyncStartedAt;
-	// A failing push must not become a request every 30 seconds for the rest of the session. One
-	// backoff per path, so a site refusing personal bests doesn't also slow the collection log down.
-	final SyncBackoff clogBackoff = new SyncBackoff(), clogFullBackoff = new SyncBackoff();
-	/**
-	 * When the site will accept another whole-log push. The server allows one a minute per member,
-	 * and a client that fires into that anyway learns nothing and spends somebody's server time —
-	 * so we hold the number it gives us and wait instead of guessing.
-	 */
-	volatile long clogPushAllowedAt;
-	/** How long a pressed sync may take before we admit it didn't work. */
-	// MANUAL_SYNC_TIMEOUT_MS = 15_000L, inlined at its one use.
-	final SyncBackoff pbBackoff = new SyncBackoff();
 	final PersonalBests personalBests = new PersonalBests();
-	/** The account the two above belong to, so a character switch reloads rather than merges. */
-	String profileSyncRsn;
 	// The server allowlist lowercased, rebuilt with the drop index.
 	volatile Set<String> alwaysNotifyLower = emptySet();
 	// Debounce buffer: skill name → latest ABSOLUTE XP. Idempotent like KC, so a training burst
@@ -951,8 +1035,6 @@ public class AnvilPlugin extends Plugin {
 	// Debounced like KC; only a RISE over what was last sent goes out, so a varbit firing repeatedly
 	// with the same number doesn't re-send.
 	final CoalescedPush activityPush = statPush("Activity", true, b -> apiClient.submitStatActivities(b));
-	int activityPollCountdown = ACTIVITY_POLL_TICKS;
-	int nameCheckCountdown = NAME_CHECK_TICKS;
 	// Last seen HELD quantities (itemId → total across inventory + worn equipment). Null until
 	// the first snapshot after login/config load, so the baseline never counts as a gain. Worn
 	// items are folded in so equipping/unequipping — which just moves an item between the two
@@ -962,9 +1044,6 @@ public class AnvilPlugin extends Plugin {
 	Map<Integer, Integer> lastHeldItemCounts;
 	// Item ids worn at the last game tick, so inventory-diff loot can tell an unequip from a reward.
 	Set<Integer> lastWornItemIds = emptySet();
-	// Set when INV or WORN changes; drained on the next onGameTick so equip/unequip (which touches
-	// both containers in one tick) is evaluated once, after both have updated.
-	boolean heldItemsDirty;
 
 	/** Drop the held-item baseline, so the next snapshot re-seeds instead of reading it all as a gain. */
 	void forgetHeldItems() {
@@ -1004,8 +1083,6 @@ public class AnvilPlugin extends Plugin {
 	// An armed watch: which chest, the bag as it stood at the chat line (lootingBagWatchBase), and ticks left.
 	Map<Integer, Integer> lootingBagBefore, lootingBagNow, lootingBagWatchBase;
 	int lootingBagChangedTick = -1, lootingBagWatchTicks;
-	String lootingBagWatchSource;
-	ScheduledFuture<?> gainsFlush;
 	// Ground "Take" guard: picking your own drop back up looks like a gain. Skip crediting
 	// gains that land within a couple of ticks of a Take click.
 	volatile int lastGroundTakeTick = -10,
@@ -1022,24 +1099,11 @@ public class AnvilPlugin extends Plugin {
 	// straight from the source count; anything out of storage is a move.
 	lastStorageMoveTick = -10;
 
-	// ---- Deathless-raid tiles --------------------------------------------------------------
-	// Player deaths (anyone — raid instances are private, so any player is a party member)
-	// observed since the local player last entered an instance. Consulted when a raid
-	// completion line correlates to a deathless tile; reset on every instance entry.
-	int instancePlayerDeaths;
-	boolean wasInInstance;
-	// Distinct players seen in the current instance (party size for tiles that require one).
-	// Raid teams share the entry room, so everyone renders at least once.
-	final Set<String> instancePlayersSeen = new HashSet<>();
 	// Our overlays sit out the frame a proof is captured from (the site stamps the facts instead).
 	static volatile boolean capturing;
 	// Recent non-player chat, raw. Sent with a proof; the SITE decides which lines mean anything.
 	final ArrayDeque<JsonObject> recentChat = new ArrayDeque<>();
 
-	// ---- Timed-clear tiles ---------------------------------------------------------------
-	// Per-tile dedup so one clear isn't submitted twice (the duration + identity lines correlate,
-	// and some content repeats either line). Parsing/matching lives in TimedClearParser (tested).
-	final Map<Integer, Long> lastTimedSubmittedAt = new HashMap<>();
 
 
 	@RequiredArgsConstructor
@@ -1049,18 +1113,8 @@ public class AnvilPlugin extends Plugin {
 	}
 	final ArrayDeque<TimedMsg> recentTimedMessages = new ArrayDeque<>();
 	Integer pendingTimedSeconds;
-	long pendingTimedAt;
 
-	// Table-free attribution: the most recent NPC the player killed. When a "Duration:" line lands,
-	// the boss that just died names the activity, so a timed tile configured with that boss's name
-	// matches automatically — no per-boss string table needed (raids/friendly names also match via
-	// the activity name appearing in chat, plus the small optional alias set in TimedClearParser).
-	volatile String lastNpcDeathName;
-	volatile long lastNpcDeathAt;
 
-	// Exponential backoff for pending proof retries: 30s doubling to 5 minutes, reset by any success
-	// (and by the site coming back). The 30s loop asks every tick; this decides whether to try.
-	final SyncBackoff proofBackoff = new SyncBackoff(30_000L, 300_000L);
 
 	// Hello/membership flow state
 	volatile Boolean knownMember; // null = unknown (signed out, or the site did not say), true = in clanMembers
@@ -1074,18 +1128,6 @@ public class AnvilPlugin extends Plugin {
 	// side panel renders a "Sync clan roster" button.
 	@Getter
 	volatile boolean isAdmin;
-	/**
-	 * The clan the {@link #isAdmin} answer belongs to.
-	 *
-	 * Authority is per clan on the site — being an admin of one confers nothing in another — so the
-	 * answer does not travel with the member when they switch. Without this, picking a clan you do
-	 * not administer keeps the Sync-roster button on screen, and clicking it collects a 403.
-	 */
-	volatile String adminAnswerFor = "";
-	/** When the last probe ran, so a failed one can be retried instead of costing the whole session. */
-	volatile long lastAdminProbeAt;
-	// Last clan-sync result summary, surfaced in chat after a sync.
-	volatile String lastSyncSummary;
 
 	/**
 	 * Callback for the async clan-sync action invoked from the side panel.
@@ -2040,19 +2082,7 @@ public class AnvilPlugin extends Plugin {
 	// Where this account sits in each DT2 boss's vestige rotation (VestigeRolls owns the rule).
 	// Loaded lazily per RSN and written back after every counted roll.
 	VestigeRolls vestigeRolls;
-	String vestigeRollsRsn;
-	// The roll line from the loot event the drop post is about — postRareDrop runs off the same
-	// event a moment later, so a short window is enough to pair them without threading it through.
-	volatile String lastVestigeLine;
-	volatile long lastVestigeLineAt;
 
-	// Captured on the client thread (onGameTick) so the party-size tile gates — which can run off the
-	// client thread — read it safely. 0 = not in a recognised raid (gates then fall back to the scene
-	// count, which still covers instanced content without a party varbit).
-	volatile int lastRaidPartySize;
-	// ToA raid level, last non-zero reading this instance — the fallback if the varbit has already
-	// cleared when the completion line lands. Client thread only.
-	int lastToaRaidLevel;
 
 	/**
 	 * Finishing a clue or a Colosseum run moves a counter the site can score a tile on, so report it
@@ -2339,15 +2369,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/* ------------------------- LMS placement tracking ------------------------- */
-	// Last Man Standing is "BR" (battle royale) in the cache. While the BR_INGAME varbit is up
-	// we sample the HUD's survivor counter every tick; dying while it reads N means we placed
-	// Nth (we were one of the N still standing). Winning never fires our death — the game just
-	// ends — so a session that closes with the last reading at "1 survivor" is a win.
-	volatile boolean lmsInGame;
-	volatile int lmsSurvivors;
-	volatile int lmsKills;
 	volatile boolean lmsPlacementRecorded; // one placement per game
-	volatile int lmsEndedTick = -100;
 	// The game's own word for a win, printed as the game ends. The survivor-counter inference below
 	// missed wins whenever the counter wasn't sampled in time (it can read 0, or stay at 3 when the
 	// final kills land in one tick) — a reported LMS win that never reached its tile.
@@ -2544,19 +2566,6 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
-	/**
-	 * Stamp the API client with the current RSN + account hash so server-side resolution
-	 * can scope per-user tokens to the right clan_member and auto-verify the account on
-	 * play, then fire the login-time round-trips (config, hello, admin probe). Runs on the
-	 * executor. Called on the LOGGED_IN transition, and again from startUp/onConfigChanged
-	 * when the plugin is enabled or configured mid-session — no transition fires then, and
-	 * without the stamp every request until the next relog would go out without X-RSN, so
-	 * the site could never capture the account.
-	 */
-	int identityStampRetries;
-	// Set on LOGGED_IN; the first tick with a name and account hash (or the cap) runs the stamp.
-	boolean identityStampPending;
-	int identityWaitTicks;
 	// MAX_IDENTITY_WAIT_TICKS = 5, inlined at its one use.
 
 
@@ -2748,11 +2757,6 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
-	// One-shot per login: say something about the plugin's own setup when there is something to say.
-	// Not signed in is a fresh install, which used to get silence and now gets pointed at the way in;
-	// signed in = connected, nothing to say. See SetupNudge for the rule
-	// and the copy, and for why the fresh-install line is capped instead of repeating forever.
-	boolean setupWarned;
 
 	void checkSetup() {
 		if (setupWarned) return;
@@ -2768,9 +2772,6 @@ public class AnvilPlugin extends Plugin {
 	}
 
 
-	// Warn once per session (per event) when the logged-in RSN is a player in a live bingo that isn't
-	// linked to this account — otherwise tracking is silently off. The server flags it; reset on logout.
-	String unlinkedWarnedFor;
 
 	void warnUnlinkedRsn(String eventName) {
 		if (eventName == null || eventName.equals(unlinkedWarnedFor)) return;
@@ -3041,7 +3042,6 @@ public class AnvilPlugin extends Plugin {
 		if (claim(lastSubmittedAt, "value:" + source + ":" + gp, now(), DEDUP_WINDOW_MS)) emit(rules.value(source, sourceKind, gp));
 	}
 
-	String clueTier;
 
 
 	/** GE value of a whole haul. Client thread only (itemManager.getItemPrice). */
