@@ -487,18 +487,18 @@ public class FeedListTest
 		UiView v = drawn(host, "{\"t\":\"feed\",\"id\":\"chat:9:announce\",\"rows\":[],\"send\":{\"act\":\"chat-send\"},"
 			+ "\"locked\":\"Only the host and mods post here\",\"lockSub\":\"Reply in My team or All teams.\"}");
 		FeedList f = find(v);
-		assertTrue("read-only for a player", f.locked());
+		assertTrue("read-only for a player", f.lockBox.isVisible());
 		v.feedPush(json("{\"t\":\"rowslock\",\"feeds\":[\"chat:9:all\",\"chat:9:team\"],\"locked\":null}"));
-		assertTrue("a resume names only the talking channels", f.locked());
+		assertTrue("a resume names only the talking channels", f.lockBox.isVisible());
 		v.feedPush(json("{\"t\":\"rowslock\",\"feeds\":[\"chat:9\"],\"locked\":\"You\u2019re timed out \u00b7 9m left\",\"warn\":1}"));
-		assertTrue(f.locked());
+		assertTrue(f.lockBox.isVisible());
 
 		UiView all = drawn(host, "{\"t\":\"feed\",\"id\":\"chat:9:all\",\"rows\":[],\"send\":{\"act\":\"chat-send\"}}");
 		FeedList g = find(all);
-		assertFalse(g.locked());
+		assertFalse(g.lockBox.isVisible());
 		all.feedPush(json("{\"t\":\"rowslock\",\"feeds\":[\"chat:9\"],\"locked\":\"You\u2019re timed out \u00b7 9m left\",\"warn\":1}"));
-		assertTrue("a timeout closes every channel", g.locked());
+		assertTrue("a timeout closes every channel", g.lockBox.isVisible());
 		all.feedPush(json("{\"t\":\"rowslock\",\"feeds\":[\"chat:9:all\",\"chat:9:team\"],\"locked\":null}"));
-		assertFalse(g.locked());
+		assertFalse(g.lockBox.isVisible());
 	}
 }
