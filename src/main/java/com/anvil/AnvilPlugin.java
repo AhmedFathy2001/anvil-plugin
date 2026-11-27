@@ -1849,7 +1849,11 @@ public class AnvilPlugin extends Plugin {
 		// inventory changes suppressed (see onItemContainerChanged).
 		int g = event.getGroupId();
 		if (g == InterfaceID.CLANS_STORAGE_MAIN) resetCoffer(false);
-		if (g == InterfaceID.BANKMAIN) bankTagGone();
+		if (g == InterfaceID.BANKMAIN) {
+			// Bank Tags reopens the tab last shown: ours is gone by then, so it would open as an empty tab.
+			if ("anvil trip".equals(bankTags.getActiveTag())) bankTags.closeBankTag();
+			bankTagGone();
+		}
 		if (g == InterfaceID.BANKMAIN && !tripAsked && (inTripRegion() || tripArmed && siteHas("trip-target")) && (config.tripWarning() || config.tripAutoOpen()) && siteHas("trip-check")) {
 			tripAsked = true;
 			tripOut = !inTripRegion();
@@ -4396,7 +4400,7 @@ public class AnvilPlugin extends Plugin {
 				if (!config.shareItems()) return; // turned off while this waited
 				tripArmed = apiClient.postJson("/api/plugin/items", body, "Items push failed", false).contains("\"armed\":true");
 				if (body.remove("state") != null) stateSent = state;
-				body.keySet().forEach(k -> itemsSent.put(k, body.getAsJsonObject(k).getAsJsonArray("items")));
+				for (var k : SHARED.values()) if (body.has(k)) itemsSent.put(k, body.getAsJsonObject(k).getAsJsonArray("items"));
 				log.debug("Anvil items pushed: {}", body.keySet());
 				if (sidebarPanel != null && body.size() > 0) sidebarPanel.itemsPushed();
 				if (body.has("equipment") && sidebarPanel != null) sidebarPanel.wornGearSent();
