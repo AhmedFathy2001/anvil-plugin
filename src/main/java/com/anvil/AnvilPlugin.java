@@ -7658,12 +7658,7 @@ public class AnvilPlugin extends Plugin {
 	 * sees a leaderboard that never updates, and the site sees an account gaining XP with no client
 	 * attached, because the only trace a missing push leaves is an absence. Moving the board you are
 	 * on is what this plugin is FOR.
-	 */
-	static boolean statPushAllowed(PluginConfigResponse cfg) {
-		return cfg != null;
-	}
-
-	/**
+	 *
 	 * Also when signed in with no clan: the site keeps a person's stats on their own account with or
 	 * without one (the stats route's account-only path), and it alone decides whether the character
 	 * is theirs — an unclaimed or someone else's character is simply not stored.

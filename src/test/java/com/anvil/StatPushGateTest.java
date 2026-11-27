@@ -30,27 +30,27 @@ public class StatPushGateTest
 	@Test
 	public void aWeeklyOnlyConfigMaySend()
 	{
-		assertTrue(AnvilPlugin.statPushAllowed(new PluginConfigResponse()));
+		assertTrue(AnvilPlugin.statPushAllowed(new PluginConfigResponse(), false));
 	}
 
 	/** The case that was broken: a board exists, has not started, and the weekly still has to move. */
 	@Test
 	public void aBoardThatHasNotStartedDoesNotSilenceTheWeekly()
 	{
-		assertTrue(AnvilPlugin.statPushAllowed(cfgWithEvent(false)));
+		assertTrue(AnvilPlugin.statPushAllowed(cfgWithEvent(false), false));
 	}
 
 	@Test
 	public void aRunningBoardMaySendToo()
 	{
-		assertTrue(AnvilPlugin.statPushAllowed(cfgWithEvent(true)));
+		assertTrue(AnvilPlugin.statPushAllowed(cfgWithEvent(true), false));
 	}
 
 	@Test
 	public void nothingSendsBeforeThereIsAConfig()
 	{
 		assertFalse("no config means nothing is known to be tracked",
-			AnvilPlugin.statPushAllowed(null));
+			AnvilPlugin.statPushAllowed(null, false));
 	}
 
 	@Test
