@@ -5416,9 +5416,7 @@ public class AnvilPlugin extends Plugin {
 			data.moments = moments.snapshot();
 			moments.reset();
 		}
-		kcPush.reset();
-		skillXpPush.reset();
-		activityPush.reset();
+		for (var p : new CoalescedPush[]{kcPush, skillXpPush, activityPush}) p.reset();
 		// Facts not yet answered: on the wire right now, queued, or handed back by a failed send. The
 		// one on the wire may have landed; its id makes sending it again safe.
 		synchronized (factQueue) {
@@ -5466,12 +5464,11 @@ public class AnvilPlugin extends Plugin {
 	void onSiteRecovered() {
 		log.info("Site back");
 		for (var b : new SyncBackoff[]{clogBackoff, clogFullBackoff, pbBackoff, rosterBackoff, proofBackoff}) b.reset();
-		kcPush.kick();
-		skillXpPush.kick();
-		activityPush.kick();
+		for (var p : new CoalescedPush[]{kcPush, skillXpPush, activityPush}) p.kick();
 		synchronized (moments) {
 			momentFailures = 0;
 		}
+
 		if (!moments.isEmpty()) scheduleMomentPush();
 		var outbox = notifyOutbox;
 		if (outbox != null) outbox.kick();
@@ -5795,13 +5792,7 @@ public class AnvilPlugin extends Plugin {
 	 * "Tile complete: <label> — by <name>!" ({@code line} is up to the label). A Supporter's name goes out plain, after their star: the
 	 * chatbox pass paints it in their colours for the chat surface and moves a Patron's (anvilLine).
 	 */
-	void announceTileComplete(String line, String completedBy) {
-		var who = completedBy == null ? "" : clean(completedBy.trim());
-		var e = who.isEmpty() || !flairOn() ? null : chatFlair.entry(who);
-		// A tenure icon is added by the chatbox pass; a star here as well would show twice.
-		if (e != null) sendChatLine("Anvil", line + " — by ", Tone.DONE, null, (e.t == null && Boolean.TRUE.equals(e.s) ? chatStar() : "") + who + "!");
-		else sendChatMessage(Tone.DONE, line + (who.isEmpty() ? "" : " — by " + who) + "!");
-	}
+
 
 
 	static final Pattern ANVIL_LINE = Pattern.compile("^(?:\\s*\\[[^\\]]*\\])*?\\s*\\[Anvil\\] ");
@@ -5811,29 +5802,24 @@ public class AnvilPlugin extends Plugin {
 		var fresh = freshBoards(seededBoards, cfg);
 		// Collect this poll's newly-completed tiles. add() still marks every tile seen even when the
 		// popup is toggled off, so flipping it on later won't dump a backlog.
-		List<CompletedTile> newlyDone = new ArrayList<>();
+		var newlyDone = new ArrayList<CompletedTile>();
 		var anyDone = false;
 		// A tile no longer complete (its completion was deleted) is forgotten, so finishing it again
 		// announces it again instead of staying silent until the client restarts.
-		Set<Integer> doneNow = new HashSet<>();
+		var doneNow = new HashSet<Integer>();
 		for (var t : cfg.completedTiles) doneNow.add(t.tileId);
 		var now = now();
-		var reopened = false;
-		for (var it = notifiedCompletedTiles.iterator(); it.hasNext(); ) {
-			var was = it.next();
-			var at = confirmedDoneAt.get(was);
-			// Gone from a config asked for AFTER we said it was done: really undone (deleted, rolled back),
-			// so finishing it again announces again. Gone from an older one (a push merged onto the held
-			// config, a fetch already in flight) means nothing.
-			if (!doneNow.contains(was) && (at == null || cfg.asOf > at)) {
-				it.remove();
-				locallyShownTiles.remove(was);
-				confirmedDoneAt.remove(was);
-				reopened = true;
-			}
-		}
+		// Gone from a config asked for AFTER we said it was done: really undone (deleted, rolled back),
+		// so finishing it again announces again. Gone from an older one (a push merged onto the held
+		// config, a fetch already in flight) means nothing.
 		// The rule table dropped the tile when it finished, and pushes only raise counts: fetch it again.
-		if (reopened) refreshSoon();
+		if (notifiedCompletedTiles.removeIf(was -> {
+			var at = confirmedDoneAt.get(was);
+			if (doneNow.contains(was) || at != null && cfg.asOf <= at) return false;
+			locallyShownTiles.remove(was);
+			confirmedDoneAt.remove(was);
+			return true;
+		})) refreshSoon();
 		for (var t : cfg.completedTiles) {
 			if (!notifiedCompletedTiles.add(t.tileId)) continue;
 			// The grace covers completions this client announced, not ones it found already done on
@@ -5854,14 +5840,14 @@ public class AnvilPlugin extends Plugin {
 		if (newlyDone.isEmpty() || !config.teamCompletionBanner() || cfg.quiet) return;
 		// Banner only the hardest (most points) tile this poll to avoid a burst of banners.
 		// A combo whose part this client just bannered ("Tile complete!" on the drop) has had its popup.
-		Set<Integer> shown = new HashSet<>();
+		var shown = new HashSet<Integer>();
 		for (var t : cfg.completedTiles) if (t.partOf != null && locallyShownTiles.contains(t.tileId)) shown.add(t.partOf);
 		newlyDone.stream().filter(t -> !shown.contains(t.tileId)).max(Comparator.comparingInt(t -> t.points))
 			.ifPresent(t -> { if (clogBanner.show("Anvil Bingo", "Tile complete!", t.label)) playBannerSound(); });
 		// A persistent chat line for EVERY newly-completed tile (including the bannered one) — the
 		// banner is easy to miss, so leave a record naming who finished it. Stat/manual completions
 		// carry no crediting player, so those just say "Tile complete: <label>!".
-		Map<String, List<String>> by = new LinkedHashMap<>();
+		var by = new LinkedHashMap<String, List<String>>();
 		for (var t : newlyDone) by.computeIfAbsent(Objects.toString(t.completedBy, ""), k -> new ArrayList<>()).add("Tile complete: " + t.label);
 		by.forEach(this::completeSoon);
 	}
@@ -5890,7 +5876,15 @@ public class AnvilPlugin extends Plugin {
 			by = new LinkedHashMap<>(doneSoon);
 			doneSoon.clear();
 		}
-		by.forEach((who, l) -> RuleEngine.fold(l, 1).forEach(s -> announceTileComplete(s, who.isEmpty() ? null : who)));
+		// "Tile complete: <label> — by <name>!" (each folded line is up to the label). A Supporter's name goes out plain, after their
+		// star: the chatbox pass paints it in their colours for the chat surface and moves a Patron's (anvilLine).
+		by.forEach((n, l) -> RuleEngine.fold(l, 1).forEach(line -> {
+			var who = clean(n.trim());
+			var e = who.isEmpty() || !flairOn() ? null : chatFlair.entry(who);
+			// A tenure icon is added by the chatbox pass; a star here as well would show twice.
+			if (e != null) sendChatLine("Anvil", line + " — by ", Tone.DONE, null, (e.t == null && Boolean.TRUE.equals(e.s) ? chatStar() : "") + who + "!");
+			else sendChatMessage(Tone.DONE, line + (who.isEmpty() ? "" : " — by " + who) + "!");
+		}));
 	}
 
 	/**
@@ -5958,7 +5952,21 @@ public class AnvilPlugin extends Plugin {
 		if (fresh == null) return;
 		var slug = fresh.activeClanSlug();
 		if (slug != null) apiClient.setResolvedClan(slug);
-		forgetAClanTheyAreNoLongerIn(fresh);
+		// Drop a pick for a clan the member no longer has a seat in.
+		//
+		// Leaving a clan is the one way a stored choice becomes permanently wrong: the dropdown stops
+		// offering it, so there is nothing to click to undo it, and the plugin would go on addressing a
+		// clan that answers nothing while a live board runs somewhere they can still reach. Falling back
+		// to Auto puts the decision back with the site, which is where it was before they chose.
+		//
+		// Only acts on a site that actually sends the list — an older one sends nothing, and "no clans" is
+		// then a fact about the site rather than about the member.
+		var chosen = getChosenClan();
+		if (!chosen.isEmpty() && !empty(fresh.clans) && fresh.clans.stream().noneMatch(c -> c != null && chosen.equalsIgnoreCase(c.slug))) {
+			log.info("No seat in {}", chosen);
+			cfgSet(CFG_ACTIVE_CLAN, "");
+			apiClient.setChosenClan("");
+		}
 		forgetAdminAnswerOnClanChange();
 	}
 
@@ -5979,25 +5987,7 @@ public class AnvilPlugin extends Plugin {
 		lastAdminProbeAt = 0L; // ask immediately rather than waiting out the re-probe interval
 	}
 
-	/**
-	 * Drop a pick for a clan the member no longer has a seat in.
-	 *
-	 * Leaving a clan is the one way a stored choice becomes permanently wrong: the dropdown stops
-	 * offering it, so there is nothing to click to undo it, and the plugin would go on addressing a
-	 * clan that answers nothing while a live board runs somewhere they can still reach. Falling back
-	 * to Auto puts the decision back with the site, which is where it was before they chose.
-	 *
-	 * Only acts on a site that actually sends the list — an older one sends nothing, and "no clans" is
-	 * then a fact about the site rather than about the member.
-	 */
-	void forgetAClanTheyAreNoLongerIn(PluginConfigResponse fresh) {
-		var chosen = getChosenClan();
-		if (chosen.isEmpty() || empty(fresh.clans)) return;
-		for (var c : fresh.clans) if (c != null && chosen.equalsIgnoreCase(c.slug)) return;
-		log.info("No seat in {}", chosen);
-		cfgSet(CFG_ACTIVE_CLAN, "");
-		apiClient.setChosenClan("");
-	}
+
 
 	/**
 	 * The member picked a clan in the sidebar (or picked Auto, which is a blank slug).
@@ -6309,7 +6299,27 @@ public class AnvilPlugin extends Plugin {
 			slots = Arrays.copyOf(slots, lines.length);
 			for (int i = was; i < lines.length; i++) slots[i] = new Slot();
 		}
-		keepGrownRows(lines);
+		// A message we grew into an extra line keeps it, and the rows below stay under it, however often the
+		// game lays the chat out again. Its text or position changing means the game rebuilt that slot plain:
+		// it is forgotten. Otherwise its height comes back and anything that slid up under it is cleared by moving it and the rows above up.
+		for (int j = 0; j < lines.length; j++) {
+			var c = slots[j];
+			if (c.grown <= 0) continue;
+			var o = lines[j];
+			if (o == null || o.isHidden() || o.getText() != c.grownText || o.getOriginalX() != c.room) {
+				c.grown = 0;
+				c.grownText = null;
+				continue;
+			}
+			if (o.getOriginalHeight() < c.grown) {
+				growRow(lines, o, c.grown - o.getOriginalHeight(), true);
+				continue;
+			}
+			int y = o.getOriginalY(), next = Integer.MAX_VALUE;
+			for (var l : lines) if (l != null && l != o && !l.isHidden() && l.getOriginalY() > y) next = min(next, l.getOriginalY());
+			int under = y + o.getOriginalHeight() - next;
+			if (next != Integer.MAX_VALUE && under > 0) growRow(lines, o, under, false);
+		}
 		var frame = currentChatNameFrame();
 		var move = frame != chatNameFrame;
 		chatNameFrame = frame;
@@ -6410,31 +6420,6 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
-	/**
-	 * A message we grew into an extra line keeps it, and the rows below stay under it, however often the
-	 * game lays the chat out again. Its text or position changing means the game rebuilt that slot plain:
-	 * it is forgotten. Otherwise its height comes back and anything that slid up under it is cleared by moving it and the rows above up.
-	 */
-	void keepGrownRows(Widget[] lines) {
-		for (int j = 0; j < min(lines.length, slots.length); j++) {
-			var c = slots[j];
-			if (c.grown <= 0) continue;
-			var o = lines[j];
-			if (o == null || o.isHidden() || o.getText() != c.grownText || o.getOriginalX() != c.room) {
-				c.grown = 0;
-				c.grownText = null;
-				continue;
-			}
-			if (o.getOriginalHeight() < c.grown) {
-				growRow(lines, o, c.grown - o.getOriginalHeight(), true);
-				continue;
-			}
-			int y = o.getOriginalY(), next = Integer.MAX_VALUE;
-			for (var l : lines) if (l != null && l != o && !l.isHidden() && l.getOriginalY() > y) next = min(next, l.getOriginalY());
-			int under = y + o.getOriginalHeight() - next;
-			if (next != Integer.MAX_VALUE && under > 0) growRow(lines, o, under, false);
-		}
-	}
 
 	/** How many lines {@code text} wraps to at {@code width}: greedy on spaces, as the chatbox wraps. */
 	static int wrapLines(String text, int width, FontTypeFace f) {
@@ -6777,9 +6762,8 @@ public class AnvilPlugin extends Plugin {
 		var clan = pluginConfig == null ? null : pluginConfig.activeClan;
 		// The clan tab is dark stone: the clan's own dark look as-is when it set one.
 		var own = clan != null && !empty(clan.boostNameDarkStops);
-		var source = own ? clan.boostNameDarkStops
-			: clan != null && !empty(clan.boostNameStops)
-			? clan.boostNameStops : level >= 2 ? CLAN_BOOST_MOVING : CLAN_BOOST_STILL;
+		var def = level >= 2 ? CLAN_BOOST_MOVING : CLAN_BOOST_STILL;
+		var source = own ? clan.boostNameDarkStops : clan != null && !empty(clan.boostNameStops) ? clan.boostNameStops : def;
 		List<String> stops = new ArrayList<>();
 		for (var color : source) {
 			var hex = ChatPalette.nameColor(color);
@@ -6787,7 +6771,7 @@ public class AnvilPlugin extends Plugin {
 			// the parchment path (that turned the default gradient muddy).
 			if (hex != null && stops.size() < 4) stops.add(own ? hex : ChatPalette.readableHex(hex, false));
 		}
-		if (stops.isEmpty()) stops = level >= 2 ? CLAN_BOOST_MOVING : CLAN_BOOST_STILL;
+		if (stops.isEmpty()) stops = def;
 		var painted = ChatPalette.paintName(clean(name), stops.get(0), stops, level >= 2 ? shift : 0);
 		return (painted == null ? name : painted) + suffix;
 	}
@@ -7391,10 +7375,6 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
-	static boolean sameTeam(PluginConfigResponse a, PluginConfigResponse b) {
-		return a != null && b != null && a.event != null && b.event != null && a.event.id == b.event.id
-				&& (a.team == null ? 0 : a.team.id) == (b.team == null ? 0 : b.team.id);
-	}
 
 	/**
 	 * A newer config takes over tracking, fetched or pushed. Counts we've seen move but the site
@@ -7403,7 +7383,9 @@ public class AnvilPlugin extends Plugin {
 	void adoptTracking(PluginConfigResponse fresh) {
 		// Another team's (or event's) counts are no floor for this one: a team move, or an alt on the
 		// other side, would otherwise build on the old team's numbers.
-		if (!sameTeam(pluginConfig, fresh)) optimistic.reset();
+		var a = pluginConfig;
+		if (a == null || fresh == null || a.event == null || fresh.event == null || a.event.id != fresh.event.id
+				|| (a.team == null ? 0 : a.team.id) != (fresh.team == null ? 0 : fresh.team.id)) optimistic.reset();
 		pluginConfig = fresh;
 		clientThread.invokeLater(this::refreshClanTitleWidgets);
 		rebuildItemDropIndex();
