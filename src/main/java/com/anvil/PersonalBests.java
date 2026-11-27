@@ -127,10 +127,6 @@ class PersonalBests {
 		}
 	}
 
-	int pendingCount() {
-		return dirty.size();
-	}
-
 	/** Forget everything — the next account's bests are not this one's. */
 	void reset() {
 		best.clear();

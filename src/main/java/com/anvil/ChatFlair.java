@@ -260,20 +260,6 @@ class ChatFlair {
 		return null;
 	}
 
-	/**
-	 * The sender with their flair: icons kept, then the star (when {@code star} is given and they are
-	 * a Patron), then the name in their gradient or colour. Null when they have none or the sender
-	 * isn't a plain name (already decorated by something else).
-	 */
-	String decorate(String sender, String star) {
-		return decorate(sender, star, 0);
-	}
-
-	/** The sender's look at one point in the Patron gradient's reflecting animation cycle. */
-	String decorate(String sender, String star, double shift) {
-		return decorate(sender, star, shift, null);
-	}
-
 	/** A sender using the palette derived once for the chat surface behind it. */
 	String decorateReadable(String sender, String star, double shift, boolean opaque) {
 		return decorate(sender, star, shift, opaque);
@@ -296,6 +282,12 @@ class ChatFlair {
 
 	TenureIcon tenureIcon;
 
+	/**
+	 * The sender with their flair: icons kept, then the star (when {@code star} is given and they are
+	 * a Patron), then the name in their gradient or colour (raw when {@code opaque} is null, at
+	 * {@code shift} in the Patron gradient's reflecting animation cycle). Null when they have none or
+	 * the sender isn't a plain name (already decorated by something else).
+	 */
 	String decorate(String sender, String star, double shift, Boolean opaque) {
 		if (sender == null || isEmpty()) return null;
 		var m = SENDER.matcher(sender);
@@ -422,11 +414,6 @@ class ChatFlair {
 	 * painted already. Text alone proves nothing — anyone can type "[Clan] Bob:" — so the caller passes
 	 * only the widget the layout says is a sender column (senderColumn).
 	 */
-	String paintSender(String raw, String star, boolean opaque) {
-		return paintSender(raw, star, opaque, false, 0);
-	}
-
-	/** Paint a chatbox sender at one point in the Patron gradient's animation cycle. */
 	String paintSender(String raw, String star, boolean opaque, double shift) {
 		return paintSender(raw, star, opaque, false, shift);
 	}
@@ -435,11 +422,6 @@ class ChatFlair {
 	 * A split-private-chat line ("From Name: hi" / "To Name: hi"), which the game writes as one widget:
 	 * only for widgets of that container (never the chatbox), and only with From / To before the name.
 	 */
-	String paintPmLine(String raw, String star, boolean opaque) {
-		return paintSender(raw, star, opaque, true, 0);
-	}
-
-	/** Paint a split-private-chat sender at one point in the Patron animation cycle. */
 	String paintPmLine(String raw, String star, boolean opaque, double shift) {
 		return paintSender(raw, star, opaque, true, shift);
 	}
@@ -567,11 +549,6 @@ class ChatFlair {
 	 * its friend green. Null when it's ours already, the name isn't there or has no flair, or (override
 	 * off) another plugin's colour is on it — not the game's white.
 	 */
-	String paintMenuTarget(String target, String name, boolean override) {
-		return paintMenuTarget(target, name, override, 0);
-	}
-
-	/** A player-menu target at one point in the Patron animation cycle. */
 	String paintMenuTarget(String target, String name, boolean override, double shift) {
 		if (target == null || name == null || isEmpty()) return null;
 		var d = decorateReadable(name, null, shift, false);
@@ -686,11 +663,6 @@ class ChatFlair {
 	}
 
 	/** A broadcast widget with the leading name painted (icons and colours kept); null when none / already. */
-	String paintLead(String raw, String star, boolean opaque) {
-		return paintLead(raw, star, opaque, 0);
-	}
-
-	/** A broadcast's leading name at one point in the Patron animation cycle. */
 	String paintLead(String raw, String star, boolean opaque, double shift) {
 		if (empty(raw) || isEmpty()) return null;
 		var s = shown(raw);

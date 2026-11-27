@@ -109,7 +109,7 @@ public class PersonalBestsTest
 
 		PersonalBests restarted = new PersonalBests();
 		restarted.restoreState(state);
-		assertEquals(0, restarted.pendingCount());
+		assertEquals(0, restarted.dirty.size());
 		// A slower run after the restart is still not a record.
 		restarted.onActivitySeen("Chambers of Xeric: Challenge Mode", 100);
 		assertFalse(restarted.onChatLine("Duration: 45:00 (new personal best)", 110));
@@ -126,7 +126,7 @@ public class PersonalBestsTest
 		pbs.onActivitySeen("Zulrah", 20);
 		pbs.onChatLine("Fight duration: 1:20 (new personal best)", 30);
 		pbs.onSent(inFlight);
-		assertEquals(1, pbs.pendingCount());
+		assertEquals(1, pbs.dirty.size());
 		assertEquals(Integer.valueOf(8000), pbs.nextBatch().get("zulrah"));
 	}
 

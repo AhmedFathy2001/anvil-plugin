@@ -77,10 +77,7 @@ public class BingoClogBannerOverlay extends Overlay {
 
 	/** Backwards-compatible entry point used by the existing drop call site. */
 	boolean show(String label, int current, int required) {
-		var complete = current >= required;
-		var middle = complete ? "Tile complete!" : "Progress:";
-		var bottom = required > 1 ? label + " (" + current + "/" + required + ")" : label;
-		return show("Anvil Bingo", middle, bottom);
+		return show("Anvil Bingo", current >= required ? "Tile complete!" : "Progress:", required > 1 ? label + " (" + current + "/" + required + ")" : label);
 	}
 
 	/** Full three-line control. False when it folded into the "+N more" banner (play no sound). */
@@ -227,8 +224,7 @@ public class BingoClogBannerOverlay extends Overlay {
 	 *  lone over-long word too). No text, no lines. */
 	static List<String> wrap(String text, FontMetrics fm, int maxWidth, int maxLines) {
 		var lines = new ArrayList<String>();
-		if (text == null
- || text.isEmpty()) return lines;
+		if (AnvilPlugin.empty(text)) return lines;
 		if (maxWidth <= 0 || fm.stringWidth(text) <= maxWidth) {
 			lines.add(text);
 			return lines;
@@ -236,16 +232,12 @@ public class BingoClogBannerOverlay extends Overlay {
 		var line = new StringBuilder();
 		for (var word : text.split("\\s+")) {
 			var trial = line.length() == 0 ? word : line + " " + word;
-			if (fm.stringWidth(trial) <= maxWidth) {
-				line.setLength(0);
-				line.append(trial);
-				continue;
-			}
-			if (line.length() > 0) {
+			if (fm.stringWidth(trial) > maxWidth && line.length() > 0) {
 				lines.add(line.toString());
-				line.setLength(0);
+				trial = word;
 			}
-			line.append(word);
+			line.setLength(0);
+			line.append(trial);
 		}
 		if (line.length() > 0) lines.add(line.toString());
 		if (lines.size() > maxLines) {
@@ -264,10 +256,8 @@ public class BingoClogBannerOverlay extends Overlay {
 	/** Trims {@code text} with a trailing ellipsis so it fits within {@code maxWidth} px. */
 	static String truncate(String text, FontMetrics fm, int maxWidth) {
 		if (maxWidth <= 0 || fm.stringWidth(text) <= maxWidth) return text;
-		var ellipsis = "...";
-		int ellipsisW = fm.stringWidth(ellipsis);
-		int end = text.length();
-		while (end > 0 && fm.stringWidth(text.substring(0, end)) + ellipsisW > maxWidth) end--;
-		return end <= 0 ? ellipsis : text.substring(0, end).trim() + ellipsis;
+		int dots = fm.stringWidth("..."), end = text.length();
+		while (end > 0 && fm.stringWidth(text.substring(0, end)) + dots > maxWidth) end--;
+		return end <= 0 ? "..." : text.substring(0, end).trim() + "...";
 	}
 }

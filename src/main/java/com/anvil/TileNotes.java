@@ -79,13 +79,6 @@ class TileNotes {
 		return comboLabel.trim() + " \u2014 " + (partLabel == null ? "" : partLabel.trim());
 	}
 
-	static String plural(String noun) {
-		var n = noun.toLowerCase(Locale.ROOT);
-		if (n.endsWith("s") || n.endsWith("x") || n.endsWith("z") || n.endsWith("sh") || n.endsWith("ch")) return noun + "es";
-		if (n.length() > 1 && n.endsWith("y") && "aeiou".indexOf(n.charAt(n.length() - 2)) < 0) return noun.substring(0, noun.length() - 1) + "ies";
-		return noun + "s";
-	}
-
 	static String fmt(long n) {
 		return String.format(Locale.ROOT, "%,d", n);
 	}

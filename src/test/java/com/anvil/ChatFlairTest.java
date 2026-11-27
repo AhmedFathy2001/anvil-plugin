@@ -26,9 +26,9 @@ public class ChatFlairTest
 		return e;
 	}
 
-	private static ChatFlair with(ChatFlair.Entry... entries)
+	private static Flair with(ChatFlair.Entry... entries)
 	{
-		ChatFlair f = new ChatFlair();
+		Flair f = new Flair();
 		f.adopt(wire(1, null, entries));
 		return f;
 	}
@@ -61,7 +61,7 @@ public class ChatFlairTest
 		sup.t = 3;
 		ChatFlair.Entry pat = entry("cd", "#ff7ab8", true, "#ff0000", "#0000ff");
 		pat.t = 4;
-		ChatFlair f = with(sup, pat, entry("ef", "#ffd35c", true));
+		Flair f = with(sup, pat, entry("ef", "#ffd35c", true));
 		f.tenureIcon = (e, opaque, shift) -> "<img=" + (opaque ? 50 : 40) + e.t + ">";
 		assertEquals("<img=403><col=ffd35c>Ab</col>", f.decorate("Ab", "<img=99>"));
 		assertTrue(f.decorate("Cd", "<img=99>").startsWith("<img=404><col=ff0000>"));
@@ -114,7 +114,7 @@ public class ChatFlairTest
 	@Test
 	public void solidColourKeepsTheIconsAndMatchesSpacesAndCase()
 	{
-		ChatFlair f = with(entry("gim nisbro", "#ffd35c", null));
+		Flair f = with(entry("gim nisbro", "#ffd35c", null));
 		assertEquals("<img=3><col=ffd35c>GIM Nisbro</col>", f.decorate("<img=3>GIM Nisbro", "<img=99>"));
 		assertNull(f.decorate("Someone Else", "<img=99>"));
 	}
@@ -122,7 +122,7 @@ public class ChatFlairTest
 	@Test
 	public void patronGetsTheStarAndTheGradient()
 	{
-		ChatFlair f = with(entry("ab", "#ff7ab8", true, "#ff0000", "#0000ff"));
+		Flair f = with(entry("ab", "#ff7ab8", true, "#ff0000", "#0000ff"));
 		assertEquals("<img=99><col=ff0000>A</col><col=0000ff>b</col>", f.decorate("Ab", "<img=99>"));
 		// No star icon registered yet: the name still gets its colours.
 		assertEquals("<col=ff0000>A</col><col=0000ff>b</col>", f.decorate("Ab", null));
@@ -131,7 +131,7 @@ public class ChatFlairTest
 	@Test
 	public void onlyPatronSenderGradientsMove()
 	{
-		ChatFlair f = with(
+		Flair f = with(
 			entry("patron", "#ff7ab8", true, "#ff0000", "#0000ff"),
 			entry("champion", "#ff7ab8", false, "#ff0000", "#0000ff"));
 		assertEquals(true, f.movingSender("[Clan] Patron:"));
@@ -147,7 +147,7 @@ public class ChatFlairTest
 	@Test
 	public void leavesAlreadyDecoratedNamesAndJunkAlone()
 	{
-		ChatFlair f = with(entry("ab", "#ff7ab8", null), entry("cd", "red", null));
+		Flair f = with(entry("ab", "#ff7ab8", null), entry("cd", "red", null));
 		assertNull(f.decorate("<col=ff0000>Ab</col>", null));
 		assertNull(f.decorate("Cd", null));
 	}
@@ -167,7 +167,7 @@ public class ChatFlairTest
 	@Test
 	public void hoverOnAPaintedNameInsideALineGivesTheTier()
 	{
-		ChatFlair f = with(entry("drenvox", "#ff7ab8", true, "#ffd27a", "#ff7ab8"));
+		Flair f = with(entry("drenvox", "#ff7ab8", true, "#ffd27a", "#ff7ab8"));
 		String line = "<col=7a5600>[Anvil]</col> <col=006a00>Tile complete: 1 lap of seers — by </col><img=5>"
 			+ f.decorate("Drenvox", "") + "<col=006a00>!</col>";
 		int nameStart = width(line.substring(0, line.indexOf("<img=5>"))) + 12;
@@ -182,7 +182,7 @@ public class ChatFlairTest
 	@Test
 	public void aDeltaOnTheHeldVersionSetsAndDropsInPlace()
 	{
-		ChatFlair f = with(entry("alpha", "#ffd35c", null), entry("charlie", "#ffd35c", null));
+		Flair f = with(entry("alpha", "#ffd35c", null), entry("charlie", "#ffd35c", null));
 		ChatFlair.Wire d = wire(2, 1, entry("bravo", "#ff0000", true), entry("alpha", "#00ff00", null));
 		d.del = new String[]{"charlie"};
 		assertEquals(true, f.apply(d));
@@ -237,7 +237,7 @@ public class ChatFlairTest
 	@Test
 	public void aPushThatFitsIsAppliedWithNoRequestAndOneThatDoesntCatchesUpAfterJitter()
 	{
-		ChatFlair f = with(entry("alpha", "#ffd35c", null));
+		Flair f = with(entry("alpha", "#ffd35c", null));
 		Site site = new Site();
 		Later later = new Later();
 		int[] changed = {0};
@@ -281,7 +281,7 @@ public class ChatFlairTest
 	@Test
 	public void anIncompleteCurrentVersionRepairsItselfFromTheFullList()
 	{
-		ChatFlair f = new ChatFlair();
+		Flair f = new Flair();
 		assertEquals(true, f.adopt(wire(7, null, entry("old name", "#ffffff", null))));
 		Site site = new Site();
 		ChatFlair.Since since = new ChatFlair.Since();
@@ -330,7 +330,7 @@ public class ChatFlairTest
 		System.gc();
 		long mem0 = rt.totalMemory() - rt.freeMemory();
 		long t0 = System.nanoTime();
-		ChatFlair f = new ChatFlair();
+		Flair f = new Flair();
 		f.adopt(w);
 		long t1 = System.nanoTime();
 		w = null;
@@ -359,7 +359,7 @@ public class ChatFlairTest
 	@Test
 	public void senderColumnsArePaintedOnTheWidgetText()
 	{
-		ChatFlair f = with(entry("gim nisbro", "#ffd35c", null), entry("drenvox", "#00ff00", true));
+		Flair f = with(entry("gim nisbro", "#ffd35c", null), entry("drenvox", "#00ff00", true));
 		assertEquals("<img=3><col=ffd35c>GIM\u00A0Nisbro</col>:", f.paintSender("<img=3>GIM\u00A0Nisbro:", "<img=99>", false));
 		assertEquals("<col=0000ff>[The AFK Spot]</col> <img=99><col=00ff00>Drenvox</col>:",
 			f.paintSender("<col=0000ff>[The AFK Spot]</col> Drenvox:", "<img=99>", false));
@@ -369,7 +369,7 @@ public class ChatFlairTest
 	@Test
 	public void privateMessagesInAndOutArePainted()
 	{
-		ChatFlair f = with(entry("drenvox", "#00ff00", null));
+		Flair f = with(entry("drenvox", "#00ff00", null));
 		assertEquals("From <col=00ff00>Drenvox</col>:", f.paintSender("From Drenvox:", null, false));
 		assertEquals("To <col=00ff00>Drenvox</col>:", f.paintSender("To Drenvox:", null, false));
 		// Split private chat: the whole line is one widget, coloured by the game.
@@ -386,7 +386,7 @@ public class ChatFlairTest
 	@Test
 	public void timestampedSplitPrivateChatIsPaintedAndCanMove()
 	{
-		ChatFlair f = with(entry("denoverse", "#ff7ab8", true, "#00ffff", "#ff00ff"));
+		Flair f = with(entry("denoverse", "#ff7ab8", true, "#00ffff", "#ff00ff"));
 		String plain = "[06:35] From Denoverse: Test";
 		String painted = f.paintPmLine(plain, "<img=99>", false, 0.5);
 		assertNotNull(painted);
@@ -397,7 +397,7 @@ public class ChatFlairTest
 	@Test
 	public void paintingIsIdempotent()
 	{
-		ChatFlair f = with(entry("drenvox", "#00ff00", true), entry("ab", "#ffd35c", null, "#ff0000", "#00ff00"));
+		Flair f = with(entry("drenvox", "#00ff00", true), entry("ab", "#ffd35c", null, "#ff0000", "#00ff00"));
 		String once = f.paintSender("<img=2>Drenvox:", "<img=99>", false);
 		assertNull(f.paintSender(once, "<img=99>", false));
 		String grad = f.paintPmLine("From Ab: hi", null, false);
@@ -409,7 +409,7 @@ public class ChatFlairTest
 	@Test
 	public void nonSupportersAndPartialNamesAreUntouched()
 	{
-		ChatFlair f = with(entry("bob", "#00ff00", null));
+		Flair f = with(entry("bob", "#00ff00", null));
 		assertNull(f.paintSender("Bobby:", null, false));
 		assertNull(f.paintSender("From Bobby: hi", null, false));
 		assertNull(f.paintLead("Bobby has completed a quest: Gertrude's Cat", null, false));
@@ -422,7 +422,7 @@ public class ChatFlairTest
 	@Test
 	public void broadcastLeadingNameIsPaintedAfterIconsKeepingTheColour()
 	{
-		ChatFlair f = with(entry("nisbro hcm", "#ffd35c", null), entry("nisbro", "#00ff00", null), entry("bob", "#00ff00", true));
+		Flair f = with(entry("nisbro hcm", "#ffd35c", null), entry("nisbro", "#00ff00", null), entry("bob", "#00ff00", true));
 		// Longest name wins, nbsp counts as a space, the icon stays, and the line's colour re-opens after.
 		String line = "<img=10><col=ef1020>Nisbro\u00A0HCM has completed a quest: <col=0c5f00>Gertrude's Cat</col></col>";
 		assertEquals("<img=10><col=ef1020><col=ffd35c>Nisbro\u00A0HCM</col><col=ef1020> has completed a quest: <col=0c5f00>Gertrude's Cat</col></col>",
@@ -442,7 +442,7 @@ public class ChatFlairTest
 	@Test
 	public void longerClanBroadcastNamesArePainted()
 	{
-		ChatFlair f = with(entry("robn da hood", "#ff7ab8", true, "#ff0000", "#0000ff"));
+		Flair f = with(entry("robn da hood", "#ff7ab8", true, "#ff0000", "#0000ff"));
 		String line = "[The AFK Spot] <img=4>Robn Da Hood has left.";
 		assertNotNull(f.leadKey(line));
 		assertNotNull(f.paintLead(line, "<img=99>", true, 0.5));
@@ -452,7 +452,7 @@ public class ChatFlairTest
 	@Test
 	public void trustedTradeAndRaidWidgetTextPaintsExactNames()
 	{
-		ChatFlair f = with(
+		Flair f = with(
 			entry("denoverse", "#ff7ab8", true, "#ff0000", "#0000ff"),
 			entry("robn da hood", "#ffd35c", null));
 		String plain = "Trading with: Denoverse / Robn Da Hood";
@@ -466,14 +466,14 @@ public class ChatFlairTest
 	@Test
 	public void hoverStillFindsAPaintedPrivateMessageSender()
 	{
-		ChatFlair f = with(entry("drenvox", "#00ff00", true));
+		Flair f = with(entry("drenvox", "#00ff00", true));
 		assertEquals("Anvil Patron", f.tierOfSender(f.paintSender("From Drenvox:", "<img=99>", false)));
 		assertEquals("Anvil Patron", f.tierOfSender(f.paintSender("To Drenvox:", "<img=99>", false)));
 	}
 
 	// ---- Sender columns as the chatbox really writes them
 
-	private static ChatFlair drenvox()
+	private static Flair drenvox()
 	{
 		return with(entry("gim drenvox", "#00ff00", true), entry("bob", "#ffd35c", null));
 	}
@@ -481,7 +481,7 @@ public class ChatFlairTest
 	@Test
 	public void clanSenderWithChannelColoursAndIconsIsPainted()
 	{
-		ChatFlair f = drenvox();
+		Flair f = drenvox();
 		String star = "<img=99>";
 		String name = "<col=00ff00>GIM\u00A0Drenvox</col>";
 		// Clan chat: channel in its own colour, rank key + HCGIM icons, then the name.
@@ -504,7 +504,7 @@ public class ChatFlairTest
 	@Test
 	public void timestampsOnOrOffAndPublicWithIcons()
 	{
-		ChatFlair f = drenvox();
+		Flair f = drenvox();
 		assertEquals("<img=2><col=ffd35c>Bob</col>:", f.paintSender("<img=2>Bob:", null, false));
 		assertEquals("[12:34] <img=2><col=ffd35c>Bob</col>:", f.paintSender("[12:34] <img=2>Bob:", null, false));
 		assertEquals("<col=000000>[12:34]</col> <col=0000ff>[The AFK Spot]</col> <img=10><col=00ff00>GIM Drenvox</col>:",
@@ -517,7 +517,7 @@ public class ChatFlairTest
 	@Test
 	public void typedTextIsNeverASender()
 	{
-		ChatFlair f = drenvox();
+		Flair f = drenvox();
 		// Anyone can type a channel prefix: "[Clan] Drenvox: …" in a message widget is not painted.
 		assertNull(f.paintSender("[Clan] GIM Drenvox: hi", null, false));
 		assertNull(f.paintSender("<col=0000ff>[The AFK Spot]</col> <img=10>GIM Drenvox: <col=0000ff>Test</col>", null, false));
@@ -578,7 +578,7 @@ public class ChatFlairTest
 		assertEquals(13 + 13 + 11 + 6 * 4, ChatFlair.measure("<img=48><img=10><img=99><col=00ff00>Bob</col>:", six, icons));
 		assertEquals(0, ChatFlair.measure("<col=ff0000></col>", six, icons));
 		// The room a Patron's star needs in a sender column: just the star.
-		ChatFlair f = drenvox();
+		Flair f = drenvox();
 		java.util.function.ToIntFunction<String> none = t -> 0;
 		String plain = "[Clan] <img=10>GIM Drenvox:";
 		assertEquals(11, ChatFlair.measure(f.paintSender(plain, "<img=99>", false), none, icons) - ChatFlair.measure(plain, none, icons));
@@ -587,7 +587,7 @@ public class ChatFlairTest
 	@Test
 	public void hoverZoneStartsAtTheNameAfterIconsAndStar()
 	{
-		ChatFlair f = drenvox();
+		Flair f = drenvox();
 		java.util.function.IntUnaryOperator icons = n -> n == 99 ? 11 : 13;
 		java.util.function.ToIntFunction<String> w = raw -> ChatFlair.measure(raw, t -> 6 * t.length(), icons);
 		String line = f.paintLead("<img=10><col=ef1020>GIM Drenvox has reached a total level of 100.</col>", "<img=99>", false);
@@ -699,7 +699,7 @@ public class ChatFlairTest
 		assertEquals("a whole line alone on its row", false, ChatFlair.beside(2, 3, ax, ay, shown, true));
 		assertEquals(false, ChatFlair.beside(0, 3, ax, ay, new boolean[]{true, false, true}, false));
 		// The star's room, from the widths of the icons only.
-		ChatFlair f = drenvox();
+		Flair f = drenvox();
 		java.util.function.IntUnaryOperator icons = k -> k == 99 ? 11 : 13;
 		String plain = "From <img=10>GIM Drenvox:";
 		assertEquals(11, ChatFlair.measure(f.paintPmLine(plain, "<img=99>", false), t -> 0, icons) - ChatFlair.measure(plain, t -> 0, icons));
@@ -712,7 +712,7 @@ public class ChatFlairTest
 	@Test
 	public void menuTargetGetsOurGradientBackAfterAFriendGreenPrefix()
 	{
-		ChatFlair f = with(entry("denoverse", "#ff7ab8", true, "#ffd27a", "#ff7ab8", "#7ae0ff"));
+		Flair f = with(entry("denoverse", "#ff7ab8", true, "#ffd27a", "#ff7ab8", "#7ae0ff"));
 		String ours = f.decorate("Denoverse", null);
 		String game = "<col=ffffff>Denoverse<col=ff00ff>  (level-71)";
 		String painted = f.paintMenuTarget(game, "Denoverse", false);
@@ -778,7 +778,7 @@ public class ChatFlairTest
 		ChatFlair.Entry dark = entry("Drenvox", "#272626", true, "#272626", "#940548");
 		// Their own dark-background look: a solid near-black would normally be lightened.
 		dark.d = surface("#3a1020");
-		ChatFlair f = with(dark);
+		Flair f = with(dark);
 		assertEquals("solid override wins on the dark chatbox, untouched, no gradient",
 			"<col=3a1020>Drenvox</col>:", f.paintSender("Drenvox:", null, false));
 		// No light override: the parchment chatbox keeps the adapted main gradient.
@@ -792,7 +792,7 @@ public class ChatFlairTest
 	{
 		ChatFlair.Entry e = entry("Nisbro", "#ff7ab8", true, "#ffd27a", "#ff7ab8", "#7ae0ff");
 		e.l = surface("#8a2050", "#8a2050", "#20508a");
-		ChatFlair f = with(e);
+		Flair f = with(e);
 		String parchment = f.paintSender("Nisbro:", null, true);
 		assertTrue(parchment, parchment.contains("8a2050"));
 		assertFalse("the light look is never applied to the dark chatbox",
@@ -804,8 +804,36 @@ public class ChatFlairTest
 	{
 		ChatFlair.Entry e = entry("Drenvox", "#272626", true);
 		e.d = surface("#3a1020");
-		ChatFlair f = with(e);
+		Flair f = with(e);
 		assertEquals("<col=3a1020>Drenvox</col>", f.paintNameFor("Drenvox", false));
 		assertNull(f.paintNameFor("Nobody", false));
+	}
+	/** The fixed-shift / raw-colour overloads only these tests use. */
+	static class Flair extends ChatFlair
+	{
+		String decorate(String sender, String star)
+		{
+			return decorate(sender, star, 0, null);
+		}
+
+		String paintSender(String raw, String star, boolean opaque)
+		{
+			return paintSender(raw, star, opaque, false, 0);
+		}
+
+		String paintPmLine(String raw, String star, boolean opaque)
+		{
+			return paintSender(raw, star, opaque, true, 0);
+		}
+
+		String paintMenuTarget(String target, String name, boolean override)
+		{
+			return paintMenuTarget(target, name, override, 0);
+		}
+
+		String paintLead(String raw, String star, boolean opaque)
+		{
+			return paintLead(raw, star, opaque, 0);
+		}
 	}
 }

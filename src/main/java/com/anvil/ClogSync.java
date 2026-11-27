@@ -75,10 +75,6 @@ class ClogSync {
 		}
 	}
 
-	int pendingCount() {
-		return pending.size();
-	}
-
 	/** How many distinct pages we've delivered — the numerator of the "68% synced" nudge. */
 	int syncedPages() {
 		return sent.size();
