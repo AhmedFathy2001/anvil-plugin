@@ -165,9 +165,7 @@ class GifIcon implements Icon {
 	}
 
 	static class Frame {
-		int x;
-		int y;
-		int delayMs = FALLBACK_DELAY_MS;
+		int x, y, delayMs = FALLBACK_DELAY_MS;
 		String disposal = "none";
 	}
 
@@ -195,8 +193,7 @@ class GifIcon implements Icon {
 		return a.getNamedItem(k).getNodeValue();
 	}
 
-	static BufferedImage copyOf(
-BufferedImage src) {
+	static BufferedImage copyOf(BufferedImage src) {
 		var out = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_ARGB);
 		var g = out.createGraphics();
 		g.setComposite(AlphaComposite.Src);

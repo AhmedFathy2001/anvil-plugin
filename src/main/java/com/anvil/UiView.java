@@ -615,10 +615,10 @@ class UiView extends JPanel {
 		if (fill == null && edge == null && !n.has("on")) {
 			var p = new JPanel(layout);
 			p.setOpaque(false);
-			return left(p);
+			return p;
 		}
-		return left(new Round(layout, card ? num(n, "rad", 6) : 4, fill, edge,
-			"raised".equals(bg) ? RAISED_HOVER : fill == DARKER_GRAY_COLOR ? new Color(0x262626) : null));
+		return new Round(layout, card ? num(n, "rad", 6) : 4, fill, edge,
+			"raised".equals(bg) ? RAISED_HOVER : fill == DARKER_GRAY_COLOR ? new Color(0x262626) : null);
 	}
 
 	JComponent col(JsonObject n) {
@@ -809,7 +809,7 @@ class UiView extends JPanel {
 		card.setOpaque(false);
 		card.add(body); // first = painted last, over the strip
 		card.add(strip);
-		return capH(left(card));
+		return capH(card);
 	}
 
 	/** A site picture: it takes no room until a valid image has decoded. */
@@ -1056,7 +1056,7 @@ class UiView extends JPanel {
 		var p = new Round(new BorderLayout(6, 0), 4, null, null, null);
 		p.add(gutter, WEST);
 		p.add(body, CENTER);
-		return capH(left(p));
+		return capH(p);
 	}
 
 	/**

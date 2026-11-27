@@ -154,21 +154,6 @@ class Ui {
 		return true;
 	}
 
-	/** Lights up under the mouse and does {@code onClick} — so a row or tile says it can be opened. */
-	static void hoverable(JComponent c, Color base, Runnable onClick) {
-		c.setOpaque(true);
-		c.setBackground(base);
-		onClick(c, onClick).addMouseListener(new MouseAdapter() {
-			public void mouseEntered(MouseEvent e) {
-				c.setBackground(DARK_GRAY_HOVER_COLOR);
-			}
-
-			public void mouseExited(MouseEvent e) {
-				if (c.getMousePosition(true) == null) c.setBackground(base); // into a child is still inside
-			}
-		});
-	}
-
 	/** A left-aligned vertical stack on the panel background. */
 	static JPanel column() {
 		var p = new JPanel();
