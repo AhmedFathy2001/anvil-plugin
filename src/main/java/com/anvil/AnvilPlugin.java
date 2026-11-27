@@ -1840,6 +1840,13 @@ public class AnvilPlugin extends Plugin {
 		if (g == InterfaceID.QUESTSCROLL) scheduleQuestScrollRead(3);
 		if (g == InterfaceID.CLANS_STORAGE_MAIN) resetCoffer(true);
 		if (g == InterfaceID.BANKMAIN) tripOverlay.warn = null;
+		if (g == InterfaceID.BANKMAIN && bankTagLeft) {
+			bankTagLeft = false;
+			clientThread.invokeLater(() -> {
+				if ("anvil trip".equals(bankTags.getActiveTag())) bankTags.closeBankTag();
+				bankTagGone();
+			});
+		}
 		movesOpened(g);
 	}
 
@@ -1849,10 +1856,11 @@ public class AnvilPlugin extends Plugin {
 		// inventory changes suppressed (see onItemContainerChanged).
 		int g = event.getGroupId();
 		if (g == InterfaceID.CLANS_STORAGE_MAIN) resetCoffer(false);
+		// Closed on our tag: Bank Tags reopens on it, so it stays until the next open, which closes it then
+		// (closing a tag here runs a bank script inside the game's own close script: a client error).
 		if (g == InterfaceID.BANKMAIN) {
-			// Bank Tags reopens the tab last shown: ours is gone by then, so it would open as an empty tab.
-			if ("anvil trip".equals(bankTags.getActiveTag())) bankTags.closeBankTag();
-			bankTagGone();
+			if ("anvil trip".equals(bankTags.getActiveTag())) bankTagLeft = true;
+			else bankTagGone();
 		}
 		if (g == InterfaceID.BANKMAIN && !tripAsked && (inTripRegion() || tripArmed && siteHas("trip-target")) && (config.tripWarning() || config.tripAutoOpen()) && siteHas("trip-check")) {
 			tripAsked = true;
@@ -4561,6 +4569,9 @@ public class AnvilPlugin extends Plugin {
 			bankTags.openBankTag("anvil trip", at == null ? 4 /* OPTION_NO_LAYOUT */ : 0);
 		});
 	}
+
+	/** The bank closed on our tag: the next open takes it away. */
+	boolean bankTagLeft;
 
 	/** Our tag and its layout leave nothing in the player's config: the bank closed, or we stopped. */
 	void bankTagGone() {
