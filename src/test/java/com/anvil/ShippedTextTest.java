@@ -35,5 +35,7 @@ public class ShippedTextTest
 		assertEquals(14, text.notifyPrefKeys.size());
 		assertEquals("notifyRareDrops", text.notifyPrefKeys.get(0));
 		assertEquals("configDefaultsVersion", text.notifyPrefKeys.get(13));
+		assertEquals(10, text.oldChatKeys.size());
+		assertEquals("chatTextColor", text.oldChatKeys.get(9));
 	}
 }

@@ -500,11 +500,10 @@ public class AnvilPlugin extends Plugin {
 	lastAllowlistNotifyAt = new HashMap<>();
 
 	/**
-	 * Fixed text the plugin ships with — the prestige allowlist, the quest tiers and the moved notify keys — loaded from anvil_text.json at startUp, which says what each list is for.
+	 * Fixed text the plugin ships with — the prestige allowlist, the quest tiers and the moved notify and old chat setting keys — loaded from anvil_text.json at startUp, which says what each list is for.
 	 */
 	static class ShippedText {
-		List<String> alwaysNotify = emptyList();
-	List<String> notifyPrefKeys = emptyList();
+		List<String> alwaysNotify = emptyList(), notifyPrefKeys = emptyList(), oldChatKeys = emptyList();
 		Map<String, String> questTiers = emptyMap();
 	}
 
@@ -1143,7 +1142,24 @@ public class AnvilPlugin extends Plugin {
 		chatFlairTooltip = new ChatFlairTooltip(client, tooltipManager, chatFlair, this::flairOn);
 		overlayManager.add(chatFlairTooltip);
 		tileTracker.setShownProgress(this::shownProgress);
-		tileTracker.setNotes(this::tileNotes);
+		tileTracker.setNotes(tileId -> {
+			// A pinned tile's extra lines: "3/5 runs" on a multi-run timed tile, and a combo's parts ("1 of 2
+			// done", then each part at this client's newest count). Empty for everything else. Read every frame
+			// by the tracker, so it only looks up maps built once per config.
+			var cfg = pluginConfig;
+			if (cfg == null) return emptyList();
+			indexNotes(cfg);
+			var runs = rules.runs(tileId);
+			if (runs != null) return singletonList(TileNotes.runs(shownProgress(tileId, runs[0]), (int) runs[1]));
+			var combo = combos.get(tileId);
+			if (combo == null || combo.completed) return emptyList();
+			Map<Integer, long[]> counts = new HashMap<>();
+			if (combo.parts != null) for (var p : combo.parts) {
+				var g = p == null ? null : tileRows.get(p.tileId);
+				if (g != null) counts.put(p.tileId, new long[]{shownProgress(p.tileId, g.have), g.of});
+			}
+			return TileNotes.comboLines(combo, counts);
+		});
 		tileTracker.setBoards(() -> {
 			var c = pluginConfig;
 			var ids = new ArrayList<Integer>();
@@ -1172,7 +1188,7 @@ public class AnvilPlugin extends Plugin {
 			cfgSet("chatNames", "Off".equals(names) ? "Off" : "Animated");
 			cfgSet("menuNames", "Chat_menus".equals(names) ? "Animated" : "Off");
 		}
-		for (var k : new String[]{"supporterNames", "relayShow", "relaySend", "relayPm", "supporterChatFlair", "menuNameFlair", "animatedNames", "menuFlairOverride", "chatPrefixColor", "chatTextColor"}) if (cfgGet(k) != null) configManager.unsetConfiguration("osrsbingo", k);
+		for (var k : text.oldChatKeys) if (cfgGet(k) != null) configManager.unsetConfiguration("osrsbingo", k);
 		keyManager.registerKeyListener(eventChatKey);
 		// Registered now: a chat icon's index only exists once it has loaded, and the first line drawn
 		// before that went without it.
@@ -1215,7 +1231,19 @@ public class AnvilPlugin extends Plugin {
 
 		// Last session's config + board first (disk, so on the executor): the panel draws them now,
 		// and the fetches below go out as If-None-Match. Queued ahead of them on the one thread.
-		submit(() -> safely("loadSavedResponses", this::loadSavedResponses));
+		submit(() -> safely("loadSavedResponses", () -> {
+			// Read last session's config off disk for the panel. Executor only (disk).
+			var rc = responseCache;
+			if (rc == null || !apiClient.isConfigured() || liveConfigAnswered) return;
+			var cfgEntry = rc.load(ResponseDiskCache.CONFIG);
+			// Saved for another character than the one about to play: their team, not this one's.
+			var who = apiClient.getCurrentRsn() != null ? apiClient.getCurrentRsn() : apiClient.getRsnHint();
+			if (cfgEntry != null && cfgEntry.rsn != null && who != null && !Rsn.same(cfgEntry.rsn, who)) return;
+			var cfg = apiClient.seedFromDisk(cfgEntry, PluginConfigResponse.class);
+			if (cfg == null || liveConfigAnswered) return; // the site beat the disk to it
+			savedConfig = cfg;
+			repaintSidebar();
+		}));
 		// Notifications a previous session couldn't deliver.
 		submit(() -> safely("notifyOutbox", outbox::load));
 
@@ -3710,7 +3738,31 @@ public class AnvilPlugin extends Plugin {
 				factBurst.add(fact);
 				factBurstCoop = richer(factBurstCoop, coop);
 				factBurstCredit = reschedule(factBurstCredit, this::creditBurst, 150 /* CREDIT_COALESCE_MS */);
-				factBurstFlush = reschedule(factBurstFlush, this::flushFactBurst, 1_200 /* COALESCE_FLUSH_MS */);
+				factBurstFlush = reschedule(factBurstFlush, () -> {
+					// A settled burst: its dual-frame proof, persisted, then uploaded under its credits' keys. Executor.
+					creditBurst(); // anything not yet credited first, so its key is in hand
+					PendingSubmission b;
+					var trigger = factBurstFrame;
+					synchronized (factBurst) {
+						b = burst;
+						burst = null;
+						factBurstCoop = null;
+					}
+					// Nothing filed wants the picture (and nothing is left to file): no screenshot.
+					if (b == null || b.proof == null || b.keys.size() == 0 && (b.facts == null || b.facts.size() == 0)) return;
+					onCleanFrame(image -> {
+						try {
+							var buffered = composeDualProof(trigger, image);
+							if (trigger != null) b.proof.addProperty("split", (double) trigger.getHeight() / buffered.getHeight());
+							if (pendingSubmissionStore.save(b, jpeg(buffered)) == null) log.error("Proof not saved");
+							else if (processPendingSubmission(b)) proofBackoff.onSuccess();
+							// Safe on disk in the pending store and retried with backoff: just make the failure visible.
+							else sendChatMessage(WARN, "Couldn't submit \"" + b.label + "\" — proof saved locally, will keep retrying.");
+						} catch (IOException e) {
+							sendChatMessage(WARN, "Screenshot failed: " + forPlayer(e));
+						}
+					});
+				}, 1_200 /* COALESCE_FLUSH_MS */);
 			}
 		} else {
 			synchronized (factQueue) {
@@ -3799,32 +3851,6 @@ public class AnvilPlugin extends Plugin {
 		var again = credit(b, facts);
 		if (b.facts == null) b.facts = again;
 		else b.facts.addAll(again);
-	}
-
-	/** A settled burst: its dual-frame proof, persisted, then uploaded under its credits' keys. Executor. */
-	void flushFactBurst() {
-		creditBurst(); // anything not yet credited first, so its key is in hand
-		PendingSubmission b;
-		var trigger = factBurstFrame;
-		synchronized (factBurst) {
-			b = burst;
-			burst = null;
-			factBurstCoop = null;
-		}
-		// Nothing filed wants the picture (and nothing is left to file): no screenshot.
-		if (b == null || b.proof == null || b.keys.size() == 0 && (b.facts == null || b.facts.size() == 0)) return;
-		onCleanFrame(image -> {
-			try {
-				var buffered = composeDualProof(trigger, image);
-				if (trigger != null) b.proof.addProperty("split", (double) trigger.getHeight() / buffered.getHeight());
-				if (pendingSubmissionStore.save(b, jpeg(buffered)) == null) log.error("Proof not saved");
-				else if (processPendingSubmission(b)) proofBackoff.onSuccess();
-				// Safe on disk in the pending store and retried with backoff: just make the failure visible.
-				else sendChatMessage(WARN, "Couldn't submit \"" + b.label + "\" — proof saved locally, will keep retrying.");
-			} catch (IOException e) {
-				sendChatMessage(WARN, "Screenshot failed: " + forPlayer(e));
-			}
-		});
 	}
 
 	/**
@@ -5133,9 +5159,38 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	void flushProfileSyncs() {
-		safely("flushClogSync", this::flushClogSync);
+		safely("flushClogSync", () -> {
+			// Send any collection-log pages that have changed. Runs on the shared executor's 30s tick --
+			// no thread of our own, and nothing on the client thread.
+			if (profileSyncRsn == null || !supportsProfileSync()) return;
+			var now = now();
+			if (!clogSync.isDue(now) || !clogBackoff.ready(now)) return;
+			var batch = clogSync.nextBatch();
+			// Rate-limited: background sync, nothing to tell the player, just wait as long as the site asked.
+			// Refused outright (a malformed page, a site that doesn't take these): dropping the batch is the
+			// only way out of an otherwise permanent 30-second retry loop.
+			if (pushBatch("Collection log pages", clogBackoff, now, () -> {
+				apiClient.submitClogPages(batch, clogSync.syncedPages());
+				return batch;
+			}, ms -> clogPushAllowedAt = now() + max(ms, 1_000L), m -> clogSync.onSent(batch), m -> {}) == null) return;
+			clogSync.onSent(batch);
+			cfgSet(accountKey(CFG_CLOG_STATE, profileSyncRsn), clogSync.serializeState());
+		});
 		safely("flushFullClogSync", this::flushFullClogSync);
-		safely("flushPersonalBests", this::flushPersonalBests);
+		safely("flushPersonalBests", () -> {
+			// Same contract for best times.
+			if (!config.syncPersonalBests() || !apiClient.isConfigured() || profileSyncRsn == null || !siteKnown()) return;
+			var now = now();
+			if (!personalBests.isDue(now) || !pbBackoff.ready(now)) return;
+			var batch = personalBests.nextBatch();
+			// Bests ride the same limiter; a rate-limited batch stays dirty and goes up when it clears.
+			if (pushBatch("Personal bests", pbBackoff, now, () -> {
+				apiClient.submitPersonalBests(batch);
+				return batch;
+			}, ms -> pbBackoff.onFailure(now()), m -> personalBests.onSent(batch), m -> {}) == null) return;
+			personalBests.onSent(batch);
+			cfgSet(accountKey(CFG_PB_STATE, profileSyncRsn), personalBests.serializeState());
+		});
 	}
 
 	void configureApiClient() {
@@ -5147,20 +5202,6 @@ public class AnvilPlugin extends Plugin {
 			forgetSavedResponses();
 			submit(() -> rc.clear(stale));
 		}
-	}
-
-	/** Read last session's config off disk for the panel. Executor only (disk). */
-	void loadSavedResponses() {
-		var rc = responseCache;
-		if (rc == null || !apiClient.isConfigured() || liveConfigAnswered) return;
-		var cfgEntry = rc.load(ResponseDiskCache.CONFIG);
-		// Saved for another character than the one about to play: their team, not this one's.
-		var who = apiClient.getCurrentRsn() != null ? apiClient.getCurrentRsn() : apiClient.getRsnHint();
-		if (cfgEntry != null && cfgEntry.rsn != null && who != null && !Rsn.same(cfgEntry.rsn, who)) return;
-		var cfg = apiClient.seedFromDisk(cfgEntry, PluginConfigResponse.class);
-		if (cfg == null || liveConfigAnswered) return; // the site beat the disk to it
-		savedConfig = cfg;
-		repaintSidebar();
 	}
 
 	/** The site has answered (or the account changed): stop showing last session's copy. */
@@ -7217,27 +7258,6 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * A pinned tile's extra lines: "3/5 runs" on a multi-run timed tile, and a combo's parts ("1 of 2
-	 * done", then each part at this client's newest count). Empty for everything else. Read every frame
-	 * by the tracker, so it only looks up maps built once per config.
-	 */
-	List<String> tileNotes(int tileId) {
-		var cfg = pluginConfig;
-		if (cfg == null) return emptyList();
-		indexNotes(cfg);
-		var runs = rules.runs(tileId);
-		if (runs != null) return singletonList(TileNotes.runs(shownProgress(tileId, runs[0]), (int) runs[1]));
-		var combo = combos.get(tileId);
-		if (combo == null || combo.completed) return emptyList();
-		Map<Integer, long[]> counts = new HashMap<>();
-		if (combo.parts != null) for (var p : combo.parts) {
-			var g = p == null ? null : tileRows.get(p.tileId);
-			if (g != null) counts.put(p.tileId, new long[]{shownProgress(p.tileId, g.have), g.of});
-		}
-		return TileNotes.comboLines(combo, counts);
-	}
-
-	/**
 	 * The newest count this client has for a tile: the held config's, or its own unconfirmed one when
 	 * higher; -1 when it tracks no such tile. What the panel's live counts move to (UiView.tickLive).
 	 */
@@ -7460,23 +7480,21 @@ public class AnvilPlugin extends Plugin {
 	/** Debounce a counter push onto the executor — a burst of loot/deaths collapses to one absolute push. */
 	void scheduleCounterPush() {
 		synchronized (counterLock) {
-			counterPushTask = reschedule(counterPushTask, this::flushCounterPush, 15_000 /* COUNTER_PUSH_COALESCE_MS */);
-		}
-	}
-
-	/** Push the current absolute per-event counters. Absolute + server max-merge → a failure just retries. */
-	void flushCounterPush() {
-		long[] v;
-		synchronized (counterLock) {
-			persistCounters();
-			v = ctr.clone();
-		}
-		if (!pvpCounterActive()) return; // event ended between schedule and flush — drop; nothing feeds scoring off this.
-		try {
-			apiClient.submitEventCounters((int) v[1], v[2], (int) v[3], (int) v[4], (int) v[5], (int) v[6]);
-		} catch (IOException e) {
-			log.warn("Counter push failed, retrying: {}", e.getMessage());
-			scheduleCounterPush();
+			counterPushTask = reschedule(counterPushTask, () -> {
+				// Push the current absolute per-event counters. Absolute + server max-merge → a failure just retries.
+				long[] v;
+				synchronized (counterLock) {
+					persistCounters();
+					v = ctr.clone();
+				}
+				if (!pvpCounterActive()) return; // event ended between schedule and flush — drop; nothing feeds scoring off this.
+				try {
+					apiClient.submitEventCounters((int) v[1], v[2], (int) v[3], (int) v[4], (int) v[5], (int) v[6]);
+				} catch (IOException e) {
+					log.warn("Counter push failed, retrying: {}", e.getMessage());
+					scheduleCounterPush();
+				}
+			}, 15_000 /* COUNTER_PUSH_COALESCE_MS */);
 		}
 	}
 
@@ -7575,17 +7593,6 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
-
-	/** Something of this name is within reach of us now: an attacker left behind in another room isn't. */
-	boolean nearUs(String name) {
-		var me = client.getLocalPlayer();
-		var view = client.getTopLevelWorldView();
-		if (me == null || view == null) return true;
-		var at = me.getWorldLocation();
-		for (var npc : view.npcs()) if (npc != null && Rsn.same(npc.getName(), name) && npc.getWorldLocation().distanceTo(at) <= KILLER_REACH) return true;
-		for (var p : view.players()) if (p != null && p != me && Rsn.same(p.getName(), name) && p.getWorldLocation().distanceTo(at) <= KILLER_REACH) return true;
-		return false;
-	}
 
 	/** Tiles: room enough for the farthest attacks (a big raid room), short of the room next door. */
 	static final int KILLER_REACH = 20;
@@ -7916,7 +7923,16 @@ public class AnvilPlugin extends Plugin {
 		// only that someone died. A death with no killer is a smaller story than one with the wrong.
 		var now = now();
 		var fighting = lastCombatTarget != null && now - lastCombatTargetAt <= 30_000 /* DEATH_ATTRIBUTION_MS */ ? lastCombatTarget : null;
-		var killer = deathAttribution.killer(fighting, now, this::nearUs);
+		var killer = deathAttribution.killer(fighting, now, name -> {
+			// Something of this name is within reach of us now: an attacker left behind in another room isn't.
+			var me = client.getLocalPlayer();
+			var view = client.getTopLevelWorldView();
+			if (me == null || view == null) return true;
+			var at = me.getWorldLocation();
+			for (var npc : view.npcs()) if (npc != null && Rsn.same(npc.getName(), name) && npc.getWorldLocation().distanceTo(at) <= KILLER_REACH) return true;
+			for (var p : view.players()) if (p != null && p != me && Rsn.same(p.getName(), name) && p.getWorldLocation().distanceTo(at) <= KILLER_REACH) return true;
+			return false;
+		});
 		// Breadcrumb so client.log can explain an attribution that looks odd: how many things had us
 		// and which one we picked, next to what we were hitting.
 		log.info("Death: {} ({} attackers, fighting {})", killer, deathAttribution.attackerCount(), fighting);
@@ -10165,26 +10181,6 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/**
-	 * Send any collection-log pages that have changed. Runs on the shared executor's 30s tick --
-	 * no thread of our own, and nothing on the client thread.
-	 */
-	void flushClogSync() {
-		if (profileSyncRsn == null || !supportsProfileSync()) return;
-		var now = now();
-		if (!clogSync.isDue(now) || !clogBackoff.ready(now)) return;
-		var batch = clogSync.nextBatch();
-		// Rate-limited: background sync, nothing to tell the player, just wait as long as the site asked.
-		// Refused outright (a malformed page, a site that doesn't take these): dropping the batch is the
-		// only way out of an otherwise permanent 30-second retry loop.
-		if (pushBatch("Collection log pages", clogBackoff, now, () -> {
-			apiClient.submitClogPages(batch, clogSync.syncedPages());
-			return batch;
-		}, ms -> clogPushAllowedAt = now() + max(ms, 1_000L), m -> clogSync.onSent(batch), m -> {}) == null) return;
-		clogSync.onSent(batch);
-		cfgSet(accountKey(CFG_CLOG_STATE, profileSyncRsn), clogSync.serializeState());
-	}
-
-	/**
 	 * Push a settled whole-log transmit (see {@link ClogFullSync}). Runs on the same 30s tick as the
 	 * page sync; the two are complementary — this carries every obtained item, the page route carries
 	 * the kill-count lines that only appear on a drawn page.
@@ -10245,21 +10241,6 @@ public class AnvilPlugin extends Plugin {
 			if (result.added > 0) sendChatMessage(DONE, "Collection log synced — " + result.added + " new slot" + (result.added == 1 ? "" : "s") + ".");
 			else sendChatMessage("Collection log synced — nothing new.");
 		}
-	}
-
-	/** Same contract for best times. */
-	void flushPersonalBests() {
-		if (!config.syncPersonalBests() || !apiClient.isConfigured() || profileSyncRsn == null || !siteKnown()) return;
-		var now = now();
-		if (!personalBests.isDue(now) || !pbBackoff.ready(now)) return;
-		var batch = personalBests.nextBatch();
-		// Bests ride the same limiter; a rate-limited batch stays dirty and goes up when it clears.
-		if (pushBatch("Personal bests", pbBackoff, now, () -> {
-			apiClient.submitPersonalBests(batch);
-			return batch;
-		}, ms -> pbBackoff.onFailure(now()), m -> personalBests.onSent(batch), m -> {}) == null) return;
-		personalBests.onSent(batch);
-		cfgSet(accountKey(CFG_PB_STATE, profileSyncRsn), personalBests.serializeState());
 	}
 
 	/**
