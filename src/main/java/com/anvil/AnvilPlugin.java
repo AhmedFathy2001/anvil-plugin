@@ -281,7 +281,7 @@ public class AnvilPlugin extends Plugin {
 	volatile String seatRefetchedFor,
 	// The last thing we landed a hit on, and when.
 	lastCombatTarget,
-	/** The in-game clan row the site last accepted ("name|rank|title|joined", or "" for none) — see pushGameClan. */
+	/** The in-game clan row the site last accepted ("name|rank|title|joined", or "" for none) — see the pushGameClan task in startUp. */
 	lastSentGameClan,
 	// Table-free attribution: the most recent NPC the player killed. When a "Duration:" line lands,
 	// the boss that just died names the activity, so a timed tile configured with that boss's name
@@ -1196,7 +1196,14 @@ public class AnvilPlugin extends Plugin {
 
 		resetCompletionBaseline();
 		executor = Executors.newSingleThreadScheduledExecutor();
-		pushSocket = new PushSocket(apiClient, executor, gson, this::onPush);
+		pushSocket = new PushSocket(apiClient, executor, gson, m -> {
+			// A view from the live push (docs/PLUGIN_WIRE.md), applied off the socket's thread.
+			// A relayed line goes straight to the client thread: queued behind the executor's other work (a
+			// flush, a config merge), it could wait seconds.
+			if ("relay".equals(m.get("t").getAsString())) {
+				if (relayOn()) clientThread.invoke(() -> showRelay(m));
+			} else if (execLive()) executor.execute(() -> safely("push", () -> applyPush(m)));
+		});
 		sidebarPanel.setPushLive(pushSocket::live);
 		profileLookup.setPanelOpener(name -> {
 			var nav = sidebarNavButton;
@@ -1295,7 +1302,42 @@ public class AnvilPlugin extends Plugin {
 			});
 			flushProfileSyncs();
 			safely("pushAccountProgress", this::pushAccountProgress);
-			safely("pushGameClan", this::pushGameClan);
+			safely("pushGameClan", () -> {
+				// The character's own clan row → the site: clan name, rank, the clan's title for it, join date.
+				// Only ever OUR row — the member list stays in the game. Sent once per login and again when it
+				// changes, so the steady state is one settings read and no request.
+				// Clan settings are null both while they load after login and for a player in no clan, so
+				// "no clan" is reported only after two checks (30s apart) both find nothing.
+				if (!apiClient.isConfigured() || !loggedIn() || pluginConfig == null || now() < gameClanRetryAt) return;
+				clientThread.invoke(() -> {
+					var myName = getLocalPlayerName();
+					if (myName == null) return;
+					var s = client.getClanSettings();
+					var none = s == null || s.getName() == null;
+					if (none) {
+						if (++gameClanMissingChecks < 2) return;
+					} else gameClanMissingChecks = 0;
+					var self = none ? null : s.findMember(myName);
+					// Settings that don't list us yet are still loading.
+					if (!none && self == null) return;
+					var name = none ? null : s.getName();
+					var rank = none ? null : self.getRank();
+					Integer rankOut = rank == null ? null : rank.getRank();
+					var title = rank == null ? null : s.titleForRank(rank);
+					var titleOut = title == null ? null : title.getName();
+					var joined = none ? null : self.getJoinDate();
+					var fingerprint = none ? "" : name + "|" + rankOut + "|" + titleOut + "|" + joined;
+					if (fingerprint.equals(lastSentGameClan)) return;
+					submit(() -> {
+						try {
+							apiClient.submitGameClan(name, rankOut, titleOut, joined);
+							lastSentGameClan = fingerprint;
+						} catch (IOException e) {
+							gameClanRetryAt = now() + 5 * 60_000L;
+						}
+					});
+				});
+			});
 			safely("pushGuestChannel", this::pushGuestChannel);
 		}, 30, 30, TimeUnit.SECONDS));
 	}
@@ -1351,46 +1393,6 @@ public class AnvilPlugin extends Plugin {
 						lastSentCaPoints = caNow;
 					}
 				} catch (IOException e) {
-				}
-			});
-		});
-	}
-
-	/**
-	 * The character's own clan row → the site: clan name, rank, the clan's title for it, join date.
-	 * Only ever OUR row — the member list stays in the game. Sent once per login and again when it
-	 * changes, so the steady state is one settings read and no request.
-	 *
-	 * <p>Clan settings are null both while they load after login and for a player in no clan, so
-	 * "no clan" is reported only after two checks (30s apart) both find nothing.
-	 */
-	void pushGameClan() {
-		if (!apiClient.isConfigured() || !loggedIn() || pluginConfig == null || now() < gameClanRetryAt) return;
-		clientThread.invoke(() -> {
-			var myName = getLocalPlayerName();
-			if (myName == null) return;
-			var s = client.getClanSettings();
-			var none = s == null || s.getName() == null;
-			if (none) {
-				if (++gameClanMissingChecks < 2) return;
-			} else gameClanMissingChecks = 0;
-			var self = none ? null : s.findMember(myName);
-			// Settings that don't list us yet are still loading.
-			if (!none && self == null) return;
-			var name = none ? null : s.getName();
-			var rank = none ? null : self.getRank();
-			Integer rankOut = rank == null ? null : rank.getRank();
-			var title = rank == null ? null : s.titleForRank(rank);
-			var titleOut = title == null ? null : title.getName();
-			var joined = none ? null : self.getJoinDate();
-			var fingerprint = none ? "" : name + "|" + rankOut + "|" + titleOut + "|" + joined;
-			if (fingerprint.equals(lastSentGameClan)) return;
-			submit(() -> {
-				try {
-					apiClient.submitGameClan(name, rankOut, titleOut, joined);
-					lastSentGameClan = fingerprint;
-				} catch (IOException e) {
-					gameClanRetryAt = now() + 5 * 60_000L;
 				}
 			});
 		});
@@ -3497,7 +3499,7 @@ public class AnvilPlugin extends Plugin {
 	 * Caveat: the clog line fires once per account, ever — a member who already
 	 * owns the item won't re-trigger it. Surfaced to admins in the tile UI.
 	 * Guaranteed completion awards (Infernal cape, Fire cape) sidestep this via
-	 * {@link #creditGuaranteedAward}, which fires on every completion.
+	 * the KC-line award credit (onChatMessage), which fires on every completion.
 	 */
 	void creditClogUnlock(String itemName) {
 		if (empty(itemName) || lootOff() || !rules.active()) return;
@@ -3558,7 +3560,7 @@ public class AnvilPlugin extends Plugin {
 	 * line is the only signal that fires. It names the recipient, so crediting stays
 	 * attribution-safe where other players' drops are also announced. When a loot event
 	 * DOES also fire, processLoot's per-(tile,item) window and the rare-drop per-item
-	 * window absorb the duplicate — same contract as creditGuaranteedAward.
+	 * window absorb the duplicate — same contract as the guaranteed-award credit off the KC line.
 	 */
 	void creditDropFromChat(String recipient, String qtyText, String itemName, String source) {
 		var local = getLocalPlayerName();
@@ -5249,7 +5251,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	@Getter
 	volatile boolean clanRosterReadable;
-	/** Consecutive ticks the clan channel has been missing — see updateClanRosterReadable. */
+	/** Consecutive ticks the clan channel has been missing — see the roster-readable check in onGameTick. */
 	int clanRosterMissingTicks;
 	/** ~6 seconds of a genuinely absent channel before the button goes away. */
 	static final int CLAN_ROSTER_GRACE_TICKS = 10;
@@ -5776,34 +5778,6 @@ public class AnvilPlugin extends Plugin {
 	final Set<String> flairBroadcasts = newSetFromMap(capped(64, false));
 	/** Client thread: split-PM line texts already looked at (painted, or nothing to paint). */
 	final Set<String> splitPmSeen = new HashSet<>();
-
-	/**
-	 * Config-poll thread, after every config attempt — answered or not: the list is public and in no
-	 * clan, so a login whose config is a 404 still gets it. The saved copy first, then the site's
-	 * version every 10 minutes (deltas between come over the socket).
-	 */
-	void maybeRefreshChatFlair() {
-		if (!flairOn() && !menusFlair() || !apiClient.isConfigured()) return;
-		var rc = responseCache;
-		// One list per site (prod's names never on beta).
-		var file = ResponseDiskCache.CHAT_FLAIR + DiskFiles.fingerprint(apiClient.getApiUrl());
-		if (!file.equals(chatFlairFile)) {
-			chatFlairFile = file;
-			chatFlairSeeded = false;
-			chatFlairFetchedAt = 0;
-			chatFlair.held = new ChatFlair().held;
-		}
-		if (!chatFlairSeeded && rc != null) {
-			chatFlairSeeded = true;
-			if (chatFlair.adopt(rc.loadShared(file, ChatFlair.Wire.class))) repaintFlair();
-		}
-		var at = now();
-		// Holding nothing (a new site, or a fetch that failed mid-deploy): ask again within a minute, not ten.
-		if (at - chatFlairFetchedAt < (chatFlair.isEmpty() ? 60_000L : 10 * 60_000L) /* CHAT_FLAIR_EVERY_MS */) return;
-		chatFlairFetchedAt = at;
-		chatFlairSync.sync();
-		if (chatFlair.isEmpty()) log.warn("Anvil Supporter list still empty (v{})", chatFlair.version());
-	}
 
 	/** The list moved: repaint now, save a moment later (a burst is one write), off the client thread. */
 	void chatFlairChanged() {
@@ -6823,15 +6797,6 @@ public class AnvilPlugin extends Plugin {
 				+ (world > 0 ? ":c" + world + "#" + client.getAccountHash() + (Boolean.TRUE.equals(knownMember) ? "m" : "") + "/" + apiClient.getCurrentRsn() + "@" + fcOwner() : "") : null);
 	}
 
-	/** A view from the live push (docs/PLUGIN_WIRE.md), applied off the socket's thread. */
-	void onPush(JsonObject m) {
-		// A relayed line goes straight to the client thread: queued behind the executor's other work (a
-		// flush, a config merge), it could wait seconds.
-		if ("relay".equals(m.get("t").getAsString())) {
-			if (relayOn()) clientThread.invoke(() -> showRelay(m));
-		} else if (execLive()) executor.execute(() -> safely("push", () -> applyPush(m)));
-	}
-
 	/**
 	 * "tile": a pinned tile's numbers for every team. "team": our team's share of the config, its
 	 * board, and each member's own numbers — laid over the config we hold (PushMerge) and adopted the
@@ -7002,7 +6967,31 @@ public class AnvilPlugin extends Plugin {
 		try {
 			refreshConfigLocked();
 			syncPush();
-			safely("chat flair", this::maybeRefreshChatFlair);
+			safely("chat flair", () -> {
+				// Config-poll thread, after every config attempt — answered or not: the list is public and in no
+				// clan, so a login whose config is a 404 still gets it. The saved copy first, then the site's
+				// version every 10 minutes (deltas between come over the socket).
+				if (!flairOn() && !menusFlair() || !apiClient.isConfigured()) return;
+				var rc = responseCache;
+				// One list per site (prod's names never on beta).
+				var file = ResponseDiskCache.CHAT_FLAIR + DiskFiles.fingerprint(apiClient.getApiUrl());
+				if (!file.equals(chatFlairFile)) {
+					chatFlairFile = file;
+					chatFlairSeeded = false;
+					chatFlairFetchedAt = 0;
+					chatFlair.held = new ChatFlair().held;
+				}
+				if (!chatFlairSeeded && rc != null) {
+					chatFlairSeeded = true;
+					if (chatFlair.adopt(rc.loadShared(file, ChatFlair.Wire.class))) repaintFlair();
+				}
+				var at = now();
+				// Holding nothing (a new site, or a fetch that failed mid-deploy): ask again within a minute, not ten.
+				if (at - chatFlairFetchedAt < (chatFlair.isEmpty() ? 60_000L : 10 * 60_000L) /* CHAT_FLAIR_EVERY_MS */) return;
+				chatFlairFetchedAt = at;
+				chatFlairSync.sync();
+				if (chatFlair.isEmpty()) log.warn("Anvil Supporter list still empty (v{})", chatFlair.version());
+			});
 		} finally {
 			lastConfigAttemptAt = now();
 			configFetchLock.unlock();
