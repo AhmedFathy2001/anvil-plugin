@@ -6482,23 +6482,20 @@ public class AnvilPlugin extends Plugin {
 			// A record counts only for the line it was made for: the widgets are reused line to line, and a
 			// "From" line's message can land exactly where a "To" line's was moved to (it then stayed under the name).
 			var rec = pmRoom.get(w);
-			if (rec != null && rec[2] != Text.removeTags(String.valueOf(t)).hashCode()) rec = null;
-			pmRecX[i] = rec == null ? Integer.MIN_VALUE : rec[0];
-			pmRecW[i] = rec == null ? Integer.MIN_VALUE : rec[1];
+			var ok = rec != null && rec[2] == Text.removeTags(String.valueOf(t)).hashCode();
+			pmRecX[i] = ok ? rec[0] : Integer.MIN_VALUE;
+			pmRecW[i] = ok ? rec[1] : Integer.MIN_VALUE;
 		}
 		var moved = false;
 		for (int i = 0; i < n; i++) {
 			if (!pmShown[i]) continue;
 			var w = pmLine.get(i);
 			var text = w.getText();
-			var movingState = pmMoving.get(w);
-			var ours = movingState != null && text.equals(movingState[1]);
-			if (movingState != null && !ours) {
-				pmMoving.remove(w);
-				movingState = null;
-			}
+			var ms = pmMoving.get(w);
+			var ours = ms != null && text.equals(ms[1]);
+			if (ms != null && !ours) pmMoving.remove(w);
 			var repaint = ours && animate;
-			if (repaint) text = movingState[0];
+			if (repaint) text = ms[0];
 			var d = repaint ? null : pmPainted.get(text);
 			if (d == null && !splitPmSeen.contains(text)) {
 				if (splitPmSeen.size() > 256 || pmPainted.size() > 256) {
@@ -6744,20 +6741,20 @@ public class AnvilPlugin extends Plugin {
 		var shift = interfaceNameShift(frame);
 		for (var it = clanTitleFlair.entrySet().iterator(); it.hasNext(); ) {
 			var row = it.next();
-			var widget = row.getKey();
-			var state = row.getValue();
-			if (widget == null) { it.remove(); continue; }
-			var text = widget.getText();
-			if (!state.painted.equals(text)) {
+			var w = row.getKey();
+			var s = row.getValue();
+			if (w == null) { it.remove(); continue; }
+			var text = w.getText();
+			if (!s.painted.equals(text)) {
 				// The game rewrote the title (a member joined/left: the count changed). Take its new
 				// suffix rather than painting the stale one over the live number.
-				var suffix = ChatFlair.clanTitleSuffix(text, state.name);
+				var suffix = ChatFlair.clanTitleSuffix(text, s.name);
 				if (suffix == null) { it.remove(); continue; }
-				state.plain = untagged(text);
-				state.suffix = suffix;
-			} else if (state.level < 2) continue;
-			state.painted = paintClanTitle(state.name, state.suffix, state.level, shift);
-			widget.setText(state.painted);
+				s.plain = untagged(text);
+				s.suffix = suffix;
+			} else if (s.level < 2) continue;
+			s.painted = paintClanTitle(s.name, s.suffix, s.level, shift);
+			w.setText(s.painted);
 		}
 	}
 
@@ -6775,9 +6772,9 @@ public class AnvilPlugin extends Plugin {
 	/** Put every remembered widget back exactly as the game supplied it, and forget them. */
 	static void unpaint(Map<Widget, Painted> m) {
 		for (var row : new ArrayList<>(m.entrySet())) {
-			var widget = row.getKey();
-			var state = row.getValue();
-			if (widget != null && state.painted.equals(widget.getText())) widget.setText(state.plain);
+			var w = row.getKey();
+			var s = row.getValue();
+			if (w != null && s.painted.equals(w.getText())) w.setText(s.plain);
 		}
 		m.clear();
 	}
@@ -6809,18 +6806,16 @@ public class AnvilPlugin extends Plugin {
 		if (menusOff()) return;
 		var root = client.getWidget(rootId);
 		if (root == null) return;
-		var frame = currentChatNameFrame();
-		interfaceNameFrame = frame;
-		var shift = interfaceNameShift(frame);
+		var shift = interfaceNameShift(interfaceNameFrame = currentChatNameFrame());
 		// Dialogue and message boxes are drawn on parchment whatever the chatbox setting; the rest are dark stone.
 		var opaque = rootId == InterfaceID.ChatLeft.NAME || rootId == InterfaceID.ChatRight.NAME || rootId == InterfaceID.ChatBoth.NAMES || rootId == InterfaceID.MessageboxTitled.TITLE;
-		walk(root, widget -> {
-			var text = widget.getText();
-			var had = interfaceNameFlair.get(widget);
+		walk(root, w -> {
+			var text = w.getText();
+			var had = interfaceNameFlair.get(w);
 			var painted = had != null && had.painted.equals(text) ? null : chatFlair.paintNames(text, opaque, shift);
 			if (painted != null) {
-				widget.setText(painted);
-				interfaceNameFlair.put(widget, new Painted(text, painted, chatFlair.movingNames(text), opaque, null, null, 0));
+				w.setText(painted);
+				interfaceNameFlair.put(w, new Painted(text, painted, chatFlair.movingNames(text), opaque, null, null, 0));
 			}
 		});
 	}
@@ -6834,19 +6829,19 @@ public class AnvilPlugin extends Plugin {
 		var shift = interfaceNameShift(frame);
 		for (var it = interfaceNameFlair.entrySet().iterator(); it.hasNext(); ) {
 			var row = it.next();
-			var widget = row.getKey();
-			var state = row.getValue();
-			if (widget == null) { it.remove(); continue; }
-			var current = widget.getText();
-			var plain = state.painted.equals(current) ? state.plain : current;
+			var w = row.getKey();
+			var s = row.getValue();
+			if (w == null) { it.remove(); continue; }
+			var current = w.getText();
+			var plain = s.painted.equals(current) ? s.plain : current;
 			// Ours and not due a new animation frame: one compare. Rewritten by the game: repaint now.
-			if (plain != current && !(move && state.moving)) continue;
-			var painted = chatFlair.paintNames(plain, state.opaque, shift);
+			if (plain != current && !(move && s.moving)) continue;
+			var painted = chatFlair.paintNames(plain, s.opaque, shift);
 			if (painted == null) { it.remove(); continue; }
-			state.plain = plain;
-			state.painted = painted;
-			state.moving = chatFlair.movingNames(plain);
-			widget.setText(painted);
+			s.plain = plain;
+			s.painted = painted;
+			s.moving = chatFlair.movingNames(plain);
+			w.setText(painted);
 		}
 	}
 
@@ -6894,8 +6889,7 @@ public class AnvilPlugin extends Plugin {
 	void unflairChat() {
 		var input = client.getWidget(InterfaceID.Chatbox.INPUT);
 		if (input != null && inputPlain != null && inputPainted != null && inputPainted.equals(input.getText())) input.setText(inputPlain);
-		inputPlain = null;
-		inputPainted = null;
+		inputPlain = inputPainted = null;
 		inputNameFrame = Long.MIN_VALUE;
 		for (var c : slots) {
 			c.seen = c.moving = c.roomFor = null;
@@ -6943,10 +6937,10 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	void flairChatInput() {
-		if (flairOff() || client.getLocalPlayer() == null) return;
-		var input = client.getWidget(InterfaceID.Chatbox.INPUT);
-		var me = client.getLocalPlayer().getName();
-		if (input == null || me == null) return;
+		if (flairOff()) return;
+		var me = getLocalPlayerName();
+		var input = me == null ? null : client.getWidget(InterfaceID.Chatbox.INPUT);
+		if (input == null) return;
 		var text = input.getText();
 		if (empty(text)) return;
 		if (!me.equals(inputFlairName)) {
@@ -6991,9 +6985,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	void flairNameLists() {
 		if (menusOff()) return;
-		var frame = currentChatNameFrame();
-		nameListFrame = frame;
-		var shift = interfaceNameShift(frame);
+		var shift = interfaceNameShift(nameListFrame = currentChatNameFrame());
 		// Who's online on the friends list, once: a lookup per row was rows x friends.
 		var online = new HashSet<String>();
 		var fl = client.getFriendContainer();
@@ -7028,12 +7020,12 @@ public class AnvilPlugin extends Plugin {
 		for (var it = nameListMoving.entrySet().iterator(); it.hasNext(); ) {
 			var row = it.next();
 			var w = row.getKey();
-			var state = row.getValue();
-			if (w == null || !state[1].equals(w.getText())) { it.remove(); continue; }
+			var s = row.getValue();
+			if (w == null || !s[1].equals(w.getText())) { it.remove(); continue; }
 			if (w.isHidden()) continue;
-			var painted = chatFlair.decorateReadable(state[0], null, shift, false);
+			var painted = chatFlair.decorateReadable(s[0], null, shift, false);
 			if (painted == null) { it.remove(); continue; }
-			w.setText(state[1] = painted);
+			w.setText(s[1] = painted);
 		}
 	}
 
@@ -7286,14 +7278,16 @@ public class AnvilPlugin extends Plugin {
 		// A whole view for a different team of the event we hold: the site moved us (it re-scopes the
 		// socket on a team change). Fetch the config now instead of tracking the old team until the
 		// slow while-live poll.
-		if ("team".equals(kind) && held && m.get("teamId").getAsInt() != myTeam) refreshConfig();
+		int pushedTeam = m.has("teamId") ? m.get("teamId").getAsInt() : 0;
+		var team = "team".equals(kind);
+		if (team && held && pushedTeam != myTeam) refreshConfig();
 		// A team's view for a board our config doesn't hold: the site just seated us there (it re-tickets
 		// the socket on a new seat, and the ticket's first board is the seat's). Fetch the config now
 		// rather than at the next poll — once per board and team, so a config that settles elsewhere
 		// can't refetch on every view.
-		int pushedTeam = m.has("teamId") ? m.get("teamId").getAsInt() : 0;
 		var seat = eventId + ":" + pushedTeam;
-		if ("team".equals(kind) && pushedTeam != 0 && !held && !seat.equals(seatRefetchedFor)) {
+		if (team && pushedTeam != 0 && !held && !seat.equals(seatRefetchedFor)) {
+
 			seatRefetchedFor = seat;
 			refreshConfig();
 		}
