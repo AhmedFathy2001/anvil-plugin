@@ -3887,8 +3887,13 @@ public class AnvilPlugin extends Plugin {
 
 	/** The last loot source, if it landed recently enough to be what this chat line is about. */
 	String freshLootSource() {
+		return lootSourceSince(now() - CLOG_LOOT_DEDUP_MS);
+	}
+
+	/** The last loot source, if it landed at or after {@code since}. */
+	String lootSourceSince(long since) {
 		synchronized (recentLootIds) {
-			return lastLootSource != null && now() - lastLootSourceAt <= CLOG_LOOT_DEDUP_MS ? lastLootSource : null;
+			return lastLootSource != null && lastLootSourceAt >= since ? lastLootSource : null;
 		}
 	}
 
@@ -3906,10 +3911,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	void resolveDuplicateScroll() {
 		if (dupScrollTick < 0) return;
-		String source;
-		synchronized (recentLootIds) {
-			source = lastLootSource != null && lastLootSourceAt >= dupScrollLineAt - CLOG_LOOT_DEDUP_MS ? lastLootSource : null;
-		}
+		var source = lootSourceSince(dupScrollLineAt - CLOG_LOOT_DEDUP_MS);
 		var scroll = DuplicateInference.championScrollFor(source);
 		if (scroll == null && client.getTickCount() - dupScrollTick < 3 /* DUP_SCROLL_WAIT_TICKS */) return; // the kill's loot may still be on its way
 		dupScrollTick = -1;
@@ -4892,8 +4894,8 @@ public class AnvilPlugin extends Plugin {
 		var key = rules.raidKey(k -> timedHit(lowerMessage, k));
 		if (key == null || !claim(lastTimedSubmittedAt, Integer.MIN_VALUE /* RAID_CLAIM */, now, TIMED_DEDUP_WINDOW_MS)) return key != null;
 		var seen = new HashSet<>(instancePlayersSeen);
-		var me = client.getLocalPlayer();
-		if (me != null && me.getName() != null) seen.add(me.getName().toLowerCase());
+		var me = getLocalPlayerName();
+		if (me != null) seen.add(me.toLowerCase());
 		var team = myTeamRoster();
 		int mates = 0, party = partySize();
 		for (var n : seen) if (team.contains(Rsn.normalize(n))) mates++;
@@ -5456,8 +5458,8 @@ public class AnvilPlugin extends Plugin {
 		}
 
 		if (!moments.isEmpty()) scheduleMomentPush();
-		var outbox = notifyOutbox;
-		if (outbox != null) outbox.kick();
+		var ob = notifyOutbox;
+		if (ob != null) ob.kick();
 		submit(() -> {
 			safely("retryPendingSubmissions", this::retryPendingSubmissions);
 			flushProfileSyncs();
@@ -5759,8 +5761,7 @@ public class AnvilPlugin extends Plugin {
 	boolean announceCompletedNow(int tileId, String label) {
 		configFetchLock.lock();
 		try {
-			var cfg = pluginConfig;
-			if (cfg == null || seededBoards.isEmpty() || !notifiedCompletedTiles.add(tileId)) return false;
+			if (pluginConfig == null || seededBoards.isEmpty() || !notifiedCompletedTiles.add(tileId)) return false;
 			confirmedDoneAt.put(tileId, now());
 		} finally {
 			configFetchLock.unlock();
@@ -5769,7 +5770,7 @@ public class AnvilPlugin extends Plugin {
 		if (sidebarPanel != null) invokeLater(sidebarPanel::tileCompleted);
 		if (!config.teamCompletionBanner()) return false;
 		// A drop's own popup already showed it complete: no second popup, but the chat line still says so.
-		if (!locallyShownTiles.contains(tileId)) if (clogBanner.show("Anvil Bingo", "Tile complete!", label)) playBannerSound();
+		if (!locallyShownTiles.contains(tileId) && clogBanner.show("Anvil Bingo", "Tile complete!", label)) playBannerSound();
 		return true;
 	}
 
@@ -5821,7 +5822,8 @@ public class AnvilPlugin extends Plugin {
 				} else if (!locallyShownTiles.contains(t.tileId)) newlyDone.add(t);
 			}
 		}
-		if (anyDone && sidebarPanel != null) invokeLater(sidebarPanel::tileCompleted);
+		var sp = sidebarPanel;
+		if (anyDone && sp != null) invokeLater(sp::tileCompleted);
 		if (newlyDone.isEmpty() || !config.teamCompletionBanner() || cfg.quiet) return;
 		// Banner only the hardest (most points) tile this poll to avoid a burst of banners.
 		// A combo whose part this client just bannered ("Tile complete!" on the drop) has had its popup.
@@ -6221,8 +6223,9 @@ public class AnvilPlugin extends Plugin {
 	 */
 	void maybeKeepFlairBroadcast(ChatMessage event) {
 		if (!FLAIR_BROADCASTS.contains(event.getType()) || chatFlair.isEmpty() || !flairOn()) return;
-		var key = chatFlair.leadKey(event.getMessage());
-		if (key != null) flairBroadcasts.add(key);
+		var k = chatFlair.leadKey(event.getMessage());
+		if (k != null) flairBroadcasts.add(k);
+
 	}
 
 	/** Client thread: what was last seen and done to one chatbox line widget (by index). */
