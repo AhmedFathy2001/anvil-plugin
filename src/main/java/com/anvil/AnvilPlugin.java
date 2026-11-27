@@ -1857,6 +1857,10 @@ public class AnvilPlugin extends Plugin {
 			tripDue = client.getTickCount() + 2;
 			var n = pluginConfig == null ? null : pluginConfig.tripNames;
 			if (config.tripWarning()) tripOverlay.show(BingoApiClient.obj("title", "Checking " + (n != null && n.containsKey(region) ? n.get(region) : "your trip") + "…", "ok", "?"));
+		} else if (g == InterfaceID.BANKMAIN && tripAsked && tripDue < 0) {
+			// Banked again on the same trip: a trip card on screen checks again (no "Checking…" overlay).
+			tripAgain = true;
+			tripDue = client.getTickCount() + 1;
 		}
 		if (movedFrom != null && (g == InterfaceID.SHARED_BANK || g == InterfaceID.TRADEMAIN || g == InterfaceID.TRADECONFIRM)) movedTick = client.getTickCount() + 2;
 		for (int id : MOVE_INTERFACES) if (g == id) lastSuppressCloseTick = client.getTickCount();
@@ -4409,7 +4413,7 @@ public class AnvilPlugin extends Plugin {
 	// Asked outside them: entering one (then leaving) or 10 minutes ends that trip too.
 	volatile JsonObject stateSeen, stateSent;
 	volatile boolean tripArmed, tripOver;
-	boolean tripAsked, tripOut, tripInFight;
+	boolean tripAsked, tripAgain, tripOut, tripInFight;
 	/** The last answer's warn: its `fight` regions / `instance`, kept after the warning is gone. */
 	volatile JsonObject tripFight;
 	int tripDue = -1, tripAway;
@@ -4474,6 +4478,11 @@ public class AnvilPlugin extends Plugin {
 		}
 		if (tripDue < 0 || client.getTickCount() < tripDue) return;
 		tripDue = -1;
+		if (tripAgain) {
+			tripAgain = false;
+			if (sidebarPanel != null) sidebarPanel.tripRecheck();
+			return;
+		}
 		var args = Map.of("region", "" + region, "why", "bank-close");
 		var open = config.tripAutoOpen();
 		submit(() -> { if (sidebarPanel != null) sidebarPanel.showTrip(args, open); });

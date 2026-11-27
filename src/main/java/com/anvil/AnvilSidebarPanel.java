@@ -740,6 +740,16 @@ public class AnvilSidebarPanel extends PluginPanel {
 		});
 	}
 
+	/** The bank closed again on a trip already checked: a trip card on screen asks again, what is held pushed first. Any thread. */
+	void tripRecheck() {
+		invokeLater(() -> {
+			var l = lookupView.lastLoads.get("null");
+			if (l == null || !"trip".equals(l[0]) || !lookupView.isShowing()) return;
+			freshTrip = quietTrip = true;
+			lookupView.refresh(true);
+		});
+	}
+
 	/** The pre-trip check (AnvilPlugin.tripTick): Lookup's Guides pane shows the site's trip view. Any thread. */
 	void showTrip(Map<String, String> args, boolean open) {
 		freshTrip = true;
