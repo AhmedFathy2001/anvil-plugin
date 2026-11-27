@@ -143,7 +143,42 @@ public class AnvilPlugin extends Plugin {
 	PushSocket pushSocket;
 	// Every table a config reads (tiles, teams, events, seats, submissions, completions) pushes on
 	// change, and a (re)connect sends the team's view at once — so this is only a long safety net.
-	static final long PUSH_FALLBACK_MS = 600_000L;
+	static final long PUSH_FALLBACK_MS = 600_000L,
+	DEDUP_WINDOW_MS = 3_000,
+	CLOG_LOOT_DEDUP_MS = 5 * 60_000,
+	PVP_KILL_ATTRIBUTION_MS = 6_000,
+	PVP_MINLOOT_LOOT_WINDOW_MS = 20_000,
+	RARE_DEDUP_WINDOW_MS = 5_000,
+	// KC ticks per kill; wait out a streak before pushing. Even a long window beats hiscores' ~1h.
+	KC_PUSH_COALESCE_MS = 15_000,
+	/** Long enough for a kill's two loot events (and a pet's chat lines) to settle into one entry. */
+	MOMENT_PUSH_COALESCE_MS = 8_000,
+	// Gathering is a slow trickle (a catch every few seconds): catches are held per tile and sent
+	// together this long after the first, one POST per fishing stint rather than one per catch (the
+	// facts route allows 240 a minute). Not reset by later catches, so a non-stop gather still syncs.
+	GAIN_COALESCE_MS = 30_000,
+	TIMED_DEDUP_WINDOW_MS = 20_000,
+	// The duration line and the activity-identifying line are separate, adjacent chat messages,
+	// and the order varies (Inferno prints "Duration:" first; most others print the kill/completion
+	// count first). We buffer recent lines + a pending duration so either order resolves.
+	TIMED_CORRELATION_MS = 8_000,
+	// Where our title-bar buttons sit, measured from each bar's RIGHT edge. The collection log's
+	// close button ends at 28 and WikiSync's button takes 33..104, so we start after it; the clan
+	// window has only its close button, so we sit straight beside that.
+	// CLOG_BUTTON_OFFSET = 109, inlined at its one use.
+	// The slot WikiSync would occupy (33..104), taken when it is not running. Without this the far
+	// offset was unconditional and the button sat a slot-width from the close button with an empty
+	// gap between, reserved for a plugin that was not there.
+	// CLOG_BUTTON_NEAR_OFFSET = 33, inlined at its one use.
+	// CLAN_BUTTON_OFFSET = 33, inlined at its one use.
+	/** One fire per transmitted item: args[1] = item id, args[2] = quantity. */
+	// COLLECTION_DELAYED_TRANSMIT = 4100, inlined at its one use.
+	/** Re-initialises the log's own view, which closes the search we opened to trigger the transmit. */
+	// COLLECTION_INIT = 2240, inlined at its one use.
+	/** And no longer than this, so a transmit that yields nothing can't wedge the guard on. */
+	// CLOG_TRANSMIT_MAX_TICKS = 50, inlined at its one use.
+	/** Hard floor between two transmit requests, whatever the guard believes. */
+	CLOG_TRANSMIT_COOLDOWN_MS = 10_000L;
 	@Inject
 	StartSpotMarker startSpotMarker;
 	@Inject
@@ -301,7 +336,6 @@ public class AnvilPlugin extends Plugin {
 	// separate from the coalesce window below: dedup catches duplicate fire events;
 	// coalesce batches genuine repeated drops within a short window into one upload.
 	final Map<String, Long> lastSubmittedAt = new HashMap<>();
-	static final long DEDUP_WINDOW_MS = 3_000;
 
 	// Item ids credited by a REAL loot event (raid chest / NPC drop), with the time last seen. The
 	// collection-log-unlock credit path (creditClogUnlock) skips these so a raid-chest item that
@@ -311,20 +345,17 @@ public class AnvilPlugin extends Plugin {
 	final Map<Integer, Long> recentLootItemIds = new HashMap<>();
 	// The reverse order: a chat line credited first (a raid's unique at raid end), the chest's loot later.
 	final ChatCredits chatCredits = new ChatCredits();
-	static final long CLOG_LOOT_DEDUP_MS = 5 * 60_000;
 
 	// PvP-kill attribution — when a hitsplat we dealt lands on a player, remember it. If that
 	// player then dies within the window, we count it as our kill (avoids screenshotting random
 	// nearby deaths). Keyed by lowercased player name. Pruned on each kill check.
 	final Map<String, Long> lastDamagedPlayerAt = new HashMap<>();
-	static final long PVP_KILL_ATTRIBUTION_MS = 6_000;
 
 	// PvP min-loot tiles credit off the LOOT (priced at PlayerLootReceived), not the death — so a
 	// kill on a matching victim is parked here at death and consumed when its loot arrives and prices
 	// at/above the tile's floor. Keyed by lowercased victim RSN. Loot-key / no-loot kills never fire
 	// PlayerLootReceived, so their entry just expires and the min-loot tile isn't credited (intended).
 	final Map<String, Long> pendingMinLootKillAt = new HashMap<>();
-	static final long PVP_MINLOOT_LOOT_WINDOW_MS = 20_000;
 
 	// Rare-drop notification dedup — NpcLootReceived + LootReceived fire for the same NPC kill, so
 	// suppress a repeat post of the same item within a short window. Keyed by itemId.
@@ -334,7 +365,6 @@ public class AnvilPlugin extends Plugin {
 	// Name-keyed dedup so a prestige item isn't posted twice when both the loot event and the
 	// collection-log unlock message fire for it.
 	lastAllowlistNotifyAt = new HashMap<>();
-	static final long RARE_DEDUP_WINDOW_MS = 5_000;
 
 	/**
 	 * Fixed text the plugin ships with — the prestige allowlist and the quest tiers — loaded from anvil_text.json at startUp, which says what each list is for.
@@ -398,6 +428,12 @@ public class AnvilPlugin extends Plugin {
 		return RAIDS.stream().anyMatch(n::startsWith);
 	}
 
+	void kcLine(String name, int kc) {
+		lastKcName = name;
+		lastKcValue = kc;
+		lastKcAtMs = now();
+	}
+
 	/** Whether the last count line is still the one a drop or unlock now belongs to. */
 	boolean kcLineFresh() {
 		return lastKcName != null && (raidLineOpen || now() - lastKcAtMs <= 60_000L /* KC_ATTRIBUTION_WINDOW_MS */);
@@ -413,7 +449,65 @@ public class AnvilPlugin extends Plugin {
 	//   "Deep delves completed: 893"
 	// Package-private for KillCountLineTest.
 	// → chat-patterns.json "kc.deep_delves" (ChatPatterns).
-	static final String DOOM_BOSS_NAME = "Doom of Mokhaiotl";
+	static final String DOOM_BOSS_NAME = "Doom of Mokhaiotl",
+	// Slayer tasks, Doom delves, Tithe/Foundry points, Wintertodt rewards: read off varbits/varps
+	// (GameValueCounters, catalog on the site — lib/gameCounters). The names below are the chat-line
+	// counters, credited here.
+	//
+	// GOTR reward searches: one per "You found some loot:" inside the GOTR region (14484, as
+	// RuneLite's LootTrackerPlugin gates it) — under OUR name, so a "Guardians of the Rift" kill tile
+	// (the KC) never takes a search.
+	// GOTR_REGION = 14484, inlined at its one use.
+	GOTR_SEARCHES = "Guardians of the Rift searches",
+	// "Elemental energy attuned: 1. Catalytic energy attuned: 2." at the end of a GOTR game — the
+	// reward points earned that game (chat-patterns.json "counter.gotr_energy"); amount = N.
+	GOTR_ELEMENTAL = "GOTR elemental energy",
+	GOTR_CATALYTIC = "GOTR catalytic energy",
+	GOTR_ENERGY_TOTAL = "GOTR total energy",
+	// "You rummage through the offerings..." — one Vale Totems research point, five for the bulk
+	// "...five times" line (chat-patterns.json "counter.vale_offerings").
+	VALE_RESEARCH = "Vale research points",
+	// "As you complete the golem it leaves a gift on the ground for you:" — one per sunstone golem
+	// (chat-patterns.json "counter.sunstone_golem"). The "You have crafted X golems on Wyrmscraig."
+	// tally is deliberately NOT read, so a golem counts once.
+	SUNSTONE_GOLEMS = "Sunstone golems crafted",
+	/**
+	 * How stale the "what were we fighting" note may be and still name a killer.
+	 *
+	 * <p>Generous enough to cover a death you spent a few seconds losing, tight enough that the boss
+	 * you killed a minute ago doesn't get the credit for a Wilderness PKer.
+	 */
+	// Bumped whenever a shipped default changes in a way existing installs should adopt. RuneLite
+	// persists every setting the moment a plugin first runs, so a new default alone reaches nobody
+	// who has already used the plugin — the migration below is what actually moves them.
+	CFG_DEFAULTS_VERSION = "configDefaultsVersion",
+	// Vestige-rotation counts, per RSN ("boss=rolls:exact;…"). Per-account because the cycle is
+	// account state; a shared config key would smear an alt's rolls into the main's.
+	CFG_VESTIGE_ROLLS = "vestigeRolls",
+	/** The member's clan pick from the sidebar dropdown. "" (or absent) = Auto, let the site decide. */
+	CFG_ACTIVE_CLAN = "activeClan",
+	/** How many times a never-configured install has been told where to sign in. See SetupNudge. */
+	CFG_FIRST_RUN_NUDGES = "firstRunNudges",
+	/** Characters marked "Not my account" on this install (AccountOptOut digests). */
+	CFG_OPTED_OUT_ACCOUNTS = "optedOutAccounts",
+	/** Characters this install has already said "tracking X for your Anvil account" about, once. */
+	CFG_ANNOUNCED_ACCOUNTS = "announcedAccounts",
+	CFG_COUNTER_EVENT = "recapCounterEventId",
+	CFG_COUNTER_DEATHS = "recapCounterDeaths",
+	CFG_COUNTER_LOOTGP = "recapCounterLootGp",
+	CFG_COUNTER_PVP = "recapCounterPvpKills",
+	CFG_COUNTER_BIGHIT = "recapCounterBiggestHit",
+	CFG_COUNTER_MINUTES = "recapCounterMinutes",
+	CFG_COUNTER_CATASKS = "recapCounterCaTasks",
+	// ── Profile sync (collection log + personal bests) ──────────────────────────────────────
+	// Both are per-ACCOUNT facts, so their state keys carry the RSN the same way vestige rolls do —
+	// an alt's log must never be filed as the main's. What's stored is only what the server has
+	// already accepted, so a restart resumes instead of re-sending a log that hasn't moved.
+	CFG_CLOG_STATE = "clogSyncState",
+	CFG_PB_STATE = "pbSyncState",
+	/** Fingerprint of the last whole log we pushed, per RSN — so a relog doesn't re-send 1,700 items. */
+	CFG_CLOG_FINGERPRINT = "clogFingerprint",
+	CFG_PB_IMPORTED = "pbImportedFromRuneLite";
 	// A successful pickpocket: "You pick the man's pocket." The game's loot tracker reports the pocket
 	// as NPC loot in the same tick, so ServerNpcLoot can't tell it from a kill without this line.
 	// Same pattern and same-tick rule RuneLite's own loot tracker uses. Package-private for the test.
@@ -456,27 +550,6 @@ public class AnvilPlugin extends Plugin {
 	// Flag on a credit from a signal nobody has checked in game yet (site INFERRED_FLAGS): it counts,
 	// and staff see a "check" badge. Every unconfirmed game-value counter carries it.
 
-	// Slayer tasks, Doom delves, Tithe/Foundry points, Wintertodt rewards: read off varbits/varps
-	// (GameValueCounters, catalog on the site — lib/gameCounters). The names below are the chat-line
-	// counters, credited here.
-	//
-	// GOTR reward searches: one per "You found some loot:" inside the GOTR region (14484, as
-	// RuneLite's LootTrackerPlugin gates it) — under OUR name, so a "Guardians of the Rift" kill tile
-	// (the KC) never takes a search.
-	// GOTR_REGION = 14484, inlined at its one use.
-	static final String GOTR_SEARCHES = "Guardians of the Rift searches";
-	// "Elemental energy attuned: 1. Catalytic energy attuned: 2." at the end of a GOTR game — the
-	// reward points earned that game (chat-patterns.json "counter.gotr_energy"); amount = N.
-	static final String GOTR_ELEMENTAL = "GOTR elemental energy";
-	static final String GOTR_CATALYTIC = "GOTR catalytic energy";
-	static final String GOTR_ENERGY_TOTAL = "GOTR total energy";
-	// "You rummage through the offerings..." — one Vale Totems research point, five for the bulk
-	// "...five times" line (chat-patterns.json "counter.vale_offerings").
-	static final String VALE_RESEARCH = "Vale research points";
-	// "As you complete the golem it leaves a gift on the ground for you:" — one per sunstone golem
-	// (chat-patterns.json "counter.sunstone_golem"). The "You have crafted X golems on Wyrmscraig."
-	// tally is deliberately NOT read, so a golem counts once.
-	static final String SUNSTONE_GOLEMS = "Sunstone golems crafted";
 	// No trailing "(...)" in any counter name: the kill index drops a trailing parenthetical as a wiki
 	// qualifier (DropSource.inGameNpcName).
 
@@ -577,20 +650,28 @@ public class AnvilPlugin extends Plugin {
 	static final Pattern CHAT_TAG = Pattern.compile("<[^>]*>|@[A-Za-z0-9_]{1,20}@");
 
 	// Compiled once: these run per chat line, per XP drop and per LMS tick.
-	static final Pattern MARKUP_TAG = Pattern.compile("<[^>]*>");
-	static final Pattern NON_DIGIT = Pattern.compile("[^0-9]");
+	static final Pattern MARKUP_TAG = Pattern.compile("<[^>]*>"),
+	NON_DIGIT = Pattern.compile("[^0-9]"),
+	// Combat achievement task completion, e.g.
+	// "Congratulations, you've completed an Elite combat task: Whack-a-Mole."
+	// Package-visible for CombatTaskLineTest — CA bingo-tile crediting keys off this line.
+	// → chat-patterns.json "ca.task" (ChatPatterns).
+	// Trailing " (5 points)" appended when the in-game recompletion setting is on.
+	CA_TASK_POINTS = Pattern.compile("\\s*\\(\\d+ points?\\)$"),
+	// Quest-name extraction, ported from RuneLite's ScreenshotPlugin (BSD-2) — the scroll text
+	// varies: "You have completed The Corsair Curse!", "'One Small Favour' completed!",
+	// "Congratulations! You have defeated the Culinaromancer!" (RFD subquests), and the
+	// "kind of"/"completely" phrasings of Hazeel Cult and Rag and Bone Man.
+	QUEST_PATTERN_1 = Pattern.compile(
+			".+?ve\\.*? (?<verb>been|rebuilt|.+?ed)? ?(?:the )?'?(?<quest>.+?)'?(?: [Qq]uest)?[!.]?$"),
+	QUEST_PATTERN_2 = Pattern.compile(
+			"'?(?<quest>.+?)'?(?: [Qq]uest)? (?<verb>[a-z]\\w+?ed)?(?: f.*?)?[!.]?$");
 
 	/** A chat line with its styling removed, ready to parse. Null-safe: an absent line is "". */
 	static String stripChatTags(String msg) {
 		return msg == null ? "" : CHAT_TAG.matcher(msg).replaceAll("");
 	}
 
-	// Combat achievement task completion, e.g.
-	// "Congratulations, you've completed an Elite combat task: Whack-a-Mole."
-	// Package-visible for CombatTaskLineTest — CA bingo-tile crediting keys off this line.
-	// → chat-patterns.json "ca.task" (ChatPatterns).
-	// Trailing " (5 points)" appended when the in-game recompletion setting is on.
-	static final Pattern CA_TASK_POINTS = Pattern.compile("\\s*\\(\\d+ points?\\)$");
 	// Skill level-up, e.g. "Congratulations, you just advanced your Mining level. You are now
 	// level 99." Fires exactly once per level gained, so no dedup/baseline needed (unlike CA).
 	// Accepts the modern "your" and the older "a/an" phrasing.
@@ -617,14 +698,6 @@ public class AnvilPlugin extends Plugin {
 	// Session dedup — the scroll widget can reload (resizing, lag) without a new completion.
 	final Set<String> announcedQuests = new LinkedHashSet<>();
 
-	// Quest-name extraction, ported from RuneLite's ScreenshotPlugin (BSD-2) — the scroll text
-	// varies: "You have completed The Corsair Curse!", "'One Small Favour' completed!",
-	// "Congratulations! You have defeated the Culinaromancer!" (RFD subquests), and the
-	// "kind of"/"completely" phrasings of Hazeel Cult and Rag and Bone Man.
-	static final Pattern QUEST_PATTERN_1 = Pattern.compile(
-			".+?ve\\.*? (?<verb>been|rebuilt|.+?ed)? ?(?:the )?'?(?<quest>.+?)'?(?: [Qq]uest)?[!.]?$");
-	static final Pattern QUEST_PATTERN_2 = Pattern.compile(
-			"'?(?<quest>.+?)'?(?: [Qq]uest)? (?<verb>[a-z]\\w+?ed)?(?: f.*?)?[!.]?$");
 	static final List<String> RFD_TAGS = List.of("Another Cook", "freed", "defeated", "saved");
 	static final List<String> WORD_QUEST_IN_NAME_TAGS = List.of(
 			"Another Cook", "Doric", "Heroes", "Legends", "Observatory", "Olaf", "Waterfall");
@@ -724,8 +797,6 @@ public class AnvilPlugin extends Plugin {
 	// Debounce buffer: in-game boss name (as seen in chat) → latest ABSOLUTE kill count. Absolute
 	// counts are idempotent, so a kill streak collapses to a single push of the newest value.
 	final CoalescedPush kcPush = statPush("KC", false, b -> apiClient.submitStatKc(b));
-	// KC ticks per kill; wait out a streak before pushing. Even a long window beats hiscores' ~1h.
-	static final long KC_PUSH_COALESCE_MS = 15_000;
 
 	CoalescedPush statPush(String what, boolean onlyRises, CoalescedPush.Sender send) {
 		return new CoalescedPush(what, KC_PUSH_COALESCE_MS, onlyRises, () -> executor, this::statPushAllowed, send, this::refreshConfig);
@@ -768,34 +839,29 @@ public class AnvilPlugin extends Plugin {
 	ScheduledFuture<?> momentPushTask;
 	/** Failed moment pushes in a row; the retry wait doubles from MOMENT_PUSH_COALESCE_MS to 5 minutes. Guarded by `moments`. */
 	int momentFailures;
-	/** Long enough for a kill's two loot events (and a pet's chat lines) to settle into one entry. */
-	static final long MOMENT_PUSH_COALESCE_MS = 8_000;
-	/**
-	 * How stale the "what were we fighting" note may be and still name a killer.
-	 *
-	 * <p>Generous enough to cover a death you spent a few seconds losing, tight enough that the boss
-	 * you killed a minute ago doesn't get the credit for a Wilderness PKer.
-	 */
-	// Bumped whenever a shipped default changes in a way existing installs should adopt. RuneLite
-	// persists every setting the moment a plugin first runs, so a new default alone reaches nobody
-	// who has already used the plugin — the migration below is what actually moves them.
-	static final String CFG_DEFAULTS_VERSION = "configDefaultsVersion";
 	// 2: the notify settings moved to the site (moveNotifyPrefs).
-	static final int CURRENT_DEFAULTS_VERSION = 2;
+	static final int CURRENT_DEFAULTS_VERSION = 2,
+	// Ticks between safety re-reads. The varbit hook is what makes a finished clue land in seconds;
+	// this is the backstop for a counter that moves without one firing (or fires before login
+	// completes), which is cheap enough at one pass a minute to be worth not having to be sure.
+	ACTIVITY_POLL_TICKS = 100,
+	// OSRS lets a player change their name in game, without logging out, so the RSN stamped at login
+	// can go stale mid-session. Every request would then keep reporting the OLD name (with the right
+	// hash), the site would never see the rename, and the next roster sync would split the character
+	// into the dead name and a stranger holding the new one. Re-read it every few ticks.
+	NAME_CHECK_TICKS = 10,
+	// LOOTING-BAG CHEST LOOT. RuneLite's loot tracker reads a Larran's chest by diffing the INVENTORY
+	// around the "You have opened Larran's … chest" line, so whatever the game puts straight into an
+	// open looting bag never reaches its LootReceived — and so never reached any tile. We keep the
+	// bag's last known contents and, around that same line, credit what the bag gained. Only ever
+	// the bag's part: the inventory part still comes through RuneLite, so nothing counts twice.
+	// → chat-patterns.json "chest.larran" (ChatPatterns).
+	LOOTING_BAG_WATCH_TICKS = 5,
+	/** Fires once the collection log interface has finished setting itself up. */
+	COLLECTION_LOG_SETUP = 7797;
 
-	// Vestige-rotation counts, per RSN ("boss=rolls:exact;…"). Per-account because the cycle is
-	// account state; a shared config key would smear an alt's rolls into the main's.
-	static final String CFG_VESTIGE_ROLLS = "vestigeRolls";
-	/** The member's clan pick from the sidebar dropdown. "" (or absent) = Auto, let the site decide. */
-	static final String CFG_ACTIVE_CLAN = "activeClan";
 
-	/** How many times a never-configured install has been told where to sign in. See SetupNudge. */
-	static final String CFG_FIRST_RUN_NUDGES = "firstRunNudges";
 
-	/** Characters marked "Not my account" on this install (AccountOptOut digests). */
-	static final String CFG_OPTED_OUT_ACCOUNTS = "optedOutAccounts";
-	/** Characters this install has already said "tracking X for your Anvil account" about, once. */
-	static final String CFG_ANNOUNCED_ACCOUNTS = "announcedAccounts";
 
 	// The Account Token names whoever set this RuneLite up, not whoever is playing. Every character
 	// links by default; these two are the way out for a sibling or a visitor (see AccountOptOut).
@@ -803,23 +869,7 @@ public class AnvilPlugin extends Plugin {
 	/** One account action at a time from the panel; a double click is one request. */
 	volatile boolean accountActionRunning;
 
-	static final String CFG_COUNTER_EVENT = "recapCounterEventId";
-	static final String CFG_COUNTER_DEATHS = "recapCounterDeaths";
-	static final String CFG_COUNTER_LOOTGP = "recapCounterLootGp";
-	static final String CFG_COUNTER_PVP = "recapCounterPvpKills";
-	static final String CFG_COUNTER_BIGHIT = "recapCounterBiggestHit";
-	static final String CFG_COUNTER_MINUTES = "recapCounterMinutes";
-	static final String CFG_COUNTER_CATASKS = "recapCounterCaTasks";
 
-	// ── Profile sync (collection log + personal bests) ──────────────────────────────────────
-	// Both are per-ACCOUNT facts, so their state keys carry the RSN the same way vestige rolls do —
-	// an alt's log must never be filed as the main's. What's stored is only what the server has
-	// already accepted, so a restart resumes instead of re-sending a log that hasn't moved.
-	static final String CFG_CLOG_STATE = "clogSyncState";
-	static final String CFG_PB_STATE = "pbSyncState";
-	/** Fingerprint of the last whole log we pushed, per RSN — so a relog doesn't re-send 1,700 items. */
-	static final String CFG_CLOG_FINGERPRINT = "clogFingerprint";
-	static final String CFG_PB_IMPORTED = "pbImportedFromRuneLite";
 	/** Large teams are recorded as a RANGE, not a count — the buckets the raid chat itself prints. */
 	static final String[] PB_TEAM_BUCKETS = {
 		"5+ players", "10+ players", "11-15 players", "16-23 players", "24+ players",
@@ -901,16 +951,7 @@ public class AnvilPlugin extends Plugin {
 	// Debounced like KC; only a RISE over what was last sent goes out, so a varbit firing repeatedly
 	// with the same number doesn't re-send.
 	final CoalescedPush activityPush = statPush("Activity", true, b -> apiClient.submitStatActivities(b));
-	// Ticks between safety re-reads. The varbit hook is what makes a finished clue land in seconds;
-	// this is the backstop for a counter that moves without one firing (or fires before login
-	// completes), which is cheap enough at one pass a minute to be worth not having to be sure.
-	static final int ACTIVITY_POLL_TICKS = 100;
 	int activityPollCountdown = ACTIVITY_POLL_TICKS;
-	// OSRS lets a player change their name in game, without logging out, so the RSN stamped at login
-	// can go stale mid-session. Every request would then keep reporting the OLD name (with the right
-	// hash), the site would never see the rename, and the next roster sync would split the character
-	// into the dead name and a stranger holding the new one. Re-read it every few ticks.
-	static final int NAME_CHECK_TICKS = 10;
 	int nameCheckCountdown = NAME_CHECK_TICKS;
 	// Last seen HELD quantities (itemId → total across inventory + worn equipment). Null until
 	// the first snapshot after login/config load, so the baseline never counts as a gain. Worn
@@ -931,13 +972,6 @@ public class AnvilPlugin extends Plugin {
 		heldItemsDirty = false;
 	}
 
-	// LOOTING-BAG CHEST LOOT. RuneLite's loot tracker reads a Larran's chest by diffing the INVENTORY
-	// around the "You have opened Larran's … chest" line, so whatever the game puts straight into an
-	// open looting bag never reaches its LootReceived — and so never reached any tile. We keep the
-	// bag's last known contents and, around that same line, credit what the bag gained. Only ever
-	// the bag's part: the inventory part still comes through RuneLite, so nothing counts twice.
-	// → chat-patterns.json "chest.larran" (ChatPatterns).
-	static final int LOOTING_BAG_WATCH_TICKS = 5;
 	// THE CHEST'S OWN WORD FOR IT. The game only sends the looting bag's contents when the bag is
 	// looked at, so loot the chest drops into a CLOSED bag is invisible to the watch above — a
 	// Dagon'hai robe went uncounted that way. The game does name the item in the same tick ("X received
@@ -971,10 +1005,6 @@ public class AnvilPlugin extends Plugin {
 	Map<Integer, Integer> lootingBagBefore, lootingBagNow, lootingBagWatchBase;
 	int lootingBagChangedTick = -1, lootingBagWatchTicks;
 	String lootingBagWatchSource;
-	// Gathering is a slow trickle (a catch every few seconds): catches are held per tile and sent
-	// together this long after the first, one POST per fishing stint rather than one per catch (the
-	// facts route allows 240 a minute). Not reset by later catches, so a non-stop gather still syncs.
-	static final long GAIN_COALESCE_MS = 30_000;
 	ScheduledFuture<?> gainsFlush;
 	// Ground "Take" guard: picking your own drop back up looks like a gain. Skip crediting
 	// gains that land within a couple of ticks of a Take click.
@@ -1010,12 +1040,7 @@ public class AnvilPlugin extends Plugin {
 	// Per-tile dedup so one clear isn't submitted twice (the duration + identity lines correlate,
 	// and some content repeats either line). Parsing/matching lives in TimedClearParser (tested).
 	final Map<Integer, Long> lastTimedSubmittedAt = new HashMap<>();
-	static final long TIMED_DEDUP_WINDOW_MS = 20_000;
 
-	// The duration line and the activity-identifying line are separate, adjacent chat messages,
-	// and the order varies (Inferno prints "Duration:" first; most others print the kill/completion
-	// count first). We buffer recent lines + a pending duration so either order resolves.
-	static final long TIMED_CORRELATION_MS = 8_000;
 
 	@RequiredArgsConstructor
 	static class TimedMsg {
@@ -1155,8 +1180,7 @@ public class AnvilPlugin extends Plugin {
 		// goes out unaddressed and the sidebar shows whichever clan the token happens to resolve to,
 		// then jumps to theirs a few seconds later.
 		apiClient.setChosenClan(cfgGet(CFG_ACTIVE_CLAN));
-		overlayManager.add(overlay);
-		overlayManager.add(clogBanner);
+		List.of(overlay, clogBanner, startProofOverlay, tripOverlay).forEach(overlayManager::add);
 		invokeLater(() -> GradientLabel.watch(client.getCanvas() == null ? null : SwingUtilities.getWindowAncestor(client.getCanvas())));
 		// A count the site lowered (a deleted submission): the panel asks for its views again now,
 		// not at the 15s catch-up, so the old number doesn't sit on screen.
@@ -1176,8 +1200,6 @@ public class AnvilPlugin extends Plugin {
 			id -> later(() -> safely("tileTracker", () -> tileTracker.refresh(id)), TileTracker.DONE_LINGER_MS + 1_000),
 			this::boardChanged);
 		tileTracker.startUp();
-		overlayManager.add(startProofOverlay);
-		overlayManager.add(tripOverlay);
 
 		// Mount the always-on progress sidebar in the RuneLite toolbar.
 		sidebarNavButton = NavigationButton.builder().tooltip("Anvil progress")
@@ -1340,37 +1362,25 @@ public class AnvilPlugin extends Plugin {
 		clientThread.invoke(() -> {
 			var myName = getLocalPlayerName();
 			if (myName == null) return;
-			var settings = client.getClanSettings();
-			String clanName = null;
-			Integer rankValue = null;
-			String titleName = null;
-			LocalDate joined = null;
-			if (settings == null || settings.getName() == null) {
+			var s = client.getClanSettings();
+			var none = s == null || s.getName() == null;
+			if (none) {
 				if (++gameClanMissingChecks < 2) return;
-			} else {
-				gameClanMissingChecks = 0;
-				var self = settings.findMember(myName);
-				// Settings that don't list us yet are still loading.
-				if (self == null) return;
-				clanName = settings.getName();
-				var rank = self.getRank();
-				if (rank != null) {
-					rankValue = rank.getRank();
-					var title = settings.titleForRank(rank);
-					titleName = title != null ? title.getName() : null;
-				}
-				joined = self.getJoinDate();
-			}
-
-			var fingerprint = clanName == null ? "" : clanName + "|" + rankValue + "|" + titleName + "|" + joined;
+			} else gameClanMissingChecks = 0;
+			var self = none ? null : s.findMember(myName);
+			// Settings that don't list us yet are still loading.
+			if (!none && self == null) return;
+			var name = none ? null : s.getName();
+			var rank = none ? null : self.getRank();
+			Integer rankOut = rank == null ? null : rank.getRank();
+			var title = rank == null ? null : s.titleForRank(rank);
+			var titleOut = title == null ? null : title.getName();
+			var joined = none ? null : self.getJoinDate();
+			var fingerprint = none ? "" : name + "|" + rankOut + "|" + titleOut + "|" + joined;
 			if (fingerprint.equals(lastSentGameClan)) return;
-			var name = clanName;
-			var rankOut = rankValue;
-			var titleOut = titleName;
-			var joinedOut = joined;
 			submit(() -> {
 				try {
-					apiClient.submitGameClan(name, rankOut, titleOut, joinedOut);
+					apiClient.submitGameClan(name, rankOut, titleOut, joined);
 					lastSentGameClan = fingerprint;
 				} catch (IOException e) {
 					gameClanRetryAt = now() + 5 * 60_000L;
@@ -1457,15 +1467,12 @@ public class AnvilPlugin extends Plugin {
 		keyManager.unregisterKeyListener(eventChatKey);
 		clientThread.invokeLater(this::unflairAll);
 		invokeLater(() -> GradientLabel.watch(null));
-		overlayManager.remove(overlay);
-		overlayManager.remove(clogBanner);
+		List.of(overlay, clogBanner, startProofOverlay, tripOverlay).forEach(overlayManager::remove);
 		if (chatFlairTooltip != null) {
 			overlayManager.remove(chatFlairTooltip);
 			chatFlairTooltip = null;
 		}
 		tileTracker.shutDown();
-		overlayManager.remove(startProofOverlay);
-		overlayManager.remove(tripOverlay);
 		clientThread.invokeLater(startSpotMarker::clear);
 		clientThread.invokeLater(this::bankTagGone);
 		// OUR WIDGETS ARE OURS TO CLEAR. Disabling the plugin left the buttons sitting in the game's
@@ -1642,7 +1649,7 @@ public class AnvilPlugin extends Plugin {
 			statsSettleTicks = 0; // the table is still arriving — restart the quiet count
 			return;
 		}
-		Me me = me();
+		var me = me();
 		if (me == null || !me.levels) return;
 		var prev = lastSkillLevel.put(skill, level);
 		if (prev == null) {
@@ -1750,20 +1757,18 @@ public class AnvilPlugin extends Plugin {
 		// Waiting on it left the sidebar looking dead for up to POLL_INTERVAL_MS (15s): the token
 		// was live, the cache filled ~1s later, but the panel only repaints on its own timer. Fetch
 		// now and poke the panel when it lands.
-		if ("playerToken".equals(key)) refreshNowAndRepaint();
+		var token = "playerToken".equals(key);
+		if (token) refreshNowAndRepaint();
 		else scheduleRefresh();
-
-		if ("syncClanCoffer".equals(key)) {
-			// Enabling starts with a fresh baseline; changes made while opted out must not be
-			// replayed as one large movement when the setting comes back on.
-			resetCoffer(clanCofferOpen);
-		}
+		// Enabling starts with a fresh baseline; changes made while opted out must not be
+		// replayed as one large movement when the setting comes back on.
+		if ("syncClanCoffer".equals(key)) resetCoffer(clanCofferOpen);
 		// Setup pasted mid-session (the typical first install: enable the plugin while
 		// logged in, then sign in or paste the Account Token): stamp the RSN/account hash and
 		// greet now, since no LOGGED_IN transition will fire to do it. Reset the admin
 		// probe so a new token gets re-checked. The single-threaded executor runs this
 		// before the debounced refresh, so that refresh already carries the headers.
-		if ("playerToken".equals(key) && loggedIn() && execLive()) {
+		if (token && loggedIn() && execLive()) {
 			adminProbeAttempted = false;
 			setupWarned = false; // re-evaluate setup after a token edit
 			submit(this::stampIdentityAndGreet);
@@ -1814,7 +1819,7 @@ public class AnvilPlugin extends Plugin {
 				tripAt = now() + 600_000;
 				tripContent = cox ? "cox" : null;
 				var n = pluginConfig == null ? null : pluginConfig.tripNames;
-				if (config.tripWarning()) tripOverlay.show(BingoApiClient.obj("title", "Checking " + (cox ? "CoX" : n != null && n.containsKey(region) ? n.get(region) : "your trip") + "…", "ok", "?"));
+				if (config.tripWarning()) tripOverlay.show(obj("title", "Checking " + (cox ? "CoX" : n != null && n.containsKey(region) ? n.get(region) : "your trip") + "…", "ok", "?"));
 			} else tripAgain = true;
 			tripDue = client.getTickCount() + (tripAgain ? 1 : 2);
 		}
@@ -1877,25 +1882,6 @@ public class AnvilPlugin extends Plugin {
 	// Opening the collection log and toggling its Search makes the SERVER transmit every entry, one
 	// script fire per item — the whole log without the player clicking a single page.
 
-	/** Fires once the collection log interface has finished setting itself up. */
-	static final int COLLECTION_LOG_SETUP = 7797;
-	// Where our title-bar buttons sit, measured from each bar's RIGHT edge. The collection log's
-	// close button ends at 28 and WikiSync's button takes 33..104, so we start after it; the clan
-	// window has only its close button, so we sit straight beside that.
-	// CLOG_BUTTON_OFFSET = 109, inlined at its one use.
-	// The slot WikiSync would occupy (33..104), taken when it is not running. Without this the far
-	// offset was unconditional and the button sat a slot-width from the close button with an empty
-	// gap between, reserved for a plugin that was not there.
-	// CLOG_BUTTON_NEAR_OFFSET = 33, inlined at its one use.
-	// CLAN_BUTTON_OFFSET = 33, inlined at its one use.
-	/** One fire per transmitted item: args[1] = item id, args[2] = quantity. */
-	// COLLECTION_DELAYED_TRANSMIT = 4100, inlined at its one use.
-	/** Re-initialises the log's own view, which closes the search we opened to trigger the transmit. */
-	// COLLECTION_INIT = 2240, inlined at its one use.
-	/** And no longer than this, so a transmit that yields nothing can't wedge the guard on. */
-	// CLOG_TRANSMIT_MAX_TICKS = 50, inlined at its one use.
-	/** Hard floor between two transmit requests, whatever the guard believes. */
-	static final long CLOG_TRANSMIT_COOLDOWN_MS = 10_000L;
 
 	@Subscribe
 	void onScriptPostFired(ScriptPostFired event) {
@@ -2612,10 +2598,7 @@ public class AnvilPlugin extends Plugin {
 		// token to a clan_member; firing it with no account hash turns a safe first-use merge into a
 		// manual verification suggestion. Retry either incomplete value a few times so the ordinary
 		// path really does resolve and merge on login.
-		if (!identityReady(rsn, accountHash)
-				&& loggedIn()
-				&& execLive()
-				&& identityStampRetries < 5 /* MAX_IDENTITY_STAMP_RETRIES */) {
+		if (!identityReady(rsn, accountHash) && loggedIn() && execLive() && identityStampRetries < 5 /* MAX_IDENTITY_STAMP_RETRIES */) {
 			identityStampRetries++;
 			later(this::stampIdentityAndGreet, 2000);
 			return;
@@ -2878,9 +2861,7 @@ public class AnvilPlugin extends Plugin {
 			// guest" as a claim about them, and it is a claim about them IN ONE CLAN — true there and
 			// irrelevant to the clan they run. Without the name it cannot be told apart from a wrong
 			// answer, which is exactly how it was read.
-			var where = empty(resp.clanName) ? "" : " in " + resp.clanName;
-			sendChatMessage("Tracked as a guest" + where
-					+ " — a clan admin can promote you to member on the site.");
+			sendChatMessage("Tracked as a guest" + (empty(resp.clanName) ? "" : " in " + resp.clanName) + " — a clan admin can promote you to member on the site.");
 		}
 
 		sendBrief();
@@ -2954,17 +2935,13 @@ public class AnvilPlugin extends Plugin {
 		// Covers raid chests, clue caskets, barrows, implings, AND opened loot keys.
 		// We classify the source so per-tile filters can reject drops from the wrong
 		// place (e.g. a "CoX Dragon claws" tile shouldn't credit a PK loot key).
-		var kind = "event"; // raid chests / barrows / wt / clues
-		switch (event.getType()) {
-			case NPC: kind = "npc"; break;
-			case PLAYER: kind = "pvp"; break;
-			case PICKPOCKET: kind = "pickpocket";
-		}
+		var type = event.getType();
 		// A Wilderness loot key ("Loot Chest") holds PK loot, but RuneLite reports opening it as an
 		// EVENT (like a raid chest), not a PLAYER kill. Without this override it dodges the "PvP loot
 		// rejected by default" drop-tile guard, so PK'd items (dragon boots, berserker ring, …) wrongly
 		// credit PvM drop tiles. Treat key contents as pvp: PvM tiles reject them, pvp/value tiles keep them.
-		if (isLootKeyEvent(event.getName())) kind = "pvp";
+		var kind = isLootKeyEvent(event.getName()) || type == LootRecordType.PLAYER ? "pvp" : type == LootRecordType.NPC ? "npc"
+				: type == LootRecordType.PICKPOCKET ? "pickpocket" : "event"; // else raid chests / barrows / wt / clues
 		// Clue caskets arrive under RuneLite's casket/trail name, which varies by version
 		// ("Reward Casket (Master)" / "Master Treasure Trail" / "Clue Scroll (Master)"); fold them all
 		// to the "Clue Scroll (Tier)" the source picker offers so a clue-restricted drop tile matches.
@@ -2975,7 +2952,7 @@ public class AnvilPlugin extends Plugin {
 		// "any Nightmare unique" tile and posted a 94m rare drop. Nothing worn a tick ago is loot.
 		// Same for a searched bird nest: a Lightbearer taken off as the nest opened posted as a 3m drop.
 		List<ItemStack> items = new ArrayList<>(event.getItems());
-		if (isInventoryDiffLoot(source, event.getType())) {
+		if (isInventoryDiffLoot(source, type)) {
 			var worn = new HashSet<>(lastWornItemIds);
 			worn.addAll(wornItemIds());
 			items = withoutWorn(items, worn);
@@ -3057,7 +3034,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	void processValueTiles(String source, Collection<ItemStack> items, String sourceKind) {
 		if (trackingGateReason() != null || empty(items)) return;
-		// A clue casket is valued by the game's own "worth around" line (clueWorth), not live prices.
+		// A clue casket is valued by the game's own "worth around" line (onChatMessage), not live prices.
 		if (source != null && source.startsWith("Clue Scroll (")) return;
 		var gp = haulValue(items);
 		// One kill reaches us twice (ServerNpcLoot / NpcLootReceived, then LootReceived): one haul.
@@ -3066,11 +3043,6 @@ public class AnvilPlugin extends Plugin {
 
 	String clueTier;
 
-	/** A clue casket's value as the game states it (GE guide prices): what loot-value tiles count. */
-	void clueWorth(String source, long gp) {
-		clueTier = null;
-		if (trackingGateReason() == null && claim(lastSubmittedAt, "value:" + source + ":" + gp, now(), DEDUP_WINDOW_MS)) emit(rules.value(source, "event", gp));
-	}
 
 	/** GE value of a whole haul. Client thread only (itemManager.getItemPrice). */
 	long haulValue(Collection<ItemStack> items) {
@@ -3120,17 +3092,17 @@ public class AnvilPlugin extends Plugin {
 		var actor = event.getActor();
 		var self = client.getLocalPlayer();
 		if (actor == self || ourHit.isMine()) tripOverlay.warn = null; // combat: never a warning up during it
+		if (ourHit == null) return;
 		// Damage TAKEN — the clock a death is attributed against. ANY hit landing on us counts: the
 		// game draws damage we take with the "me" hitsplats and poison / venom / disease with their
 		// own, so testing isOthers() (damage by another player) missed nearly every hit and every
 		// poison tick, and deaths went out with no killer ("Died" to a Hydra that poisoned us). A
 		// mechanic with nobody behind it counts too: the point is when we were last hurt, and whether
 		// anything had us targeted at the time is decided at death. Heals aren't damage.
-		if (ourHit != null && ourHit.getAmount() > 0 && ourHit.getHitsplatType() != HitsplatID.HEAL
-				&& actor == self) deathAttribution.tookDamage(now());
+		if (ourHit.getAmount() > 0 && ourHit.getHitsplatType() != HitsplatID.HEAL && actor == self) deathAttribution.tookDamage(now());
 		// Biggest hit of the event — a recap superlative, so it counts every hit we land on anything,
 		// player or NPC, and is independent of the PvP gates below. One int compare per hitsplat.
-		if (ourHit != null && ourHit.isMine() && ourHit.getAmount() > 0) {
+		if (ourHit.isMine() && ourHit.getAmount() > 0) {
 			recordEventHit(ourHit.getAmount());
 			// Remember WHAT we're fighting, which a death is later attributed against. One field
 			// write per landed hit.
@@ -3148,10 +3120,8 @@ public class AnvilPlugin extends Plugin {
 		// reference checks on the client thread. (Loot-key kills produce no reliable chat/loot
 		// signal — the kill message is a random taunt pool and PlayerLootReceived never fires since
 		// the loot goes into a key, not onto the ground — so damage→death is the signal we use.)
-		Me me = me();
-		if ((me == null || !me.pvp) && !hasPvpTiles() && !pvpCounterActive()) return;
-		if (ourHit == null || !ourHit.isMine()) return;
-		if (!(actor instanceof Player) || actor == self) return;
+		var me = me();
+		if ((me == null || !me.pvp) && !hasPvpTiles() && !pvpCounterActive() || !ourHit.isMine() || !(actor instanceof Player) || actor == self) return;
 		var name = actor.getName();
 		if (empty(name)) return;
 		synchronized (lastDamagedPlayerAt) {
@@ -3278,14 +3248,13 @@ public class AnvilPlugin extends Plugin {
 		if (ct == GAMEMESSAGE && config.shareSeasonal() && WorldInfo.separateSave(client.getWorldType())) modeLines.offer(msg, now());
 		if (ct == GAMEMESSAGE || ct == SPAM || ct == TRADE) watchLine(plain);
 		// A death with no ActorDeath behind it (doomed in the Colosseum) still prints the game's own line.
-		if (ct == GAMEMESSAGE && plain.startsWith("You enter the Theatre of Blood"))
-			tobMode = plain.contains("Entry Mode") ? "entry" : plain.contains("Hard Mode") ? "hard" : "normal";
+		if (ct == GAMEMESSAGE && plain.startsWith("You enter the Theatre of Blood")) tobMode = plain.contains("Entry Mode") ? "entry" : plain.contains("Hard Mode") ? "hard" : "normal";
 		if (ct == GAMEMESSAGE && plain.equals("Oh dear, you are dead!") && now() - ownDeathAt > 15_000) ownDeath();
 
 		// The widget tracker still uses a line naming this player to attribute its own readings.
 		// Player-authored channels are excluded so typing a sentence cannot name oneself as actor.
 		if (!PLAYER_AUTHORED_CHAT.contains(ct)) {
-			var line = BingoApiClient.obj("tick", client.getTickCount(), "type", ct.name(), "text", msg);
+			var line = obj("tick", client.getTickCount(), "type", ct.name(), "text", msg);
 			synchronized (recentChat) {
 				recentChat.addLast(line);
 				if (recentChat.size() > 30) recentChat.removeFirst();
@@ -3304,18 +3273,17 @@ public class AnvilPlugin extends Plugin {
 			//             Maggot King." — fallback for members whose in-game loot-notification
 			//             setting is off; guests outside the clan rely on the personal line.
 			var stripped = MARKUP_TAG.matcher(msg).replaceAll("");
-			if (ChatPatterns.full("pickpocket", stripped) != null) pickpocketTick = client.getTickCount();
+			if (full("pickpocket", stripped) != null) pickpocketTick = client.getTickCount();
 			noteChestDropLine(stripped);
 			// LMS win: the line arrives as the game ends, with BR_INGAME up or just cleared.
-			if (ChatPatterns.full("lms.victory", stripped.trim()) != null && !lmsPlacementRecorded
-					&& (lmsInGame || client.getTickCount() - lmsEndedTick <= 5)) recordLmsPlacement(1);
-			var larran = ChatPatterns.full("chest.larran", stripped);
+			if (full("lms.victory", stripped.trim()) != null && !lmsPlacementRecorded && (lmsInGame || client.getTickCount() - lmsEndedTick <= 5)) recordLmsPlacement(1);
+			var larran = full("chest.larran", stripped);
 			if (larran != null) onLarranChestOpened(larran.group("size"));
-			if (ChatPatterns.mayMatch("drop.clan_broadcast", msg) || ChatPatterns.mayMatch("drop.personal", msg)) {
+			if (mayMatch("drop.clan_broadcast", msg) || mayMatch("drop.personal", msg)) {
 				// Each line shape matches exactly one of the two patterns (DropNotificationLineTest
 				// pins this down both ways), so a single chat line can never credit twice here.
-				var drop = ChatPatterns.full("drop.clan_broadcast", stripped);
-				if (drop == null) drop = ChatPatterns.full("drop.personal", stripped);
+				var drop = full("drop.clan_broadcast", stripped);
+				if (drop == null) drop = full("drop.personal", stripped);
 				if (drop != null) creditDropFromChat(drop.group("rsn"), drop.group("qty"), drop.group("item"), drop.group("source"));
 			}
 
@@ -3330,8 +3298,7 @@ public class AnvilPlugin extends Plugin {
 			//
 			// Only ever acted on for the LOCAL player: a clanmate's unlock is their own client's to
 			// report, and posting it from here would file their slot under this account.
-			if (msg.contains("funny feeling like") || msg.contains("sneaking into")
-					|| msg.contains("acquired something special")) {
+			if (msg.contains("funny feeling like") || msg.contains("sneaking into") || msg.contains("acquired something special")) {
 				var petBroadcast = CLAN_PET_BROADCAST_PATTERN.matcher(plain);
 				if (petBroadcast.matches() && Rsn.same(petBroadcast.group(1), getLocalPlayerName())) {
 					var pet = claimPetName(petBroadcast.group(2).trim());
@@ -3342,8 +3309,8 @@ public class AnvilPlugin extends Plugin {
 					}
 				}
 			}
-			if (ChatPatterns.mayMatch("clog.clan_broadcast", msg)) {
-				var clogBroadcast = ChatPatterns.full("clog.clan_broadcast", plain);
+			if (mayMatch("clog.clan_broadcast", msg)) {
+				var clogBroadcast = full("clog.clan_broadcast", plain);
 				if (clogBroadcast != null && Rsn.same(clogBroadcast.group("rsn"), getLocalPlayerName())) handleClogUnlock(clogBroadcast.group("item").trim());
 			}
 		}
@@ -3377,9 +3344,7 @@ public class AnvilPlugin extends Plugin {
 				int kc = Integer.parseInt(kcMatcher.group("count").replace(",", ""));
 				killCounts.put(kcKey, kc);
 				tripEnd(false);
-				lastKcName = kcName;
-				lastKcValue = kc;
-				lastKcAtMs = now();
+				kcLine(kcName, kc);
 				var view = client.getTopLevelWorldView();
 				raidLineOpen = isRaidLine(kcName) && view != null && view.isInstance();
 				creditBossKillFromChat(kcName, firstSeen);
@@ -3401,9 +3366,7 @@ public class AnvilPlugin extends Plugin {
 			try {
 				int kc = Integer.parseInt(delveMatcher.group("count").replace(",", ""));
 				raidLineOpen = false;
-				lastKcName = DOOM_BOSS_NAME;
-				lastKcValue = kc;
-				lastKcAtMs = now();
+				kcLine(DOOM_BOSS_NAME, kc);
 				maybeQueueKcPush(DOOM_BOSS_NAME, kc);
 			} catch (NumberFormatException ignored) {
 			}
@@ -3425,18 +3388,19 @@ public class AnvilPlugin extends Plugin {
 		var clueTierLine = find("clue.tier", plain);
 		if (clueTierLine != null) clueTier = clueTierLine.group("tier");
 		var worth = find("clue.worth", plain);
-		if (worth != null && clueTier != null) clueWorth(normalizeClueSource("clue scroll " + clueTier), parseCount(worth.group("gp")));
+		if (worth != null && clueTier != null) {
+			// A clue's reward value, once per casket (the tier line names which).
+			var source = normalizeClueSource("clue scroll " + clueTier);
+			long gp = parseCount(worth.group("gp"));
+			clueTier = null;
+			if (trackingGateReason() == null && claim(lastSubmittedAt, "value:" + source + ":" + gp, now(), DEDUP_WINDOW_MS)) emit(rules.value(source, "event", gp));
+		}
 		var pc = find("counter.pest_control_win", plain);
 		if (pc != null && !trackingOff()) emit(rules.kill(Map.of("Pest Control games won" /* PC_WINS */, 1, "Pest Control points" /* PC_POINTS */, parseCount(pc.group("points"))), null, null));
 		var energy = find("counter.gotr_energy", plain);
 		if (energy != null) {
-			int elemental = parseCount(energy.group("elemental"));
-			int catalytic = parseCount(energy.group("catalytic"));
-			var amounts = new HashMap<String, Integer>();
-			amounts.put(GOTR_ELEMENTAL, elemental);
-			amounts.put(GOTR_CATALYTIC, catalytic);
-			amounts.put(GOTR_ENERGY_TOTAL, elemental + catalytic);
-			if (!trackingOff()) emit(rules.kill(amounts, null, null));
+			int elemental = parseCount(energy.group("elemental")), catalytic = parseCount(energy.group("catalytic"));
+			if (!trackingOff()) emit(rules.kill(Map.of(GOTR_ELEMENTAL, elemental, GOTR_CATALYTIC, catalytic, GOTR_ENERGY_TOTAL, elemental + catalytic), null, null));
 		}
 		// (PvP-kill tiles are credited off the victim's death in onActorDeath — damage-attributed,
 		// so it works for loot-key kills where no reliable "you defeated X" chat line exists.)
@@ -3491,7 +3455,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		// Level milestones. The level-up message fires once when the level is reached, so no
 		// varbit/baseline dance needed.
-		Me me = me();
+		var me = me();
 		if (me != null && me.levels && !statsUnsettled && !statsAreArtificial()) {
 			var lvl = find("level.up", plain);
 			if (lvl != null) {
