@@ -21,7 +21,7 @@ import javax.swing.*;
 @RequiredArgsConstructor
 class GlyphIcon implements Icon {
 	enum Shape {
-		CHEVRON_LEFT, CHEVRON_RIGHT, CHEVRON_DOWN, EXTERNAL, CHECK, CLOSE, ELLIPSIS, GEAR, STAR, UP, DOWN, QUILL, QUILL_STAR
+		CHEVRON_LEFT, CHEVRON_RIGHT, CHEVRON_DOWN, EXTERNAL, CHECK, CLOSE, ELLIPSIS, GEAR, STAR, UP, DOWN, QUILL, QUILL_STAR, LOCK, UNLOCK
 	}
 
 	final Shape shape;
@@ -106,6 +106,18 @@ class GlyphIcon implements Icon {
 					p.quadTo(s * .22, s * .2, s * .18, s * .92);
 					p.quadTo(s * .74, s * .62, s * .88, s * .08);
 					g.fill(p);
+					break;
+				case LOCK:
+				case UNLOCK:
+					// A padlock: a trip held on one boss (closed) or free to follow the bank (open, shackle lifted).
+					g.fill(new java.awt.geom.RoundRectangle2D.Double(s * .18, s * .46, s * .64, s * .46, s * .12, s * .12));
+					var lift = shape == Shape.UNLOCK ? .14 : 0;
+					p.moveTo(s * .32, s * (.46 - lift));
+					p.lineTo(s * .32, s * (.3 - lift));
+					p.quadTo(s * .32, s * (.08 - lift), s * .5, s * (.08 - lift));
+					p.quadTo(s * .68, s * (.08 - lift), s * .68, s * (.3 - lift));
+					if (lift == 0) p.lineTo(s * .68, s * .46);
+					g.draw(p);
 					break;
 				case UP:
 				case DOWN:

@@ -1616,7 +1616,7 @@ class UiView extends JPanel {
 		"external", EXTERNAL, "close", CLOSE, "star", STAR, "up", UP, "down", DOWN);
 
 	static GlyphIcon.Shape glyph(String g) {
-		return QUILLS.containsKey(g) ? g.endsWith("star") ? QUILL_STAR : QUILL : GLYPHS.get(g);
+		return QUILLS.containsKey(g) ? g.endsWith("star") ? QUILL_STAR : QUILL : "lock".equals(g) ? LOCK : "unlock".equals(g) ? UNLOCK : GLYPHS.get(g);
 	}
 
 	static Skill skill(String key) {
