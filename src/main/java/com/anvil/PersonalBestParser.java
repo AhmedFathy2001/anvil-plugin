@@ -34,18 +34,11 @@ class PersonalBestParser {
 		int marker = lower.indexOf("personal best");
 		if (marker < 0) return null;
 
-		// "Personal best: <time>" — read the time AFTER the label, and only that one.
 		var explicit = EXPLICIT.matcher(lower);
-		if (explicit.find(marker)) {
-			var time = TIME.matcher(lower);
-			if (time.find(explicit.end())) return toCentis(time);
-			return null;
-		}
-
-		// "(new personal best)" — this run IS the best, so the line's own duration is the number.
 		var time = TIME.matcher(lower);
-		if (time.find()) return toCentis(time);
-		return null;
+		// "Personal best: <time>" — read the time AFTER the label, and only that one. Else "(new
+		// personal best)" — this run IS the best, so the line's own duration is the number.
+		return (explicit.find(marker) ? time.find(explicit.end()) : time.find()) ? toCentis(time) : null;
 	}
 
 	static Integer toCentis(Matcher m) {
@@ -54,9 +47,7 @@ class PersonalBestParser {
 			var fraction = m.group(4);
 			if (fraction != null) {
 				// ".3" is three tenths — pad to hundredths rather than reading it as three.
-				centis += fraction.length() == 1
-					? Integer.parseInt(fraction) * 10
-					: Integer.parseInt(fraction);
+				centis += Integer.parseInt(fraction) * (fraction.length() == 1 ? 10 : 1);
 			}
 			return centis > 0 ? centis : null;
 		} catch (NumberFormatException e) {

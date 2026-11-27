@@ -3,7 +3,6 @@ package com.anvil;
 import lombok.*;
 import java.util.function.*;
 
-
 /**
  * Keeps {@link ChatFlair} at the site's version. A socket delta for the
  * version we hold is applied in place, no request; anything else — a missed message, a reconnect, a
@@ -26,7 +25,6 @@ class ChatFlairSync {
 		void schedule(Runnable r, long ms);
 	}
 
-
 	final ChatFlair flair;
 	final Source source;
 	final Scheduler scheduler;
@@ -35,12 +33,10 @@ class ChatFlairSync {
 	final Runnable changed;
 	boolean pending;
 
-
 	/** A {"t":"flair"} push: applied if it follows our version, else a jittered catch-up. */
 	void pushed(ChatFlair.Wire d) {
-		if (flair.apply(d)) {
-			changed.run();
-		} else if (d == null || d.v != flair.version() || d.v == 0) soon();
+		if (flair.apply(d)) changed.run();
+		else if (d == null || d.v != flair.version() || d.v == 0) soon();
 	}
 
 	/** Catch up after the jitter; several asks before it runs are one. */
@@ -68,9 +64,7 @@ class ChatFlairSync {
 			return;
 		}
 		var moved = false;
-		if (s.deltas != null) {
-			for (var d : s.deltas) moved |= flair.apply(d);
-		}
+		if (s.deltas != null) for (var d : s.deltas) moved |= flair.apply(d);
 		if (flair.version() != s.v || s.n != null && s.n >= 0 && flair.size() != s.n) moved |= flair.adopt(source.full(s.v));
 		if (moved) changed.run();
 	}

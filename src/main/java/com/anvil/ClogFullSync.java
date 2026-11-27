@@ -64,10 +64,7 @@ class ClogFullSync {
 	 * and enough items landed to be a log rather than a fragment.
 	 */
 	boolean isDue(long now) {
-		return receiving
-			&& lastItemAt > 0
-			&& items.size() >= MIN_ITEMS
-			&& now - lastItemAt >= QUIET_MS;
+		return receiving && lastItemAt > 0 && items.size() >= MIN_ITEMS && now - lastItemAt >= QUIET_MS;
 	}
 
 	/** Everything received, as an unmodifiable snapshot. Does not clear — see {@link #onSent}. */

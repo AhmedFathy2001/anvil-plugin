@@ -32,7 +32,7 @@ class ModeLines {
 	/** The batch once it has waited FLUSH_MS, else null. */
 	synchronized List<String> drain(long nowMs) {
 		if (pending.isEmpty() || nowMs - firstAt < FLUSH_MS) return null;
-		List<String> out = new ArrayList<>(pending);
+		var out = new ArrayList<>(pending);
 		pending.clear();
 		return out;
 	}

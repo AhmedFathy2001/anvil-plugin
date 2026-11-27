@@ -21,7 +21,6 @@ public enum CombatAchievementTier {
 
 	@Getter final int thresholdVarbitId;
 
-
 	/** "Easy" … "Grandmaster". */
 	String getDisplayName() {
 		return name().charAt(0) + name().substring(1).toLowerCase(Locale.ROOT);
@@ -34,9 +33,7 @@ public enum CombatAchievementTier {
 	/** Resolves the tier from the word used in the completion message ("easy", "elite", …). */
 	static CombatAchievementTier byName(String name) {
 		if (name == null) return null;
-		for (var t : values()) {
-			if (t.name().equalsIgnoreCase(name)) return t;
-		}
+		for (var t : values()) if (t.name().equalsIgnoreCase(name)) return t;
 		return null;
 	}
 }
