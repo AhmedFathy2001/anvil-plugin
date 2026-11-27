@@ -8694,10 +8694,9 @@ public class AnvilPlugin extends Plugin {
 		var me = me();
 		if (me == null || !me.deaths) return;
 		// The site words the post (the person's death message, or now and then a fun one).
-		var facts = facts("death")
-				.put("source", death.source).put("sourceKind", death.sourceKind);
+		var facts = facts("death").put("source", death.source).put("sourceKind", death.sourceKind);
 		if (death.pile > 0) facts.put("pile", death.pile);
-		captureFrameAsync(png -> apiClient.postNotification("deaths", null, facts, png, "anvil-death.png"));
+		postWithScreenshot("deaths", facts, "anvil-death.png");
 	}
 
 	@Subscribe
@@ -8732,26 +8731,20 @@ public class AnvilPlugin extends Plugin {
 		// ours; the Player gives the victim name for the roster / RSN-bounty match. Consumed once
 		// so a single death credits once. Caveat: if two attackers both damaged the victim, both
 		// credit — the baked screenshot is the audit trail.
-		if (actor instanceof Player) {
-			var vname = name;
-			if (named) {
-				var now = now();
-				boolean ours;
-				synchronized (lastDamagedPlayerAt) {
-					lastDamagedPlayerAt.values().removeIf(t -> (now - t) > PVP_KILL_ATTRIBUTION_MS);
-					var last = lastDamagedPlayerAt.remove(vname.toLowerCase());
-					ours = last != null && (now - last) <= PVP_KILL_ATTRIBUTION_MS;
-				}
-				if (ours) {
-					// Recap counter first: ANY dangerous-PvP kill feeds the PKer superlative,
-					// pvp tiles on the board or not. Tile credit + notify keep their own gates.
-					if (inDangerousPvp()) bumpEventCounter(() -> eventPvpKills++);
-					creditPvpKillTiles(vname);
-					var me = me();
-					if (me != null && me.pvp) notifyPvpKill(vname);
-				}
-			}
+		if (!(actor instanceof Player) || !named) return;
+		var now = now();
+		Long last;
+		synchronized (lastDamagedPlayerAt) {
+			lastDamagedPlayerAt.values().removeIf(t -> (now - t) > PVP_KILL_ATTRIBUTION_MS);
+			last = lastDamagedPlayerAt.remove(name.toLowerCase());
 		}
+		if (last == null || now - last > PVP_KILL_ATTRIBUTION_MS) return;
+		// Recap counter first: ANY dangerous-PvP kill feeds the PKer superlative,
+		// pvp tiles on the board or not. Tile credit + notify keep their own gates.
+		if (inDangerousPvp()) bumpEventCounter(() -> eventPvpKills++);
+		creditPvpKillTiles(name);
+		var me = me();
+		if (me != null && me.pvp) notifyPvpKill(name);
 	}
 
 	/** True when the current event config carries any PvP-kill tiles. */
@@ -8848,12 +8841,10 @@ public class AnvilPlugin extends Plugin {
 		emit(rules.event("pvp", RuleEngine.named(victim), 0, null, null, "what", victimName));
 		// A min-loot floor is checked against the kill's LOOT, which only arrives in a later
 		// PlayerLootReceived — park the kill and let that event credit it.
-		if (rules.has("pvpLoot")) {
-			var now = now();
-			synchronized (pendingMinLootKillAt) {
-				pendingMinLootKillAt.values().removeIf(t -> (now - t) > PVP_MINLOOT_LOOT_WINDOW_MS);
-				pendingMinLootKillAt.put(victim, now);
-			}
+		var now = now();
+		if (rules.has("pvpLoot")) synchronized (pendingMinLootKillAt) {
+			pendingMinLootKillAt.values().removeIf(t -> (now - t) > PVP_MINLOOT_LOOT_WINDOW_MS);
+			pendingMinLootKillAt.put(victim, now);
 		}
 	}
 
@@ -8866,11 +8857,11 @@ public class AnvilPlugin extends Plugin {
 		if (!rules.has("pvpLoot") || empty(items) || victimName == null) return;
 		var victim = Rsn.normalize(victimName);
 		var now = now();
+		Long parkedAt;
 		synchronized (pendingMinLootKillAt) {
-			var parkedAt = pendingMinLootKillAt.remove(victim); // consume — one credit per parked kill
-			if (parkedAt == null || (now - parkedAt) > PVP_MINLOOT_LOOT_WINDOW_MS) return;
+			parkedAt = pendingMinLootKillAt.remove(victim); // consume — one credit per parked kill
 		}
-		if (trackingGateReason() != null) return;
+		if (parkedAt == null || now - parkedAt > PVP_MINLOOT_LOOT_WINDOW_MS || trackingGateReason() != null) return;
 		emit(rules.event("pvpLoot", RuleEngine.named(victim), haulValue(items), null, null, "what", victimName));
 	}
 
@@ -8915,8 +8906,7 @@ public class AnvilPlugin extends Plugin {
 			f.item(itemId, iname, qty, value);
 			n++;
 		}
-		if (n == 0 || key && (me.keyMin <= 0 || total < me.keyMin
-			|| !claim(lastAggregateNotifyAt, source == null ? "" : source, now, RARE_DEDUP_WINDOW_MS))) return;
+		if (n == 0 || key && (me.keyMin <= 0 || total < me.keyMin || !claim(lastAggregateNotifyAt, source == null ? "" : source, now, RARE_DEDUP_WINDOW_MS))) return;
 		// Where this leaves their vestige rotation, when the drop was a roll of one (set moments ago by
 		// trackVestigeRolls off the same loot event). The site keeps it on a single-item post.
 		var rollLine = lastVestigeLine;
@@ -8969,8 +8959,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	void maybeNotifyCollectionUnlock(String itemName) {
 		var me = me();
-		if (me == null || !me.drops || empty(itemName) || !isAlwaysNotifyItem(itemName)
-				|| !claimAllowlistNotify(itemName, now())) return;
+		if (me == null || !me.drops || empty(itemName) || !isAlwaysNotifyItem(itemName) || !claimAllowlistNotify(itemName, now())) return;
 		// No source came with this line — the collection log says what, never from where — so only a
 		// clan override that named no sources ("guaranteed wherever it drops") can answer the
 		// guaranteed question. No item id either (the message gives only a name), so no value.
@@ -8978,8 +8967,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/** A notable item's drop post; the site sets its earned / guaranteed / lucky-drop flags (lib/notifyDrops). */
-	void postNotable(String name, String via, String source, String sourceKind, int itemId, int qty,
-			long value, Integer kc) {
+	void postNotable(String name, String via, String source, String sourceKind, int itemId, int qty, long value, Integer kc) {
 		postDrop(dropPost(source, sourceKind, kc).item(itemId, name, qty, value).put("notable", via).flag("judge", true));
 	}
 
@@ -9001,20 +8989,15 @@ public class AnvilPlugin extends Plugin {
 		if (me == null || !me.clog || empty(itemName)) return;
 		// The prestige path already posted this one to the drops channel. And the unlock line can echo
 		// on more than one chat channel; the shared name dedup keeps this to one post per item.
-		if (isAlwaysNotifyItem(itemName)
-				|| !claimAllowlistNotify(itemName, now())) return;
-
+		if (isAlwaysNotifyItem(itemName) || !claimAllowlistNotify(itemName, now())) return;
 		// How much of the log this fills in (0 until the log has synced this session; the site then
 		// leaves the count and rank out rather than guessing).
-		var f = facts("clogSlot").put("item", itemName)
-				.put("itemId", resolveItemIdByName(itemName))
-				.put("slots", ActivityStats.clogSlots(client::getVarpValue))
-				.put("slotsMax", ActivityStats.clogSlotsMax(client::getVarpValue));
+		var f = facts("clogSlot").put("item", itemName).put("itemId", resolveItemIdByName(itemName))
+				.put("slots", ActivityStats.clogSlots(client::getVarpValue)).put("slotsMax", ActivityStats.clogSlotsMax(client::getVarpValue));
 		// This item's own source first. The fallback still answers for an unlock with no loot event
 		// behind it at all — a skilling pet, a quest reward — where "the last thing that dropped"
 		// is the only signal there is.
-		var source = sourceForLootedItem(itemName);
-		if (source == null) source = freshLootSource();
+		var source = Objects.requireNonNullElseGet(sourceForLootedItem(itemName), this::freshLootSource);
 		// The kill count when it finally dropped. Absent when the source keeps none we can read.
 		if (source != null) f.put("source", source).put("kc", killCountFor(source));
 		postWithScreenshot("collectionLog", f, "anvil-clog.png");
@@ -9058,12 +9041,9 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	/** The lookup itself, free of plugin state so the attribution can be tested directly. */
-	static String sourceOf(
-			Map<String, RecentItem> seen, String itemName, long now, long windowMs) {
-		if (empty(itemName)) return null;
-		var hit = seen.get(itemName.toLowerCase(ROOT));
-		if (hit == null || now - hit.at > windowMs) return null;
-		return !empty(hit.source) ? hit.source : null;
+	static String sourceOf(Map<String, RecentItem> seen, String itemName, long now, long windowMs) {
+		var hit = empty(itemName) ? null : seen.get(itemName.toLowerCase(ROOT));
+		return hit == null || now - hit.at > windowMs || empty(hit.source) ? null : hit.source;
 	}
 
 	/**
@@ -9077,11 +9057,8 @@ public class AnvilPlugin extends Plugin {
 		synchronized (recentLootIds) {
 			pruneLoot(now);
 			for (var it : items) {
-				if (it == null || it.getId() <= 0) continue;
-				var name = itemName(it.getId());
-				if (!empty(name)) recentLootIds.put(
-						name.toLowerCase(ROOT),
-						new RecentItem(it.getId(), now, source));
+				var name = it == null || it.getId() <= 0 ? null : itemName(it.getId());
+				if (!empty(name)) recentLootIds.put(name.toLowerCase(ROOT), new RecentItem(it.getId(), now, source));
 			}
 			if (!empty(source)) {
 				lastLootSource = source;
@@ -9099,7 +9076,6 @@ public class AnvilPlugin extends Plugin {
 	/** An item id seen in a recent loot event, with the time it landed and what it fell out of. */
 	@RequiredArgsConstructor
 	static class RecentItem {
-
 		final int itemId;
 		final long at;
 		/** The loot event this item was actually in — not merely the latest one. */
@@ -9201,7 +9177,6 @@ public class AnvilPlugin extends Plugin {
 	 */
 	@RequiredArgsConstructor
 	static class PendingPet {
-
 		final boolean duplicate;
 		/** When the pet line landed — the name is only looked for inside {@link #PET_NAME_WINDOW_MS}. */
 		final long at = now();
@@ -9304,8 +9279,7 @@ public class AnvilPlugin extends Plugin {
 			// or posted a moment ago: a later line naming the SAME pet is that pet, not a new unlock
 			// to post again (the "Pet drop!" + separate "Dom" pair this used to produce).
 			var named = pendingPet != null && pendingPet.name != null ? pendingPet : lastNamedPet;
-			if (named != null && itemName.equalsIgnoreCase(named.name)
-					&& now() - named.at <= 60_000 /* PET_RECLAIM_MS */) return named;
+			if (named != null && itemName.equalsIgnoreCase(named.name) && now() - named.at <= 60_000 /* PET_RECLAIM_MS */) return named;
 			if (pendingPet == null || pendingPet.name != null) return null;
 			pendingPet.name = itemName;
 			pet = pendingPet;
@@ -9317,8 +9291,7 @@ public class AnvilPlugin extends Plugin {
 		var resolved = DropSource.resolvePetSource(dropFacts(), itemName, pet.source, killCounts);
 		synchronized (petLock) {
 			pet.resolvedSource = resolved;
-			pet.resolvedKc = resolved == null ? null
-					: (resolved.equalsIgnoreCase(pet.source) ? pet.killCount : killCountFor(resolved));
+			pet.resolvedKc = resolved == null ? null : resolved.equalsIgnoreCase(pet.source) ? pet.killCount : killCountFor(resolved);
 			// ItemManager reads game/cache state: resolve it here, on the chat-event client thread,
 			// rather than two seconds later on our executor.
 			pet.itemId = resolveItemIdByName(itemName);
@@ -9350,8 +9323,7 @@ public class AnvilPlugin extends Plugin {
 		// Nothing is waiting on the name — no post to make and no feed entry to fill in — so don't
 		// park a pet nothing will ever collect: the next collection-log line would claim it.
 		if (!announce && momentKey == null) return;
-		var pet = new PendingPet(duplicate, getLocalPlayerName(), source, src[1], kc,
-				announce, momentKey);
+		var pet = new PendingPet(duplicate, getLocalPlayerName(), source, src[1], kc, announce, momentKey);
 		notePetSurroundings();
 		synchronized (petLock) {
 			pendingPet = pet;
@@ -9382,8 +9354,7 @@ public class AnvilPlugin extends Plugin {
 		var petName = pet.name;
 		var f = new NotifyFacts("pet", pet.rsn).put("name", petName).flag("duplicate", pet.duplicate);
 		synchronized (petLock) {
-			f.put("source", petName == null ? pet.source : pet.resolvedSource)
-					.put("kc", petName == null ? pet.killCount : pet.resolvedKc);
+			f.put("source", petName == null ? pet.source : pet.resolvedSource).put("kc", petName == null ? pet.killCount : pet.resolvedKc);
 		}
 		if (petName != null) {
 			// The site prices its rarity off the same tables the rare-drop posts use (lib/notifyDrops).
@@ -9405,7 +9376,6 @@ public class AnvilPlugin extends Plugin {
 		// Off in the dropdown silences every CA post, tier clears too; tile credit happened upstream.
 		var me = me();
 		List<String> tiers = me == null ? emptyList() : me.ca;
-
 		int total = client.getVarbitValue(VarbitID.CA_POINTS);
 		// Points before this batch — only used to detect a tier-threshold crossing. With no baseline
 		// yet, fall back to the current total so we never post a phantom tier clear.
@@ -9455,9 +9425,7 @@ public class AnvilPlugin extends Plugin {
 			int threshold = client.getVarbitValue(t.getThresholdVarbitId());
 			if (threshold > totalPoints && (next == 0 || threshold < next)) next = threshold;
 		}
-		postWithScreenshot("combatAchievements", facts("caTask").put("task", task)
-				.put("tier", tier.getDisplayName()).put("totalPoints", totalPoints).put("nextThreshold", next),
-				"anvil-ca.png");
+		postWithScreenshot("combatAchievements", facts("caTask").put("task", task).put("tier", tier.getDisplayName()).put("totalPoints", totalPoints).put("nextThreshold", next), "anvil-ca.png");
 	}
 
 
@@ -9467,9 +9435,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	void maybeNotifyDiaryCompletion(String area, String tier) {
 		var me = me();
-		if (me == null || !me.diaries) return;
-		postWithScreenshot("diaries", facts("diary").put("area", area)
-				.put("tier", tier), "anvil-diary.png");
+		if (me != null && me.diaries) postWithScreenshot("diaries", facts("diary").put("area", area).put("tier", tier), "anvil-diary.png");
 	}
 
 	/** Diary tiles: the site sent each tile's selectors as "area tier" keys, "*" for Any on either side. */
@@ -9484,9 +9450,7 @@ public class AnvilPlugin extends Plugin {
 	 * off its live proofs, so a "Repeat completion" re-fire can't farm a wildcard tile.
 	 */
 	void creditCombatTaskTiles(CombatAchievementTier tier, String task) {
-		if (trackingOff()) return;
-		emit(rules.event("ca", RuleEngine.named(RuleEngine.key(task), "any" + RuleEngine.key(tier.getDisplayName())), 0, null, null,
-				"what", task, "tier", tier.getDisplayName()));
+		if (!trackingOff()) emit(rules.event("ca", RuleEngine.named(RuleEngine.key(task), "any" + RuleEngine.key(tier.getDisplayName())), 0, null, null, "what", task, "tier", tier.getDisplayName()));
 	}
 
 	/**
@@ -9519,8 +9483,7 @@ public class AnvilPlugin extends Plugin {
 		whenLoggedIn(() -> {
 			if (client.getVarbitValue(VarbitID.CA_TASK_RECOMPLETION_NOTIFICATIONS) == 1) return; // setting already on — nothing to remind about
 			caRepeatNudgeSent = true;
-			sendChatMessage("This event has Combat Achievement tiles — enable Settings > Combat Achievements"
-					+ " > \"Repeat completion\" so tasks you've already done can still count.");
+			sendChatMessage("This event has Combat Achievement tiles — enable Settings > Combat Achievements > \"Repeat completion\" so tasks you've already done can still count.");
 		});
 	}
 
@@ -9543,9 +9506,7 @@ public class AnvilPlugin extends Plugin {
 		whenLoggedIn(() -> {
 			if (client.getVarbitValue(VarbitID.OPTION_COLLECTION_NEW_ITEM) != 0) return;
 			clogNotifyNudgeSent = true;
-			sendChatMessage("Your collection log notifications are off in game (Settings > All settings > Chat"
-					+ " > \"Collection log - New addition notification\") — new slots won't post to the clan"
-					+ " unless your clan broadcasts them.");
+			sendChatMessage("Your collection log notifications are off in game (Settings > All settings > Chat > \"Collection log - New addition notification\") — new slots won't post to the clan unless your clan broadcasts them.");
 		});
 	}
 
@@ -9573,17 +9534,15 @@ public class AnvilPlugin extends Plugin {
 			var settingOn = client.getVarbitValue(VarbitID.OPTION_LOOTNOTIFICATION_ON) == 1;
 			// The plugin's own posting floor (enforced minimum 1m) — an in-game threshold above
 			// it would swallow lines for drops the clan channel wants to see.
-			long gameThreshold = client.getVarbitValue(VarbitID.OPTION_LOOTNOTIFICATION_VALUE);
 			// The threshold half is a CLAN-POST concern only: it is measured against the posting
 			// floor, and there is no equivalent number for a tile — a tile wants whatever the drop
 			// happens to be worth. So a board-driven reminder ends at "the setting is off".
-			if (settingOn && (!forPosts || gameThreshold <= me.dropMin)) return; // configured fine — the attribution line will fire for qualifying drops
+			if (settingOn && (!forPosts || client.getVarbitValue(VarbitID.OPTION_LOOTNOTIFICATION_VALUE) <= me.dropMin)) return; // configured fine — the attribution line will fire for qualifying drops
 			lootNotifyNudgeSent = true;
 			sendChatMessage(!settingOn ? "Enable Settings > Chat > \"Loot drop notifications\" — " + (forTiles
 					? "this board has drop tiles, and bosses that spill their loot (Maggot King, Araxxor) only announce it on that line."
 					: "clan rare-drop posts for corpse-boss loot (Maggot King uniques) rely on that chat line.")
-					: "Your in-game loot notification threshold is above the clan rare-drop floor — lower it"
-					+ " (Settings > Chat > Loot drop notifications) or drops like Maggot King uniques won't post.");
+					: "Your in-game loot notification threshold is above the clan rare-drop floor — lower it (Settings > Chat > Loot drop notifications) or drops like Maggot King uniques won't post.");
 		});
 	}
 
@@ -9595,8 +9554,8 @@ public class AnvilPlugin extends Plugin {
 	 */
 	void scheduleQuestScrollRead(int attemptsLeft) {
 		clientThread.invokeLater(() -> {
-			var text = client.getWidget(InterfaceID.Questscroll.QUEST_TITLE);
-			var raw = text != null ? text.getText() : null;
+			var w = client.getWidget(InterfaceID.Questscroll.QUEST_TITLE);
+			var raw = w != null ? w.getText() : null;
 			if (empty(raw)) {
 				if (attemptsLeft > 0) scheduleQuestScrollRead(attemptsLeft - 1);
 				return;
@@ -9610,8 +9569,7 @@ public class AnvilPlugin extends Plugin {
 			postQuestCompletion(quest);
 			// The clan's achievements (the panel's Feed) and the chat feed, whatever the Discord setting:
 			// the site keys it by quest name, so a re-read scroll never lands twice.
-			recordFeedMoment(new Moment("quest", null, quest, 1, null, null, null, null, now(),
-					("quest|" + quest).toLowerCase(ROOT)));
+			recordFeedMoment(new Moment("quest", null, quest, 1, null, null, null, null, now(), ("quest|" + quest).toLowerCase(ROOT)));
 		});
 	}
 
@@ -9625,19 +9583,16 @@ public class AnvilPlugin extends Plugin {
 	 * the unit test.
 	 */
 	static String parseQuestScroll(String text) {
-		var m1 = QUEST_PATTERN_1.matcher(text);
-		var m2 = QUEST_PATTERN_2.matcher(text);
-		var m = m1.matches() ? m1 : m2;
+		var m = QUEST_PATTERN_1.matcher(text);
+		if (!m.matches()) m = QUEST_PATTERN_2.matcher(text);
 		if (!m.matches()) return null;
 		var quest = m.group("quest");
-		var verb = m.group("verb") != null ? m.group("verb") : "";
-		if (verb.contains("kind of")) quest += " partial completion";
-		else if (verb.contains("completely")) quest += " II";
+		var verb = Objects.requireNonNullElse(m.group("verb"), "");
+		quest += verb.contains("kind of") ? " partial completion" : verb.contains("completely") ? " II" : "";
 		var questAndVerb = quest + verb;
 		if (RFD_TAGS.stream().anyMatch(questAndVerb::contains)) quest = "Recipe for Disaster - " + quest;
 		var questName = quest;
-		if (WORD_QUEST_IN_NAME_TAGS.stream().anyMatch(questName::contains)) quest += " Quest";
-		return quest;
+		return WORD_QUEST_IN_NAME_TAGS.stream().anyMatch(questName::contains) ? quest + " Quest" : quest;
 	}
 
 	/**
@@ -9649,9 +9604,7 @@ public class AnvilPlugin extends Plugin {
 		var difficulty = text.questTiers.get(questName.toLowerCase());
 		if (me == null || !me.quests.contains("*") && !me.quests.contains(difficulty)) return;
 		// Message-only, like a tier clear. Difficulty goes as its display form ("Experienced").
-		postWithScreenshot("quests", facts("quest")
-				.put("quest", questName).put("difficulty", difficulty == null ? null
-						: difficulty.charAt(0) + difficulty.substring(1).toLowerCase()), "anvil-quest.png");
+		postWithScreenshot("quests", facts("quest").put("quest", questName).put("difficulty", difficulty == null ? null : difficulty.charAt(0) + difficulty.substring(1).toLowerCase()), "anvil-quest.png");
 	}
 
 	/**
@@ -9697,13 +9650,10 @@ public class AnvilPlugin extends Plugin {
 		// something in the log saying which step dropped it. postNotification's own failure paths are
 		// log.debug — invisible at RuneLite's default level.
 		if (skill == null) return;
-		if (!levelsPost()) {
-			if (level >= 99 && prev < 99) log.info("99 {} not announced: world", skill);
-			return;
-		}
-		int at = LevelRules.skillMilestone(prev, level, levelRules());
+		var posts = levelsPost();
+		int at = posts ? LevelRules.skillMilestone(prev, level, levelRules()) : 0;
 		if (at == 0) {
-			if (level >= 99 && prev < 99) log.info("99 {} not announced: no destination", skill);
+			if (level >= 99 && prev < 99) log.info("99 {} not announced: {}", skill, posts ? "no destination" : "world");
 			return;
 		}
 		// Post a given skill's level once per session — the same level can arrive from StatChanged
@@ -9718,8 +9668,7 @@ public class AnvilPlugin extends Plugin {
 		// Skill.OVERALL is a null tombstone, never in values().
 		int at99 = 0;
 		for (var sk : Skill.values()) at99 += client.getRealSkillLevel(sk) >= 99 ? 1 : 0;
-		postAchievement(facts("level").put("skill", skill)
-				.put("level", at).put("at99", at99).put("skills", Skill.values().length));
+		postAchievement(facts("level").put("skill", skill).put("level", at).put("at99", at99).put("skills", Skill.values().length));
 	}
 
 	/**
@@ -9744,7 +9693,7 @@ public class AnvilPlugin extends Plugin {
 		lastTotalLevel = total;
 
 		var rules = levelRules();
-		int max = maxTotalLevel();
+		int max = 99 * Skill.values().length;
 		if (prev < max && max <= total) {
 			recordLevelMoment(null, total, "max");
 			if (LevelRules.wantsMax(rules)) postTotalMilestone(total, true);
@@ -9757,24 +9706,14 @@ public class AnvilPlugin extends Plugin {
 		if (milestone > 0) postTotalMilestone(milestone, false);
 	}
 
-	/**
-	 * Maximum possible total level, summed from the live Skill enum (adapts as
-	 * skills are added).
-	 */
-	int maxTotalLevel() {
-		return 99 * Skill.values().length;
-	}
-
-
-
 	void postTotalMilestone(int total, boolean maxed) {
-		var f = facts("totalLevel").put("total", total).flag("maxed", maxed)
-				.put("milestone", maxed ? null : (Integer) total);
+		var f = facts("totalLevel").put("total", total).flag("maxed", maxed).put("milestone", maxed ? null : (Integer) total);
 		// Where this leaves them — from the LIVE total, not the milestone above: somebody who crossed
 		// 1800 on a level that took them to 1803 is 474 from max, not 477. Left out on a build not
 		// chasing max (the site also drops it on a max, where "0 to go" is noise).
 		// Defence 1 (a pure, a skiller) isn't chasing max: "435 levels from max" would measure them against a goal they rejected.
-		if (!maxed && client.getRealSkillLevel(Skill.DEFENCE) != 1) f.put("current", client.getTotalLevel()).put("max", maxTotalLevel());
+		// Max is summed from the live Skill enum (adapts as skills are added).
+		if (!maxed && client.getRealSkillLevel(Skill.DEFENCE) != 1) f.put("current", client.getTotalLevel()).put("max", 99 * Skill.values().length);
 		postAchievement(f);
 	}
 
@@ -9785,8 +9724,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** A drop's facts, before its items. */
 	NotifyFacts dropPost(String source, String sourceKind, Integer kc) {
-		return facts("drop").put("source", source).put("sourceKind", sourceKind)
-				.put("kc", kc).put("kcOf", kc != null ? kcLineFor(source) : null);
+		return facts("drop").put("source", source).put("sourceKind", sourceKind).put("kc", kc).put("kcOf", kc != null ? kcLineFor(source) : null);
 	}
 
 	/** The count line a raid drop's KC came from ("Chambers of Xeric Challenge Mode"): the site names the mode. */
@@ -9863,11 +9801,8 @@ public class AnvilPlugin extends Plugin {
 		geSlots[slot] = s;
 		var me = me();
 		var min = me == null || me.on == null ? null : me.on.get("ge");
-		if (min == null || was == null || was == s || s != GrandExchangeOfferState.BOUGHT && s != GrandExchangeOfferState.SOLD
-			|| o.getSpent() < min || !announceBudget()) return;
-		announce(facts("ge").put("item", itemManager.getItemComposition(o.getItemId()).getName())
-			.put("itemId", o.getItemId()).put("qty", o.getQuantitySold()).put("value", o.getSpent())
-			.flag("sold", s == GrandExchangeOfferState.SOLD), true);
+		if (min == null || was == null || was == s || s != GrandExchangeOfferState.BOUGHT && s != GrandExchangeOfferState.SOLD || o.getSpent() < min || !announceBudget()) return;
+		announce(facts("ge").put("item", itemManager.getItemComposition(o.getItemId()).getName()).put("itemId", o.getItemId()).put("qty", o.getQuantitySold()).put("value", o.getSpent()).flag("sold", s == GrandExchangeOfferState.SOLD), true);
 	}
 
 	/** Another plugin asking for a post: namespace "anvil", name "announce", data {source, text}. The site keeps the player's allow-list. */
@@ -9875,10 +9810,8 @@ public class AnvilPlugin extends Plugin {
 	void onPluginMessage(PluginMessage m) {
 		var me = me();
 		Object src = m.getData().get("source"), text = m.getData().get("text");
-		if (!"anvil".equals(m.getNamespace()) || !"announce".equals(m.getName()) || me == null || me.on == null
-			|| !me.on.containsKey("ext") || !(src instanceof String) || !(text instanceof String) || !announceBudget()) return;
-		apiClient.postNotification("milestones", null, facts("ext")
-			.put("source", (String) src).put("text", (String) text), null, null);
+		if (!"anvil".equals(m.getNamespace()) || !"announce".equals(m.getName()) || me == null || me.on == null || !me.on.containsKey("ext") || !(src instanceof String) || !(text instanceof String) || !announceBudget()) return;
+		announce(facts("ext").put("source", (String) src).put("text", (String) text), false);
 	}
 
 	Me me() {
@@ -9900,9 +9833,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		if (String.valueOf(CURRENT_DEFAULTS_VERSION).equals(cfgGet(CFG_DEFAULTS_VERSION))) return;
 		var o = new JsonObject();
-		for (var k : new String[]{"notifyRareDrops", "rareDropMinValue", "rareDropMinRarity", "lootKeyMinValue", "notifyPets",
-			"notifyDeaths", "deathMessage", "notifyPvpKills", "notifyClogSlots", "notifyLevelUps", "notifyDiaries", "caMinTaskTier",
-			"questAnnounce", CFG_DEFAULTS_VERSION}) {
+		for (var k : new String[]{"notifyRareDrops", "rareDropMinValue", "rareDropMinRarity", "lootKeyMinValue", "notifyPets", "notifyDeaths", "deathMessage", "notifyPvpKills", "notifyClogSlots", "notifyLevelUps", "notifyDiaries", "caMinTaskTier", "questAnnounce", CFG_DEFAULTS_VERSION}) {
 			var val = cfgGet(k);
 			if (val != null) o.addProperty(k, val);
 		}
@@ -9930,7 +9861,7 @@ public class AnvilPlugin extends Plugin {
 	 * notification (a Maggot King fang post vanished this way).
 	 */
 	void captureFrameAsync(Consumer<byte[]> consumer) {
-		var delivered = new AtomicBoolean(false);
+		var delivered = new AtomicBoolean();
 		onNextFrame(image -> {
 			byte[] png = null;
 			try {
@@ -10058,12 +9989,12 @@ public class AnvilPlugin extends Plugin {
 		if (img.getType() != BufferedImage.TYPE_INT_RGB || w != img.getWidth()) rgb = scaled(img, w, h, RenderingHints.VALUE_INTERPOLATION_BILINEAR, BufferedImage.TYPE_INT_RGB);
 		var writer = ImageIO.getImageWritersByFormatName("jpg").next();
 		var param = writer.getDefaultWriteParam();
-		param.setCompressionMode(javax.imageio.ImageWriteParam.MODE_EXPLICIT);
+		param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
 		param.setCompressionQuality(0.8f);
 		var baos = new ByteArrayOutputStream();
 		try (var out = ImageIO.createImageOutputStream(baos)) {
 			writer.setOutput(out);
-			writer.write(null, new javax.imageio.IIOImage(rgb, null, null), param);
+			writer.write(null, new IIOImage(rgb, null, null), param);
 		} finally {
 			writer.dispose();
 		}
@@ -10076,17 +10007,9 @@ public class AnvilPlugin extends Plugin {
 		return baos.toByteArray();
 	}
 
-	static BufferedImage copyFrame(BufferedImage src) {
-		var copy = new BufferedImage(src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_RGB);
-		var g = copy.createGraphics();
-		g.drawImage(src, 0, 0, null);
-		g.dispose();
-		return copy;
-	}
-
 	/** Copy the shared frame — never mutate the draw manager's buffer — burn the proof banner on, encode. */
 	byte[] bakeCopy(BufferedImage src, String title, String detail, String rsn) throws IOException {
-		var copy = copyFrame(src);
+		var copy = scaled(src, src.getWidth(), src.getHeight(), RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR, BufferedImage.TYPE_INT_RGB);
 		annotateProofBanner(copy, title, detail, rsn);
 		return png(copy);
 	}
@@ -10094,7 +10017,6 @@ public class AnvilPlugin extends Plugin {
 	/** Post a 99 / total-level milestone with a screenshot, a beat after the moment. */
 	void postAchievement(NotifyFacts f) {
 		Runnable capture = () -> postWithScreenshot("levels", f, "anvil-achievement.png");
-
 		// Let the room react before the shutter.
 		//
 		// The instant a 99 lands the screen holds the fireworks and nothing else; the congratulations
@@ -10124,10 +10046,10 @@ public class AnvilPlugin extends Plugin {
 
 
 	void sendChatMessage(String message) {
-		sendChatLine("Anvil", message, Tone.INFO, null);
+		sendChatMessage(INFO, message);
 	}
 
-	void sendChatMessage(ChatPalette.Tone tone, String message) {
+	void sendChatMessage(Tone tone, String message) {
 		sendChatLine("Anvil", message, tone, null);
 	}
 
