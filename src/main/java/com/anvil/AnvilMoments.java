@@ -54,8 +54,21 @@ class AnvilMoments {
 		final String tier;
 		final long at;
 		final String key;
-		/** 'death' only: the raid we died inside ("cox" | "tob" | "toa"), however we died. */
+		/** Deaths and drops: the raid we stood inside ("cox" | "tob" | "toa", or "-entry"), however we died. */
 		String raid;
+		/** Where it happened, for the site's analytics: map region; in a raid its mode, Tombs level, party. */
+		Integer regionId, raidLevel, party;
+		String raidMode;
+
+		/** The place fields carried over from {@code from} (a renamed queued entry keeps them). */
+		Moment placedAs(Moment from) {
+			raid = from.raid;
+			regionId = from.regionId;
+			raidLevel = from.raidLevel;
+			party = from.party;
+			raidMode = from.raidMode;
+			return this;
+		}
 
 		Moment(String kind, Integer itemId, String itemName, int quantity, Long valueGp,
 			   String source, String sourceKind, Integer kc, long at, String key) {
@@ -125,7 +138,7 @@ class AnvilMoments {
 		if (existing == null || itemName == null || itemName.isEmpty()) return false;
 		pending.put(key, new Moment(existing.kind, itemId != null ? itemId : existing.itemId, itemName,
 			existing.quantity, existing.valueGp, source != null ? source : existing.source, existing.sourceKind,
-			source != null ? kc : existing.kc, existing.at, existing.key));
+			source != null ? kc : existing.kc, existing.at, existing.key).placedAs(existing));
 		return true;
 	}
 

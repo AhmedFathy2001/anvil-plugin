@@ -77,12 +77,20 @@ public class ApiClientHttpTest
 		BingoApiClient c = client();
 		var death = new AnvilMoments.Moment("death", null, null, 1, null, null, null, null, 1_000L, "death|k");
 		death.raid = "toa";
+		death.raidLevel = 540;
+		death.party = 3;
+		death.regionId = 15186;
 		var elsewhere = new AnvilMoments.Moment("death", null, null, 1, null, "Vorkath", "npc", null, 2_000L, "death|v");
 		c.submitMoments(List.of(death, elsewhere));
 		assertTrue(seen.get(0).url().encodedPath().endsWith("/api/plugin/moments"));
 		var sent = new Gson().fromJson(bodies.get(0), com.google.gson.JsonObject.class).getAsJsonArray("moments");
-		assertEquals("toa", sent.get(0).getAsJsonObject().get("raid").getAsString());
+		var raid = sent.get(0).getAsJsonObject();
+		assertEquals("toa", raid.get("raid").getAsString());
+		assertEquals(540, raid.get("raidLevel").getAsInt());
+		assertEquals(3, raid.get("party").getAsInt());
+		assertEquals(15186, raid.get("regionId").getAsInt());
 		assertFalse(sent.get(1).getAsJsonObject().has("raid"));
+		assertFalse(sent.get(1).getAsJsonObject().has("raidLevel"));
 	}
 
 	@Test

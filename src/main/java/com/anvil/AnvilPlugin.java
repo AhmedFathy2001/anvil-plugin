@@ -2189,7 +2189,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	@Subscribe
 	void onVarbitChanged(VarbitChanged event) {
-		if (event.getVarbitId() == VarbitID.TOB_CLIENT_PARTYSTATUS && event.getValue() <= 0) tobEntry = false;
+		if (event.getVarbitId() == VarbitID.TOB_CLIENT_PARTYSTATUS && event.getValue() <= 0) tobMode = null;
 		if (!trackedActivityKeys.isEmpty() && ActivityStats.isTrigger(event.getVarbitId(), event.getVarpId())) maybeQueueActivityPush();
 		// The chatbox went transparent or opaque: event chat lines take that surface's colours.
 		if (event.getVarbitId() == VarbitID.CHATBOX_TRANSPARENCY && !eventNodes.isEmpty()) {
@@ -3400,7 +3400,8 @@ public class AnvilPlugin extends Plugin {
 		if (ct == GAMEMESSAGE && config.shareSeasonal() && WorldInfo.separateSave(client.getWorldType())) modeLines.offer(msg, now());
 		if (ct == GAMEMESSAGE || ct == SPAM || ct == TRADE) watchLine(plain);
 		// A death with no ActorDeath behind it (doomed in the Colosseum) still prints the game's own line.
-		if (ct == GAMEMESSAGE && plain.startsWith("You enter the Theatre of Blood")) tobEntry = plain.contains("Entry Mode");
+		if (ct == GAMEMESSAGE && plain.startsWith("You enter the Theatre of Blood"))
+			tobMode = plain.contains("Entry Mode") ? "entry" : plain.contains("Hard Mode") ? "hard" : "normal";
 		if (ct == GAMEMESSAGE && plain.equals("Oh dear, you are dead!") && now() - ownDeathAt > 15_000) ownDeath();
 
 		// The widget tracker still uses a line naming this player to attribute its own readings.
@@ -8196,9 +8197,9 @@ public class AnvilPlugin extends Plugin {
 	void recordDropMoment(String source, String sourceKind, Integer itemId, String itemName, int quantity, long valueGp) {
 		if (!momentsEnabled() || (itemId == null && empty(itemName))) return;
 		var now = now();
-		moments.record(new Moment("drop", itemId, itemName, quantity, valueGp,
+		moments.record(placed(new Moment("drop", itemId, itemName, quantity, valueGp,
 				source, sourceKind, killCountFor(source), now,
-				AnvilMoments.keyFor("drop", source, itemId, now)));
+				AnvilMoments.keyFor("drop", source, itemId, now))));
 		scheduleMomentPush();
 	}
 
@@ -8294,7 +8295,7 @@ public class AnvilPlugin extends Plugin {
 		// Keyed WITHOUT an item id, because at this point nobody knows which pet it was — the name
 		// lands a tick or two later and nameQueued() fills it into this same entry.
 		var key = AnvilMoments.keyFor("pet", source, null, now);
-		moments.record(new Moment("pet", null, null, 1, null, source, sourceKind, kc, now, key));
+		moments.record(placed(new Moment("pet", null, null, 1, null, source, sourceKind, kc, now, key)));
 		scheduleMomentPush();
 		return key;
 	}
@@ -8374,8 +8375,7 @@ public class AnvilPlugin extends Plugin {
 				killCountFor(death.source), now, AnvilMoments.keyFor("death", death.source, null, now));
 		// A raid death often has no killer to name (Warden skulls, Zebak's waves, Olm's crystals):
 		// say which raid it was, so a competition over that raid can count it.
-		moment.raid = raidHere();
-		moments.record(moment);
+		moments.record(placed(moment));
 		scheduleMomentPush(1_000 /* DEATH_PUSH_DELAY_MS */);
 	}
 
@@ -8393,11 +8393,28 @@ public class AnvilPlugin extends Plugin {
 		}
 		if (client.getVarbitValue(VarbitID.RAIDS_CLIENT_INDUNGEON) == 1) return "cox";
 		if (client.getVarbitValue(VarbitID.TOB_CLIENT_PARTYSTATUS) <= 0) return null;
-		return tobEntry ? "tob-entry" : "tob";
+		return "entry".equals(tobMode) ? "tob-entry" : "tob";
 	}
 
-	/** Set by the game's "You enter the Theatre of Blood (Entry Mode)..." line; no varbit tells the modes apart. */
-	boolean tobEntry;
+	/** "entry" | "hard" | "normal", from the game's "You enter the Theatre of Blood (Entry Mode)..." line; no varbit tells them apart. */
+	String tobMode;
+
+	/**
+	 * Where a moment happened, for the site's analytics: the map region, and inside a raid which one,
+	 * its mode, the Tombs raid level and the party. Off the client thread only the moment itself goes.
+	 */
+	Moment placed(Moment m) {
+		if (!client.isClientThread()) return m;
+		var at = realWorldPosition();
+		if (at != null) m.regionId = at.getRegionID();
+		m.raid = raidHere();
+		if (m.raid == null) return m;
+		m.party = partySize() > 0 ? partySize() : null;
+		if (m.raid.startsWith("toa")) m.raidLevel = raidLevelNow();
+		else if (m.raid.equals("cox")) m.raidMode = client.getVarbitValue(VarbitID.RAIDS_CHALLENGE_MODE) == 1 ? "cm" : "normal";
+		else m.raidMode = tobMode;
+		return m;
+	}
 
 	/**
 	 * Note a level worth remembering: a 99, a high total, or a max.
