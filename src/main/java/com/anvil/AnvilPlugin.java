@@ -8526,8 +8526,9 @@ public class AnvilPlugin extends Plugin {
 		}
 		moments.onSent(batch);
 		huntKeys(reply);
-		// A death can take points off (Boss Rush): show the new score without a Refresh click.
-		if (batch.stream().anyMatch(m -> "death".equals(m.kind))) boardChanged();
+		// A death can take points off (Boss Rush), a hunt drop adds them: show the new score and the
+		// feed line without a Refresh click.
+		if (batch.stream().anyMatch(m -> "death".equals(m.kind)) || (reply != null && reply.contains("\"huntProofs\""))) boardChanged();
 		// More than one batch's worth waiting (a long offline stretch) — keep going.
 		if (!moments.isEmpty()) scheduleMomentPush();
 	}
