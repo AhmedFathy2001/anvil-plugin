@@ -80,9 +80,7 @@ class FeedList extends JPanel {
 		}
 	};
 	final JScrollPane scroll;
-	final JLabel empty;
-	final JLabel newPill = new ClipLabel("", SwingConstants.CENTER);
-	final JLabel error = new ClipLabel(), lockLine = new ClipLabel(), lockSub = new ClipLabel();
+	final JLabel empty, newPill = new ClipLabel("", SwingConstants.CENTER), error = new ClipLabel(), lockLine = new ClipLabel(), lockSub = new ClipLabel();
 	/** In place of the message box while locked: the reason, coral when it's the viewer's own timeout. */
 	final JPanel lockBox = clear(2);
 	JPanel boxPanel;
@@ -103,9 +101,8 @@ class FeedList extends JPanel {
 	final Set<String> pendingDel = new HashSet<>();
 	/** Rows whose reaction chip this viewer just pressed: their pushes wait (see {@link #reaction}). */
 	final Map<String, Held> held = new HashMap<>();
-	final Timer flush = new Timer(FLUSH_MS, e -> flush());
-	/** Repaints only the visible rows with a sliding name, ~25 times a second, and only while there are any. */
-	final Timer slide = new Timer(40, e -> slideVisible());
+	/** slide: repaints only the visible rows with a sliding name, ~25 times a second, and only while there are any. */
+	final Timer flush = new Timer(FLUSH_MS, e -> flush()), slide = new Timer(40, e -> slideVisible());
 	int unseen;
 	final Map<Integer, Icon> icons = new HashMap<>(), spriteIcons = new HashMap<>();
 	final Map<String, Icon> skillIcons = new HashMap<>();
@@ -610,10 +607,8 @@ class FeedList extends JPanel {
 		}
 
 		public void replace(FilterBypass fb, int offset, int length, String s, AttributeSet a) throws BadLocationException {
-			var add = s == null ? "" : s;
 			int room = max - (fb.getDocument().getLength() - length);
-			if (room <= 0) return;
-			super.replace(fb, offset, length, add.length() > room ? add.substring(0, room) : add, a);
+			if (room > 0) super.replace(fb, offset, length, s == null || s.length() <= room ? s : s.substring(0, room), a);
 		}
 	}
 
@@ -684,7 +679,7 @@ class FeedList extends JPanel {
 			if (h != null && --h.posts <= 0) {
 				h.posts = 0;
 				int gen = ++h.gen;
-				UiView.once(1500 /* SETTLE_MS */, e -> settle(rowId, gen));
+				once(1500 /* SETTLE_MS */, e -> settle(rowId, gen));
 			}
 			showError(errorOf(v));
 		});

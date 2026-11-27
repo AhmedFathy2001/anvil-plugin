@@ -32,9 +32,8 @@ class PushSocket extends WebSocketListener {
 	volatile WebSocket socket;
 	ScheduledFuture<?> pending;
 	int failures;
-	volatile boolean live;
-	/** The site said this socket may relay chat ({"t":"hello","relay":1}); any other closes on a message. */
-	volatile boolean relayOk;
+	/** relayOk: the site said this socket may relay chat ({"t":"hello","relay":1}); any other closes on a message. */
+	volatile boolean live, relayOk;
 
 	/** Up and hearing changes, so polls may slow down. */
 	boolean live() {

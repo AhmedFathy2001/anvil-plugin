@@ -27,9 +27,8 @@ import javax.swing.*;
 @Singleton
 
 public class BingoApiClient {
-	static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
-	static final MediaType PNG = MediaType.parse("image/png");
-	static final MediaType JPEG = MediaType.parse("image/jpeg");
+	static final MediaType JSON = MediaType.parse("application/json; charset=utf-8"), PNG = MediaType.parse("image/png"),
+		JPEG = MediaType.parse("image/jpeg");
 	/** No body (a byte-array body can be written any number of times). */
 	static final RequestBody EMPTY = RequestBody.create(null, new byte[0]);
 
@@ -39,22 +38,26 @@ public class BingoApiClient {
 	}
 
 	final Gson gson;
-	// Package-private so tests can drive a request through the pause gate (AccountOptOutTest).
-	final OkHttpClient httpClient;
+	// httpClient: package-private so tests can drive a request through the pause gate (AccountOptOutTest).
+	// readClient: reads the sidebar waits on (see the constructor). pushClient: pings keep the push socket
+	// honest: without them a connection that died quietly (sleep, a Wi-Fi change, an expired NAT entry)
+	// sends no close and no failure, and the plugin would believe it's live — polling slowly — forever.
+	// Derived from the injected client, so it shares its pool.
+	final OkHttpClient httpClient, readClient, pushClient;
 	String apiUrl, playerToken;
-	// In-game RSN of the locally logged-in account. Sent as `X-RSN` on every player-token
+	// currentRsn: the in-game RSN of the locally logged-in account. Sent as `X-RSN` on every player-token
 	// request so the server can scope the per-user plugin token to the correct clan_member
 	// (and reject drops on accounts that aren't signed up for the active event).
-	@Getter volatile String currentRsn;
-	// Stable Jagex account hash (client.getAccountHash()) of the locally logged-in account.
+	//
+	// accountHash: the stable Jagex account hash (client.getAccountHash()) of the locally logged-in account.
 	// Sent as `X-Account-Hash` so the server can anchor auto-verification to the account even
 	// across in-game renames. Null when logged out / unavailable.
-	@Getter volatile String accountHash;
-	// The character the Jagex Launcher says is about to log in (client.getLauncherDisplayName()), sent
+	//
+	// rsnHint: the character the Jagex Launcher says is about to log in (client.getLauncherDisplayName()), sent
 	// as `X-RSN-Hint` only while no RSN is stamped. The site uses it to pick which of this person's own
 	// characters a read is about, so the panel shows the right board before Play; it never claims,
 	// links or verifies anything — that stays with X-RSN after the real login. Null off the launcher.
-	@Getter volatile String rsnHint;
+	@Getter volatile String currentRsn, accountHash, rsnHint;
 
 	// The world the player is on, as the site reads it (WorldInfo): its type flags and its world-list
 	// activity line. Sent as X-World-Types / X-World-Activity on every request so the site can tell
@@ -70,8 +73,6 @@ public class BingoApiClient {
 	/** Request tag that lets an account action through while {@link #accountPaused} is set. */
 	static class AccountAction {
 	}
-
-	final OkHttpClient readClient;
 
 	@Inject
 	public BingoApiClient(Gson gson, OkHttpClient client) {
@@ -349,12 +350,6 @@ public class BingoApiClient {
 		return getOrNull(authedRequest(clanUrl("/api/plugin/chat-chans")).get(), JsonObject.class);
 	}
 
-	/**
-	 * Pings keep the push socket honest: without them a connection that died quietly (sleep, a Wi-Fi
-	 * change, an expired NAT entry) sends no close and no failure, and the plugin would believe it's
-	 * live — polling slowly — forever. Derived from the injected client, so it shares its pool.
-	 */
-	final OkHttpClient pushClient;
 
 	WebSocket openPush(PushTicket ticket, WebSocketListener listener) {
 		return pushClient.newWebSocket(plainRequest(ticket.url).header("Authorization", "Bearer " + ticket.ticket).build(), listener);
@@ -481,9 +476,8 @@ public class BingoApiClient {
 	/** Result of POST /api/plugin/account. */
 	static class AccountActionResult {
 		boolean ok;
-		String error, reason;
-		/** What to tell the player (e.g. the XP check that starts an ownership claim). */
-		String message;
+		/** message: what to tell the player (e.g. the XP check that starts an ownership claim). */
+		String error, reason, message;
 	}
 
 	/**
@@ -795,8 +789,7 @@ public class BingoApiClient {
 	// polls, so the last ETag + parsed body per URL rides along as If-None-Match: a 304 reuses the cached
 	// body and costs a few header bytes instead of the whole board. The roster gets its own cache so
 	// paging back and forth never evicts the polls.
-	final Map<String, Object[]> polls = etagCache(16);
-	final Map<String, Object[]> trackedTiles = etagCache(TileTracker.MAX_PINS);
+	final Map<String, Object[]> polls = etagCache(16), trackedTiles = etagCache(TileTracker.MAX_PINS);
 
 	/**
 	 * Where the last good config and board are saved between sessions (ResponseDiskCache). Null until
@@ -1100,10 +1093,9 @@ public class BingoApiClient {
 		Boolean knownMember;
 		// WHICH CLAN ANSWERED, and about whom. "Tracked as a guest" is a claim about one person in one
 		// clan and the message named neither, so somebody in two clans could not tell a wrong answer
-		// from a surprising one.
-		String clanName;
-		/** 'member' | 'guest' on a seat that exists; null when the site made no seat. */
-		String seatKind;
+		// from a surprising one. seatKind: 'member' | 'guest' on a seat that exists; null when the
+		// site made no seat.
+		String clanName, seatKind;
 	}
 
 	/**
@@ -1160,8 +1152,7 @@ public class BingoApiClient {
 	static class ClanMember {
 		String rsn, rank;
 		// The in-game rank number (higher = more senior), so the site can order custom titles.
-		Integer rankNum;
-		Integer joinedDays;
+		Integer rankNum, joinedDays;
 		// Only set for the locally-logged-in player — used by the site for stable identity /
 		// rename detection. Null for everyone else; gson omits it from the payload.
 		String accountHash;

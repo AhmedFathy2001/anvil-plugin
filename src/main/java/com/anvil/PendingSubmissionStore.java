@@ -44,8 +44,9 @@ public class PendingSubmissionStore {
 		long timestamp;
 		// itemId / durationSeconds / inferred / note: read from proofs older builds saved (legacyFacts).
 		Integer itemId, durationSeconds;
-		String capturedRsn; // character the drop was obtained on; only re-submitted while on it
-		String inferred; // the item was worked out, not seen (DuplicateInference); the site flags it for review
+		// capturedRsn: character the drop was obtained on; only re-submitted while on it. inferred: the
+		// item was worked out, not seen (DuplicateInference); the site flags it for review.
+		String capturedRsn, inferred;
 		// Shared kills/runs: teammates seen + party size at the time (lib/coopRuns on the site). Null
 		// when the tile doesn't ask; kept on disk so a retried proof still says who was there.
 		List<String> coopGroup;
