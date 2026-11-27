@@ -604,8 +604,7 @@ public class AnvilPlugin extends Plugin {
 	pendingTimedAt;
 	static final List<String> RAIDS = List.of("chambers of xeric", "theatre of blood", "tombs of amascut"),
 	RFD_TAGS = List.of("Another Cook", "freed", "defeated", "saved"),
-	WORD_QUEST_IN_NAME_TAGS = List.of(
-			"Another Cook", "Doric", "Heroes", "Legends", "Observatory", "Olaf", "Waterfall");
+	WORD_QUEST_IN_NAME_TAGS = List.of("Another Cook", "Doric", "Heroes", "Legends", "Observatory", "Olaf", "Waterfall");
 
 	static boolean isRaidLine(String name) {
 		var n = normalizeBossName(name);
@@ -754,8 +753,7 @@ public class AnvilPlugin extends Plugin {
 	// Unsired's ("feels like she's acquired something special: Abyssal orphan"). Only the
 	// name is taken: where it came from is the pet catalogue's to answer (DropSource.resolvePetSource).
 	// Package-private for the pattern test.
-	static final Pattern CLAN_PET_BROADCAST_PATTERN = Pattern.compile(
-			"^(.{1,20}?) (?:has a funny feeling like (?:he's|she's|they're|he|she|they) (?:being|would have been) followed|feels something weird sneaking into (?:his|her|their) backpack|feels like (?:he's|she's|they've|he has|she has|they have) acquired something special): (.+?)(?: at ([\\d,]+) (?:completions|killcount|kill count)\\b.*| at [\\d,]+ .*)?\\.?$");
+	static final Pattern CLAN_PET_BROADCAST_PATTERN = Pattern.compile("^(.{1,20}?) (?:has a funny feeling like (?:he's|she's|they're|he|she|they) (?:being|would have been) followed|feels something weird sneaking into (?:his|her|their) backpack|feels like (?:he's|she's|they've|he has|she has|they have) acquired something special): (.+?)(?: at ([\\d,]+) (?:completions|killcount|kill count)\\b.*| at [\\d,]+ .*)?\\.?$");
 
 	// Server drop-attribution line, e.g. "Nisbro received a drop: Elder venator fang (Maggot King)".
 	// Fired for drops handed out through channels that produce NO loot event — Maggot King's
@@ -781,11 +779,9 @@ public class AnvilPlugin extends Plugin {
 	// denylist is the safe shape: server-sent lines always parse, and the channels a player
 	// could type "X received a drop: …" into (spoofing a credit onto X's client — the
 	// recipient check alone can't catch that) never do.
-	static final Set<ChatMessageType> PLAYER_AUTHORED_CHAT = EnumSet.of(PUBLICCHAT, MODCHAT, AUTOTYPER, MODAUTOTYPER,
-			PRIVATECHAT, MODPRIVATECHAT, PRIVATECHATOUT, FRIENDSCHAT, CLAN_CHAT, CLAN_GUEST_CHAT, CLAN_GIM_CHAT),
+	static final Set<ChatMessageType> PLAYER_AUTHORED_CHAT = EnumSet.of(PUBLICCHAT, MODCHAT, AUTOTYPER, MODAUTOTYPER, PRIVATECHAT, MODPRIVATECHAT, PRIVATECHATOUT, FRIENDSCHAT, CLAN_CHAT, CLAN_GUEST_CHAT, CLAN_GIM_CHAT),
 	// The channels the game's own lines arrive on — everything below the drop/clog block parses only these.
-	PARSED_CHAT = EnumSet.of(GAMEMESSAGE,
-			SPAM, MESBOX, FRIENDSCHATNOTIFICATION);
+	PARSED_CHAT = EnumSet.of(GAMEMESSAGE, SPAM, MESBOX, FRIENDSCHATNOTIFICATION);
 
 	// Completions that award a guaranteed item straight to the inventory — no loot event ever
 	// fires, and the collection-log line only fires on the FIRST-ever award, so repeat capes
@@ -795,9 +791,7 @@ public class AnvilPlugin extends Plugin {
 	// Fortis Colosseum reward chest, which fires LootReceived and is already drop-tracked —
 	// crediting the KC line too would double-count (the chest is claimed after the kill,
 	// outside the dedup window).
-	static final Map<String, String> GUARANTEED_AWARDS = Map.of(
-			"tzkal-zuk", "Infernal cape",
-			"tztok-jad", "Fire cape");
+	static final Map<String, String> GUARANTEED_AWARDS = Map.of("tzkal-zuk", "Infernal cape", "tztok-jad", "Fire cape");
 
 	// Chat styling, in BOTH the forms the game uses. RuneLite's <col=…> / <img=…> markup is the
 	// familiar one; the other is Jagex's older @tag@ colour codes (@red@, @dre@ …), which now
@@ -825,10 +819,8 @@ public class AnvilPlugin extends Plugin {
 	// varies: "You have completed The Corsair Curse!", "'One Small Favour' completed!",
 	// "Congratulations! You have defeated the Culinaromancer!" (RFD subquests), and the
 	// "kind of"/"completely" phrasings of Hazeel Cult and Rag and Bone Man.
-	QUEST_PATTERN_1 = Pattern.compile(
-			".+?ve\\.*? (?<verb>been|rebuilt|.+?ed)? ?(?:the )?'?(?<quest>.+?)'?(?: [Qq]uest)?[!.]?$"),
-	QUEST_PATTERN_2 = Pattern.compile(
-			"'?(?<quest>.+?)'?(?: [Qq]uest)? (?<verb>[a-z]\\w+?ed)?(?: f.*?)?[!.]?$");
+	QUEST_PATTERN_1 = Pattern.compile(".+?ve\\.*? (?<verb>been|rebuilt|.+?ed)? ?(?:the )?'?(?<quest>.+?)'?(?: [Qq]uest)?[!.]?$"),
+	QUEST_PATTERN_2 = Pattern.compile("'?(?<quest>.+?)'?(?: [Qq]uest)? (?<verb>[a-z]\\w+?ed)?(?: f.*?)?[!.]?$");
 
 	/** A chat line with its styling removed, ready to parse. Null-safe: an absent line is "". */
 	static String stripChatTags(String msg) {
@@ -977,8 +969,7 @@ public class AnvilPlugin extends Plugin {
 		"5+ players", "10+ players", "11-15 players", "16-23 players", "24+ players",
 		"25+ players", "50+ players", "100+ players",
 	},
-	REWARD_WINDOWS = {"chambers of xeric", "theatre of blood", "tombs of amascut",
-		"barrows", "clue scroll", "fortis colosseum", "lunar chest", "gauntlet"},
+	REWARD_WINDOWS = {"chambers of xeric", "theatre of blood", "tombs of amascut", "barrows", "clue scroll", "fortis colosseum", "lunar chest", "gauntlet"},
 	CLUE_TIERS = {"beginner", "easy", "medium", "hard", "elite", "master"};
 	/** Doubling wait after a push that failed for a reason that might clear (site down, no network). */
 	final SyncBackoff rosterBackoff = new SyncBackoff(),
@@ -1055,8 +1046,7 @@ public class AnvilPlugin extends Plugin {
 	// CHEST_LINE_SETTLE_TICKS = LOOTING_BAG_WATCH_TICKS + 2, inlined at its one use.
 	@RequiredArgsConstructor
 	static class DropLine {
-		final int tick;
-		final int qty;
+		final int tick, qty;
 		final String name;
 	}
 
@@ -1175,12 +1165,9 @@ public class AnvilPlugin extends Plugin {
 		// The offset walks left from the bar's right edge: the close button ends at 28, WikiSync
 		// takes 33..104, and we take the next slot along. An absolute-right offset holds at any
 		// window size, where measuring off a neighbour moves the moment they move.
-		clogSyncButton = new HeaderButton(client, InterfaceID.Collection.UNIVERSE, InterfaceID.Collection.SEARCH_TOGGLE,
-				109 /* CLOG_BUTTON_OFFSET */, 33 /* CLOG_BUTTON_NEAR_OFFSET */, "Anvil", "Sync to",
-				() -> apiClient.isConfigured() && config.syncClog(), this::syncProfileNow);
+		clogSyncButton = new HeaderButton(client, InterfaceID.Collection.UNIVERSE, InterfaceID.Collection.SEARCH_TOGGLE, 109 /* CLOG_BUTTON_OFFSET */, 33 /* CLOG_BUTTON_NEAR_OFFSET */, "Anvil", "Sync to", () -> apiClient.isConfigured() && config.syncClog(), this::syncProfileNow);
 		clogSyncButton.frameId = InterfaceID.Collection.FRAME;
-		clanSyncButton = new HeaderButton(client, InterfaceID.ClansInfo.UNIVERSE, InterfaceID.ClansInfo.CLOSE, 33 /* CLAN_BUTTON_OFFSET */,
-				"Anvil", "Sync roster to", () -> apiClient.isConfigured() && isAdmin && isClanRosterReadable(), this::syncClanRosterFromPanel);
+		clanSyncButton = new HeaderButton(client, InterfaceID.ClansInfo.UNIVERSE, InterfaceID.ClansInfo.CLOSE, 33 /* CLAN_BUTTON_OFFSET */, "Anvil", "Sync roster to", () -> apiClient.isConfigured() && isAdmin && isClanRosterReadable(), this::syncClanRosterFromPanel);
 		// The stat table as it stands right now, before any XP arrives. A plugin started mid-session
 		// — every reload during development, every enable from the sidebar — has no other chance to
 		// learn it, and what it doesn't know it mistakes for a level-up that already happened.
@@ -1205,13 +1192,11 @@ public class AnvilPlugin extends Plugin {
 			return ids;
 		}, this::sendChatMessage);
 		// A finished pin shows "Done" for the linger, then comes down — and the panel's pin list follows.
-		tileTracker.setDoneHooks(id -> later(() -> safely("tileTracker", () -> tileTracker.refresh(id)), TileTracker.DONE_LINGER_MS + 1_000),
-			this::boardChanged);
+		tileTracker.setDoneHooks(id -> later(() -> safely("tileTracker", () -> tileTracker.refresh(id)), TileTracker.DONE_LINGER_MS + 1_000), this::boardChanged);
 		tileTracker.startUp();
 
 		// Mount the always-on progress sidebar in the RuneLite toolbar.
-		sidebarNavButton = NavigationButton.builder().tooltip("Anvil progress")
-				.icon(ImageUtil.loadImageResource(getClass(), "/com/anvil/sidebar_icon.png")).priority(7).panel(sidebarPanel).build();
+		sidebarNavButton = NavigationButton.builder().tooltip("Anvil progress").icon(ImageUtil.loadImageResource(getClass(), "/com/anvil/sidebar_icon.png")).priority(7).panel(sidebarPanel).build();
 		clientToolbar.addNavigation(sidebarNavButton);
 		migrateChatSettings();
 		keyManager.registerKeyListener(eventChatKey);
@@ -1256,19 +1241,19 @@ public class AnvilPlugin extends Plugin {
 
 		// Last session's config + board first (disk, so on the executor): the panel draws them now,
 		// and the fetches below go out as If-None-Match. Queued ahead of them on the one thread.
-		executor.submit(() -> safely("loadSavedResponses", this::loadSavedResponses));
+		submit(() -> safely("loadSavedResponses", this::loadSavedResponses));
 		// Notifications a previous session couldn't deliver.
-		executor.submit(() -> safely("notifyOutbox", outbox::load));
+		submit(() -> safely("notifyOutbox", outbox::load));
 
 		// Initial config fetch. If the plugin was enabled mid-session (already logged in),
 		// no LOGGED_IN transition will fire — stamp the RSN/account hash and greet now so
 		// the very first authed request carries the identity headers.
-		if (loggedIn()) executor.submit(this::stampIdentityAndGreet);
+		if (loggedIn()) submit(this::stampIdentityAndGreet);
 		else if (apiClient.isConfigured()) {
 			// At the login screen. Admin is a question about the PERSON, so it needn't wait for a
 			// character; with the launcher hint the config is this character's already. Paint both now
 			// rather than on the panel's next 15s poll.
-			executor.submit(() -> {
+			submit(() -> {
 				safely("refreshConfig", this::refreshConfig);
 				safely("probeAdmin", this::probeAdmin);
 				repaintSidebar();
@@ -1276,9 +1261,9 @@ public class AnvilPlugin extends Plugin {
 		}
 
 		// Retry any pending submissions from a previous session
-		loopTasks.add(executor.schedule(() -> safely("initial retry", this::retryPendingSubmissions), 3, TimeUnit.SECONDS));
+		loopTasks.add(later(() -> safely("initial retry", this::retryPendingSubmissions), 3_000));
 		// Pins restored from last session fill in now rather than on the first 30s tick.
-		loopTasks.add(executor.schedule(() -> safely("tileTracker", tileTracker::poll), 5, TimeUnit.SECONDS));
+		loopTasks.add(later(() -> safely("tileTracker", tileTracker::poll), 5_000));
 
 		// Refresh config every 30 seconds + retry pending submissions + refresh schedule.
 		// Wrap in try/catch — an uncaught throw inside a scheduleAtFixedRate task silently
@@ -1713,14 +1698,9 @@ public class AnvilPlugin extends Plugin {
 		return delegate;
 	}
 
-	static final Set<String> INTERNAL_STATE_KEYS = Set.of(
-			CFG_DEFAULTS_VERSION, CFG_FIRST_RUN_NUDGES, CFG_ANNOUNCED_ACCOUNTS,
-			CFG_COUNTER_EVENT, CFG_COUNTER_DEATHS, CFG_COUNTER_LOOTGP, CFG_COUNTER_PVP,
-			CFG_COUNTER_BIGHIT, CFG_COUNTER_MINUTES, CFG_COUNTER_CATASKS, "settingsMovedNoted", "itemsWiped");
+	static final Set<String> INTERNAL_STATE_KEYS = Set.of(CFG_DEFAULTS_VERSION, CFG_FIRST_RUN_NUDGES, CFG_ANNOUNCED_ACCOUNTS, CFG_COUNTER_EVENT, CFG_COUNTER_DEATHS, CFG_COUNTER_LOOTGP, CFG_COUNTER_PVP, CFG_COUNTER_BIGHIT, CFG_COUNTER_MINUTES, CFG_COUNTER_CATASKS, "settingsMovedNoted", "itemsWiped");
 	// Per-RSN state keys are stored as "<prefix>:<rsn>".
-	static final List<String> INTERNAL_STATE_PREFIXES = List.of(
-			CFG_VESTIGE_ROLLS + ":", CFG_CLOG_STATE + ":", CFG_PB_STATE + ":",
-			CFG_CLOG_FINGERPRINT + ":", CFG_PB_IMPORTED + ":");
+	static final List<String> INTERNAL_STATE_PREFIXES = List.of(CFG_VESTIGE_ROLLS + ":", CFG_CLOG_STATE + ":", CFG_PB_STATE + ":", CFG_CLOG_FINGERPRINT + ":", CFG_PB_IMPORTED + ":");
 
 	static boolean isInternalStateKey(String key) {
 		return key != null && (INTERNAL_STATE_KEYS.contains(key) || INTERNAL_STATE_PREFIXES.stream().anyMatch(key::startsWith));
@@ -2026,12 +2006,7 @@ public class AnvilPlugin extends Plugin {
 	void reportTransmitAttempt() {
 		var r = requestFullClogTransmit();
 		if (r == STARTED) manualSyncStartedAt = now();
-		sendChatMessage(r == STARTED ? "Syncing your collection log..."
-				: r == BUSY ? "Already syncing — give it a couple of seconds."
-				: r == COOLING_DOWN ? "Just asked the game for your log — give it "
-						+ secs(CLOG_TRANSMIT_COOLDOWN_MS - (now() - lastClogTransmitAt)) + "s."
-				: r == LOG_CLOSED ? "Open your collection log and your profile will sync itself."
-				: "Profile sync isn't available right now — check that you're signed in to Anvil.");
+		sendChatMessage(r == STARTED ? "Syncing your collection log..." : r == BUSY ? "Already syncing — give it a couple of seconds." : r == COOLING_DOWN ? "Just asked the game for your log — give it " + secs(CLOG_TRANSMIT_COOLDOWN_MS - (now() - lastClogTransmitAt)) + "s." : r == LOG_CLOSED ? "Open your collection log and your profile will sync itself." : "Profile sync isn't available right now — check that you're signed in to Anvil.");
 	}
 
 
@@ -2192,8 +2167,7 @@ public class AnvilPlugin extends Plugin {
 		if (manualSyncStartedAt != 0 && now() - manualSyncStartedAt >= 15_000L /* MANUAL_SYNC_TIMEOUT_MS */) {
 			manualSyncStartedAt = 0;
 			// A push in flight or already sent clears the batch, so anything still here never landed.
-			sendChatMessage(WARN, clogFullSync.size() == 0 ? "The game didn't send your collection log. Close and reopen it, then try again."
-					: "Only part of your collection log arrived — reopen it and sync again.");
+			sendChatMessage(WARN, clogFullSync.size() == 0 ? "The game didn't send your collection log. Close and reopen it, then try again." : "Only part of your collection log arrived — reopen it and sync again.");
 			clogFullSync.reset();
 		}
 		updateClanRosterReadable();
@@ -2258,9 +2232,7 @@ public class AnvilPlugin extends Plugin {
 		if (toaLevel > 0) lastToaRaidLevel = toaLevel;
 		// ToA: scoped by a non-zero raid level, occupied party slots. CoX: the client exposes the party
 		// size directly while inside the dungeon. ToB: scoped by an active party status, occupied slots.
-		lastRaidPartySize = toaLevel > 0 ? occupied(TOA_PARTY_SLOTS)
-				: client.getVarbitValue(VarbitID.RAIDS_CLIENT_INDUNGEON) == 1 ? client.getVarbitValue(VarbitID.RAIDS_CLIENT_PARTYSIZE)
-				: client.getVarbitValue(VarbitID.TOB_CLIENT_PARTYSTATUS) > 0 ? occupied(TOB_PARTY_SLOTS) : 0;
+		lastRaidPartySize = toaLevel > 0 ? occupied(TOA_PARTY_SLOTS) : client.getVarbitValue(VarbitID.RAIDS_CLIENT_INDUNGEON) == 1 ? client.getVarbitValue(VarbitID.RAIDS_CLIENT_PARTYSIZE) : client.getVarbitValue(VarbitID.TOB_CLIENT_PARTYSTATUS) > 0 ? occupied(TOB_PARTY_SLOTS) : 0;
 		// Baseline CA points once after login (before any completion) so we can tell first
 		// completions (points rise) from recompletions (points unchanged).
 		if (!caPointsInitialized && loggedIn()) {
@@ -2637,8 +2609,7 @@ public class AnvilPlugin extends Plugin {
 		var rsn = apiClient.getCurrentRsn();
 		if (rsn == null || !apiClient.isSignedIn()) return null;
 		var cfg = pluginConfig;
-		return new AccountRow(rsn, apiClient.isAccountPaused() ? AccountRow.State.PAUSED
-				: cfg != null && "other".equals(cfg.accountStanding) ? AccountRow.State.OTHER : AccountRow.State.TRACKING);
+		return new AccountRow(rsn, apiClient.isAccountPaused() ? AccountRow.State.PAUSED : cfg != null && "other".equals(cfg.accountStanding) ? AccountRow.State.OTHER : AccountRow.State.TRACKING);
 	}
 
 	/**
@@ -2700,8 +2671,7 @@ public class AnvilPlugin extends Plugin {
 				if (r.ok) return r.message == null ? "Sent." : r.message.trim();
 				return r.error == null ? "Couldn't send that — try again." : r.error;
 			}
-			default:
-				return "";
+			default: return "";
 		}
 	}
 
@@ -2725,8 +2695,7 @@ public class AnvilPlugin extends Plugin {
 		if (eventName == null || eventName.equals(unlinkedWarnedFor)) return;
 		unlinkedWarnedFor = eventName;
 		var rsn = getLocalPlayerName();
-		sendChatMessage((rsn != null ? rsn : "This account") + " is playing in \"" + eventName
-				+ "\" but isn't linked to your Anvil account — your drops won't count. Verify this RSN on the Anvil site.");
+		sendChatMessage((rsn != null ? rsn : "This account") + " is playing in \"" + eventName + "\" but isn't linked to your Anvil account — your drops won't count. Verify this RSN on the Anvil site.");
 	}
 
 	// ---- Connection-health nag: broken Account Token / unreachable site ----
@@ -2763,8 +2732,7 @@ public class AnvilPlugin extends Plugin {
 			connLastWarnedMs = 0L;
 		}
 		// A rejected token is the site's answer, not a blip: say so at once. Only an unreachable site gets the grace window.
-		if (problem != TOKEN && now - connFailingSinceMs < 90_000 /* CONN_WARN_GRACE_MS */
-				|| connLastWarnedMs != 0L && now - connLastWarnedMs < 5 * 60_000 /* CONN_WARN_INTERVAL_MS */ // throttled
+		if (problem != TOKEN && now - connFailingSinceMs < 90_000 /* CONN_WARN_GRACE_MS */ || connLastWarnedMs != 0L && now - connLastWarnedMs < 5 * 60_000 /* CONN_WARN_INTERVAL_MS */ // throttled
 				|| !loggedIn()) return; // no chat to read yet — hold the nag until they're in-game
 		connLastWarnedMs = now;
 		if (problem == TOKEN) {
@@ -2775,10 +2743,7 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	static ConnProblem classifyConnProblem(IOException e) {
-		if (e instanceof java.net.UnknownHostException
-				|| e instanceof java.net.ConnectException
-				|| e instanceof java.net.SocketTimeoutException
-				|| e instanceof javax.net.ssl.SSLException) return UNREACHABLE;
+		if (e instanceof java.net.UnknownHostException || e instanceof java.net.ConnectException || e instanceof java.net.SocketTimeoutException || e instanceof javax.net.ssl.SSLException) return UNREACHABLE;
 		int code = e instanceof HttpStatusException ? ((HttpStatusException) e).code : 0;
 		return code == 401 || code == 403 ? TOKEN : NONE; // NONE: e.g. a 5xx / other transient — logged, but not a config problem
 	}
@@ -2841,8 +2806,7 @@ public class AnvilPlugin extends Plugin {
 		maybeNotifyRareDrop(name, event.getItems(), "npc");
 		// Count kills + value off the SERVER event — it fires once per real kill, so a barraged clump of
 		// same-tick deaths is counted in full (NpcLootReceived under-fires those). See serverNpcLootSeen.
-		if (firstServerLoot && name != null && name.equalsIgnoreCase(fallbackKillName)
-			&& client.getTickCount() - fallbackKillTick <= 2 /* FALLBACK_KILL_TICKS */) return; // the client-side fallback already counted this very kill (see fallbackKillName)
+		if (firstServerLoot && name != null && name.equalsIgnoreCase(fallbackKillName) && client.getTickCount() - fallbackKillTick <= 2 /* FALLBACK_KILL_TICKS */) return; // the client-side fallback already counted this very kill (see fallbackKillName)
 		processValueTiles(name, event.getItems(), "npc");
 		processNpcKill(name);
 	}
@@ -2884,8 +2848,7 @@ public class AnvilPlugin extends Plugin {
 		// EVENT (like a raid chest), not a PLAYER kill. Without this override it dodges the "PvP loot
 		// rejected by default" drop-tile guard, so PK'd items (dragon boots, berserker ring, …) wrongly
 		// credit PvM drop tiles. Treat key contents as pvp: PvM tiles reject them, pvp/value tiles keep them.
-		var kind = isLootKeyEvent(event.getName()) || type == LootRecordType.PLAYER ? "pvp" : type == LootRecordType.NPC ? "npc"
-				: type == LootRecordType.PICKPOCKET ? "pickpocket" : "event"; // else raid chests / barrows / wt / clues
+		var kind = isLootKeyEvent(event.getName()) || type == LootRecordType.PLAYER ? "pvp" : type == LootRecordType.NPC ? "npc" : type == LootRecordType.PICKPOCKET ? "pickpocket" : "event"; // else raid chests / barrows / wt / clues
 		// Clue caskets arrive under RuneLite's casket/trail name, which varies by version
 		// ("Reward Casket (Master)" / "Master Treasure Trail" / "Clue Scroll (Master)"); fold them all
 		// to the "Clue Scroll (Tier)" the source picker offers so a clue-restricted drop tile matches.
@@ -3078,10 +3041,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	void importSounds(BannerSoundService.Kind kind) {
 		var banner = kind == BANNER;
-		bannerSound.importSounds(kind, names -> sendChatMessage("Added to " + (banner ? "banner" : "mission")
-				+ " sounds: " + String.join(", ", names) + (banner
-						? ". All clips cycle by default — tap one in the Anvil side panel to toggle it on/off."
-						: ". Missions play these now, instead of the game sound they used before.")));
+		bannerSound.importSounds(kind, names -> sendChatMessage("Added to " + (banner ? "banner" : "mission") + " sounds: " + String.join(", ", names) + (banner ? ". All clips cycle by default — tap one in the Anvil side panel to toggle it on/off." : ". Missions play these now, instead of the game sound they used before.")));
 	}
 
 
@@ -3376,13 +3336,11 @@ public class AnvilPlugin extends Plugin {
 			// + SPAM), so onChatMessage sees it twice — dedup by (area, tier) or we'd double-post
 			// the announcement AND double-credit the tile. The line can't legitimately re-fire
 			// (once per account per tier ever), so a short window is safe.
-			if (claim(lastDiaryHandledAt, (area + "|" + tier).toLowerCase(ROOT), now(),
-					15_000 /* DIARY_DEDUP_MS */)) {
+			if (claim(lastDiaryHandledAt, (area + "|" + tier).toLowerCase(ROOT), now(), 15_000 /* DIARY_DEDUP_MS */)) {
 				// Rare (once per account per tier) — a breadcrumb so client.log shows the parse
 				// even when no tile matches.
 				maybeNotifyDiaryCompletion(area, tier);
-				recordFeedMoment(new Moment("diary", null, area, 1, null, null, null, null, null, tier,
-						now(), ("diary|" + area + "|" + tier).toLowerCase(ROOT)));
+				recordFeedMoment(new Moment("diary", null, area, 1, null, null, null, null, null, tier, now(), ("diary|" + area + "|" + tier).toLowerCase(ROOT)));
 				creditDiaryTiles(area, tier);
 			}
 		}
@@ -3481,8 +3439,7 @@ public class AnvilPlugin extends Plugin {
 			// so a Dizana's quiver never lands twice.
 			maybeNotifyCollectionUnlock(item);
 			maybeNotifyClogSlot(item);
-			recordFeedMoment(new Moment("clog", null, item, 1, null, null, null, null, now(),
-					"clog|" + item.toLowerCase(ROOT)));
+			recordFeedMoment(new Moment("clog", null, item, 1, null, null, null, null, now(), "clog|" + item.toLowerCase(ROOT)));
 		}
 		// Credit bingo drop/collection tiles for items that never fire a loot event — shop-bought
 		// minigame rewards (Barbarian Assault torso/hats), gamble pets (Penance Queen), and any
