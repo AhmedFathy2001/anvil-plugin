@@ -2369,59 +2369,44 @@ public class AnvilPlugin extends Plugin {
 			// The next account's stats haven't been sent yet; what the client holds until then is
 			// either a placeholder or the previous account's.
 			unsettleStats();
-			helloSent = identityStampPending = clogOpen = false;
-			// Refreshed on game ticks, and none run at the login screen — so the last in-game answer
-			// would stand and keep "Sync clan roster" on offer while logged out. There is no clan
-			// channel to read here.
-			clanRosterReadable = false;
-			clanRosterMissingTicks = 0;
+			// Per-account state the next login starts without. clanRosterReadable is refreshed on game
+			// ticks, and none run at the login screen — so the last in-game answer would stand and keep
+			// "Sync clan roster" on offer while logged out (there is no clan channel to read here). The
+			// starting shot is per ACCOUNT: the next login may be an alt that still owes one, so forget
+			// that this one filed (the server's config is the real answer either way). A half-received
+			// collection log belongs to the account that was logged in. Next login gets its one "it ran
+			// and agreed with the site" line back. A game of LMS cut short by a logout is over: without
+			// this the next login's first tick read "left the final duel without dying" and filed a win
+			// for a game nobody finished. Setup + linking are re-evaluated for the next account.
+			helloSent = identityStampPending = clogOpen = clanRosterReadable = autoStartProofTried = adminProbeAttempted
+					= startProofFiled = startProofNudged = startProofCreditWarned = clogSyncRequested = autoRosterReportedThisLogin
+					= autoClogReportedThisLogin = lmsInGame = caRepeatNudgeSent = lootNotifyNudgeSent = clogNotifyNudgeSent = setupWarned = false;
+			lastClogFingerprint = gameClanRetryAt = gameClanMissingChecks = clanRosterMissingTicks = identityStampRetries = 0;
+			lastSentGameClan = unlinkedWarnedFor = lastTrackingFingerprint = null;
+			lastSentQuestCount = lastSentCaPoints = null;
+			// Membership is per-ACCOUNT: the next login may be an alt that's only a guest here, so drop
+			// the answer rather than let the sidebar rank clans on the previous account's standing.
+			knownMember = null;
 			tileTracker.forAccount(-1);
 			repaintSidebar(); // drop "Track on screen" with the session
 			// Back at the login screen: the next LOGGED_IN really is a new session, and until it
 			// arrives we don't have one at all.
 			freshLoginPending = true;
 			sessionLoginAtMs = StartProofRules.UNKNOWN_LOGIN;
-			autoStartProofTried = false;
-			// Membership is per-ACCOUNT: the next login may be an alt that's only a guest here, so drop
-			// the answer rather than let the sidebar rank clans on the previous account's standing.
-			knownMember = null;
 			resetCoffer(false);
-
-			adminProbeAttempted = false;
-			identityStampRetries = 0;
 			// Progress is per ACCOUNT: the next login may be an alt, whose quest points are not
 			// this one's — so the diff starts from nothing again.
 			lastSentProgress.clear();
-			lastSentQuestCount = lastSentCaPoints = null;
-			lastSentGameClan = null;
-			gameClanRetryAt = gameClanMissingChecks = 0;
-			// The starting shot is per ACCOUNT: the next login may be an alt that still owes one,
-			// so forget that this one filed (the server's config is the real answer either way).
-			startProofFiled = startProofNudged = startProofCreditWarned = false;
-			// A half-received collection log belongs to the account that was logged in.
 			clogFullSync.reset();
-			clogSyncRequested = false;
-			lastClogFingerprint = 0;
-			// Next login gets its one line back: "it ran and agreed with the site" is worth saying
-			// once per session, and only once.
-			autoRosterReportedThisLogin = autoClogReportedThisLogin = false;
 			recentClogUnlocks.clear();
 			// Nothing is attacking a logged-out player, and whatever was is not attacking the next
 			// account either.
 			deathAttribution.clear();
-			// A game cut short by a logout is over: without this the next login's first tick read
-			// "left the final duel without dying" and filed a win for a game nobody finished.
-			lmsInGame = false;
 			// "Already announced" is per account: an alt's first of the same task or quest is news.
 			notifiedCaTasks.clear();
 			announcedQuests.clear();
-			caRepeatNudgeSent = lootNotifyNudgeSent = clogNotifyNudgeSent = false;
-			// Re-evaluate setup + linking for the next account that logs in.
-			setupWarned = false;
-			unlinkedWarnedFor = null;
 			// Diagnostics start fresh per account: re-log suppressions and one tracking summary.
 			loggedSuppressions.clear();
-			lastTrackingFingerprint = null;
 			// Unsent counts and moments are this character's: save them for its next login rather
 			// than let them go out under nobody (or the next character) a few seconds from now.
 			var saveForLater = stashPushes();
