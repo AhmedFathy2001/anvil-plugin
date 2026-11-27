@@ -4,6 +4,7 @@ import static java.lang.Math.*;
 import java.util.*;
 import java.util.regex.*;
 import java.awt.Color;
+import lombok.*;
 
 /**
  * What colour an Anvil chat line is (site lib/chatLook). Every line has a {@link Tone}; the site hands
@@ -11,6 +12,7 @@ import java.awt.Color;
  * colours apply. "Plain" means the plugin's own text colour for everything (its existing setting).
  */
 
+@RequiredArgsConstructor
 class ChatPalette {
 	enum Tone {
 		DONE, NEAR, DROP, FEED, WARN, INFO;
@@ -27,7 +29,7 @@ class ChatPalette {
 
 	static final Pattern HEX = Pattern.compile("[0-9a-fA-F]{6}");
 
-	static final ChatPalette ANVIL = anvil();
+	static final ChatPalette ANVIL = new ChatPalette(tones("16c60c", "ffb000", "ff7f27", "9a9a9a", "ff3b3b", "ff5c5c"), false);
 
 	/**
 	 * The Anvil tones on the OPAQUE chatbox: its parchment washes the bright set out, so the same tones
@@ -37,7 +39,7 @@ class ChatPalette {
 
 	/** One colour per tone, in Tone order. */
 	static Map<Tone, String> tones(String... hex) {
-		Map<Tone, String> m = new EnumMap<>(Tone.class);
+		var m = new EnumMap<Tone, String>(Tone.class);
 		for (var t : Tone.values()) m.put(t, hex[t.ordinal()]);
 		return m;
 	}
@@ -47,19 +49,10 @@ class ChatPalette {
 	/** Whether the colours came from the player's custom palette (kept exact on either chat surface). */
 	final boolean custom;
 
-	ChatPalette(Map<Tone, String> colors, boolean custom) {
-		this.colors = colors;
-		this.custom = custom;
-	}
-
-	static ChatPalette anvil() {
-		return new ChatPalette(tones("16c60c", "ffb000", "ff7f27", "9a9a9a", "ff3b3b", "ff5c5c"), false);
-	}
-
 	/** The site's look ({palette, colors}); anything unreadable keeps the Anvil colour for that tone. */
 	static ChatPalette from(String palette, Map<String, String> colors) {
 		if ("plain".equals(palette)) return new ChatPalette(null, false);
-		Map<Tone, String> m = new EnumMap<>(ANVIL.colors);
+		var m = new EnumMap<>(ANVIL.colors);
 		if (colors != null) {
 			for (var e : colors.entrySet()) {
 				var v = nameColor(e.getValue());
@@ -100,7 +93,7 @@ class ChatPalette {
 	 * from 0 to 2 is one seamless there-and-back animation cycle; zero is the ordinary static look.
 	 */
 	static List<int[]> rgbOf(List<String> stops) {
-		List<int[]> rgb = new ArrayList<>();
+		var rgb = new ArrayList<int[]>();
 		for (var s : stops == null ? new ArrayList<String>() : stops) {
 			var hex = nameColor(s);
 			if (hex != null && rgb.size() < 4) {
@@ -119,11 +112,10 @@ class ChatPalette {
 		var t = p * (rgb.size() - 1);
 		int seg = min((int) t, rgb.size() - 2);
 		var f = t - seg;
-		int[] a = rgb.get(seg);
-		int[] b = rgb.get(seg + 1);
-		return (int) round(a[0] + (b[0] - a[0]) * f) << 16
-			| (int) round(a[1] + (b[1] - a[1]) * f) << 8
-			| (int) round(a[2] + (b[2] - a[2]) * f);
+		int[] a = rgb.get(seg), b = rgb.get(seg + 1);
+		int out = 0;
+		for (int k = 0; k < 3; k++) out |= (int) round(a[k] + (b[k] - a[k]) * f) << 16 - 8 * k;
+		return out;
 	}
 
 	static String gradientName(String safeName, List<String> stops, double shift) {
@@ -153,8 +145,9 @@ class ChatPalette {
 	}
 
 	/** Six lower-case hex digits without the allocation-heavy Formatter used by the static path. */
-	static void appendHex(StringBuilder out, int rgb) {
+	static StringBuilder appendHex(StringBuilder out, int rgb) {
 		for (int shift = 20; shift >= 0; shift -= 4) out.append("0123456789abcdef" /* HEX_DIGITS */.charAt(rgb >> shift & 0xf));
+		return out;
 	}
 
 	/** WCAG's floor for large or bold text; chat text is small but heavy and shadowed on the dark box. */
@@ -193,8 +186,7 @@ class ChatPalette {
 		// The old 10% staircase made a moving gradient visibly snap whenever a glyph crossed into the
 		// next darker/lighter band. Find the exact boundary instead; contrast is monotonic toward black
 		// on parchment and toward white on the transparent dark box.
-		double lo = 0;
-		double hi = 1;
+		double lo = 0, hi = 1;
 		int readable = toward;
 		for (int i = 0; i < 12; i++) {
 			double mid = (lo + hi) / 2;
@@ -204,15 +196,11 @@ class ChatPalette {
 				readable = candidate;
 			} else lo = mid;
 		}
-		var out = new StringBuilder(6);
-		appendHex(out, readable);
-		return out.toString();
-
+		return appendHex(new StringBuilder(6), readable).toString();
 	}
 
 	static double contrast(int a, int b) {
-		var la = luminance(a);
-		var lb = luminance(b);
+		double la = luminance(a), lb = luminance(b);
 		return (max(la, lb) + 0.05) / (min(la, lb) + 0.05);
 	}
 
@@ -226,10 +214,9 @@ class ChatPalette {
 	}
 
 	static int mix(int a, int b, double t) {
-		int r = (int) round(((a >> 16) & 0xff) * (1 - t) + ((b >> 16) & 0xff) * t);
-		int g = (int) round(((a >> 8) & 0xff) * (1 - t) + ((b >> 8) & 0xff) * t);
-		int bl = (int) round((a & 0xff) * (1 - t) + (b & 0xff) * t);
-		return (r << 16) | (g << 8) | bl;
+		int out = 0;
+		for (int s = 16; s >= 0; s -= 8) out |= (int) round((a >> s & 0xff) * (1 - t) + (b >> s & 0xff) * t) << s;
+		return out;
 	}
 
 	/** A name colour from the site ("#rrggbb"), or null. */

@@ -44,7 +44,7 @@ public class ChatPatternsTest
 	@Test
 	public void catalogSamplesMatchTheirDefaults()
 	{
-		Map<String, ChatPatterns.Entry> all = ChatPatterns.entries();
+		Map<String, ChatPatterns.Entry> all = ChatPatterns.entries;
 		assertTrue(all.size() >= 24);
 		for (ChatPatterns.Entry e : all.values())
 		{

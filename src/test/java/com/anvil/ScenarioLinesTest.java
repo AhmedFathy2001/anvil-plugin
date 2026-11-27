@@ -80,7 +80,7 @@ public class ScenarioLinesTest
 	private static boolean catalogReads(String line)
 	{
 		String plain = AnvilPlugin.stripChatTags(line);
-		for (ChatPatterns.Entry e : ChatPatterns.entries().values())
+		for (ChatPatterns.Entry e : ChatPatterns.entries.values())
 		{
 			String text = "raw".equals(e.input) ? line : "lowercase".equals(e.input) ? plain.toLowerCase() : plain;
 			Matcher m = "full".equals(e.match) ? ChatPatterns.full(e.key, text) : ChatPatterns.find(e.key, text);
