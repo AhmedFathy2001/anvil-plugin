@@ -92,7 +92,7 @@ public class PanelClickTest {
 	/** Everything with a click of its own (a hand cursor set on it), in tree order. */
 	private static List<Component> clickables(Component c, JComponent root, List<Component> out) {
 		if (c.isCursorSet() && c.getCursor().getType() == Cursor.HAND_CURSOR && shown(c, root)
-			&& !(c instanceof JList) && !(c instanceof Round && ((Round) c).filled() && c.getParent() instanceof Round))
+			&& !(c instanceof JList) && !(c instanceof Round && ((Round) c).filled && c.getParent() instanceof Round))
 			out.add(c); // a lit segment of a switch is already picked: clicking it again rightly does nothing
 		if (c instanceof Container) for (Component k : ((Container) c).getComponents()) clickables(k, root, out);
 		return out;
@@ -115,7 +115,7 @@ public class PanelClickTest {
 		StringBuilder b = new StringBuilder();
 		b.append(System.identityHashCode(c)).append(c.isVisible() ? 'v' : 'h');
 		if (c instanceof JLabel) b.append(((JLabel) c).getForeground().getRGB());
-		if (c instanceof Round) b.append(((Round) c).filled()).append(((Round) c).edge);
+		if (c instanceof Round) b.append(((Round) c).filled).append(((Round) c).edge);
 		if (c instanceof Container) for (Component k : ((Container) c).getComponents()) b.append('(').append(state(k)).append(')');
 		return b.toString();
 	}

@@ -530,34 +530,20 @@ class UiView extends JPanel {
 
 	JComponent part(JsonObject n, String t) {
 		switch (t) {
-			case "col":
-				return col(n);
-			case "row":
-				return row(n);
-			case "grid":
-				return grid(n);
-			case "text":
-				return text(n);
-			case "icon":
-				return icon(n);
-			case "img":
-				return img(n);
-			case "hero":
-				return hero(n);
-			case "bar":
-				return bar(n);
-			case "tabs":
-				return tabs(n);
-			case "fold":
-				return fold(n);
-			case "filter":
-				return filter(n);
-			case "slot":
-				return slot(n);
-			case "toggle":
-				return toggle(n);
-			case "input":
-				return input(n);
+			case "col": return col(n);
+			case "row": return row(n);
+			case "grid": return grid(n);
+			case "text": return text(n);
+			case "icon": return icon(n);
+			case "img": return img(n);
+			case "hero": return hero(n);
+			case "bar": return bar(n);
+			case "tabs": return tabs(n);
+			case "fold": return fold(n);
+			case "filter": return filter(n);
+			case "slot": return slot(n);
+			case "toggle": return toggle(n);
+			case "input": return input(n);
 			case "button":
 				var on = n.has("on") ? n.getAsJsonObject("on") : new JsonObject();
 				var label = plainText(str(n, "label"));
@@ -582,12 +568,9 @@ class UiView extends JPanel {
 				return button;
 			case "gap":
 				return (JComponent) gap(num(n, "h", 0));
-			case "countdown":
-				return countdown(n);
-			case "segs":
-				return segs(n);
-			case "step":
-				return step(n);
+			case "countdown": return countdown(n);
+			case "segs": return segs(n);
+			case "step": return step(n);
 			case "warm":
 				warm(obj(n, "on"));
 				return new JPanel();
@@ -653,8 +636,7 @@ class UiView extends JPanel {
 
 	JComponent row(JsonObject n) {
 		var p = surface(n, new BorderLayout(num(n, "gap", 6), 0), false);
-		int pad = num(n, "pad", 0);
-		int inset = num(n, "inset", pad);
+		int pad = num(n, "pad", 0), inset = num(n, "inset", pad);
 		p.setBorder(createEmptyBorder(pad, inset, pad, pad));
 		for (var part : new String[][]{{"l", WEST}, {"c", CENTER}, {"r", EAST}}) {
 			var o = obj(n, part[0]);
@@ -702,8 +684,7 @@ class UiView extends JPanel {
 			}
 		}
 		// wrap: true, or the width in pt where the text sits deeper in than a card.
-		int ww = num(n, "wrap", 0);
-		int width = ww > 0 ? ww : WRAP_PT;
+		int ww = num(n, "wrap", 0), width = ww > 0 ? ww : WRAP_PT;
 		var runs = arr(n, "runs");
 		if (runs != null) {
 			// Runs in their own colours (names in team colours), always wrapped.
@@ -734,9 +715,7 @@ class UiView extends JPanel {
 	/** A Supporter's name: up to four "#rrggbb" stops ({@code move}: sliding); else the plain colour. */
 	static JLabel gradient(JsonArray grad, Color fallback, boolean move) {
 		List<Color> stops = new ArrayList<>();
-		for (var e : grad) {
-			if (stops.size() < 4 && e.isJsonPrimitive()) stops.add(ChatPalette.readableColor(e.getAsString(), false, fallback));
-		}
+		for (var e : grad) if (stops.size() < 4 && e.isJsonPrimitive()) stops.add(ChatPalette.readableColor(e.getAsString(), false, fallback));
 		return stops.size() < 2 ? new ClipLabel() : new GradientLabel(stops.toArray(new Color[0]), move);
 	}
 
@@ -834,8 +813,7 @@ class UiView extends JPanel {
 
 	/** A site picture: it takes no room until a valid image has decoded. */
 	JComponent img(JsonObject n) {
-		int w = max(1, min(240, num(n, "w", 64)));
-		int h = max(1, min(240, num(n, "h", 40)));
+		int w = max(1, min(240, num(n, "w", 64))), h = max(1, min(240, num(n, "h", 40)));
 		var l = new JLabel("", JLabel.CENTER);
 		l.setOpaque(false);
 		l.setBackground(DARKER_GRAY_COLOR);
@@ -1411,9 +1389,7 @@ class UiView extends JPanel {
 				}
 				var combo = new JComboBox<>(options.stream().map(o -> o[1]).toArray(String[]::new));
 				AnvilSidebarPanel.styleCombo(combo);
-				for (int i = 0; i < options.size(); i++) {
-					if (options.get(i)[0].equals(value)) combo.setSelectedIndex(i);
-				}
+				for (int i = 0; i < options.size(); i++) if (options.get(i)[0].equals(value)) combo.setSelectedIndex(i);
 				inputs.put(name, () -> combo.getSelectedIndex() < 0 ? "" : options.get(combo.getSelectedIndex())[0]);
 				var on = obj(n, "on");
 				if (on != null) combo.addActionListener(e -> fire(on));
@@ -1426,9 +1402,7 @@ class UiView extends JPanel {
 			case "search":
 				return search(n, name, value);
 			case "number":
-				int min = num(n, "min", 0);
-				int max = num(n, "max", Integer.MAX_VALUE);
-				int start = max(min, min(max, parseInt(value, min)));
+				int min = num(n, "min", 0), max = num(n, "max", Integer.MAX_VALUE), start = max(min, min(max, parseInt(value, min)));
 				var spinner = new JSpinner(new SpinnerNumberModel(start, min, max, max(1, num(n, "step", 1))));
 				spinner.setFont(SMALL);
 				darkInput(((JSpinner.DefaultEditor) spinner.getEditor()).getTextField());
@@ -1516,7 +1490,7 @@ class UiView extends JPanel {
 	 */
 	void clickable(JComponent c, Runnable action) {
 		var r = c instanceof Round ? (Round) c : null;
-		var opaque = r != null ? r.filled() : c.isOpaque();
+		var opaque = r != null ? r.filled : c.isOpaque();
 		var base = c.getBackground();
 		var hover = r != null && r.hover != null ? r.hover : DARK_GRAY_HOVER_COLOR;
 		listenAll(c, new MouseAdapter() {
@@ -1669,9 +1643,7 @@ class UiView extends JPanel {
 
 	static Map<String, String> strings(JsonElement e) {
 		Map<String, String> out = new LinkedHashMap<>();
-		if (e != null && e.isJsonObject()) {
-			for (var x : e.getAsJsonObject().entrySet()) if (x.getValue().isJsonPrimitive()) out.put(x.getKey(), x.getValue().getAsString());
-		}
+		if (e != null && e.isJsonObject()) for (var x : e.getAsJsonObject().entrySet()) if (x.getValue().isJsonPrimitive()) out.put(x.getKey(), x.getValue().getAsString());
 		return out;
 	}
 

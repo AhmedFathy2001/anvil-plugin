@@ -1,5 +1,6 @@
 package com.anvil;
 
+import lombok.*;
 import java.awt.event.*;
 import java.util.*;
 import java.util.function.*;
@@ -17,6 +18,7 @@ import javax.swing.text.*;
  * has nothing completed, the same letters are tried again — someone who has only just walked into
  * view is picked up without typing another letter.</p>
  */
+@RequiredArgsConstructor
 class LookupSuggestions extends KeyAdapter {
 	/** The game's name lists at one moment. Each list may be empty, never null. */
 	static class Names {
@@ -52,25 +54,14 @@ class LookupSuggestions extends KeyAdapter {
 		return null;
 	}
 
+	/** The box; the panel adds this as its key listener. */
 	final JTextComponent field;
 	final BooleanSupplier enabled;
 	final Supplier<List<String>> recent;
 	final Supplier<String> me;
+	/** Reads the game's lists and hands them back on any thread (the client thread, live). */
 	final Consumer<Consumer<Names>> fetch;
 	volatile Names names = Names.EMPTY;
-
-	/**
-	 * @param fetch reads the game's lists and hands them back on any thread (the client thread, live)
-	 */
-	LookupSuggestions(JTextComponent field, BooleanSupplier enabled, Supplier<List<String>> recent,
-		Supplier<String> me, Consumer<Consumer<Names>> fetch) {
-		this.field = field;
-		this.enabled = enabled;
-		this.recent = recent;
-		this.me = me;
-		this.fetch = fetch;
-		field.addKeyListener(this);
-	}
 
 	/** Read the game's lists again, then retry the box if it is waiting on a name. */
 	void refresh() {
@@ -91,8 +82,7 @@ class LookupSuggestions extends KeyAdapter {
 			|| field.getSelectionEnd() != field.getText().length()) {
 			return;
 		}
-		int start = field.getSelectionStart();
-		int end = field.getSelectionEnd();
+		int start = field.getSelectionStart(), end = field.getSelectionEnd();
 		// The letter typed is the next one of the name already filled in: keep the name, move past it.
 		if (start < end && Rsn.normalize(field.getText().substring(start, start + 1)).equals(Rsn.normalize(String.valueOf(c)))) {
 			e.consume();

@@ -122,8 +122,7 @@ class GifIcon implements Icon {
 	 */
 	static Icon decode(byte[] bytes, int w, int h) {
 		if (bytes == null || bytes.length < 10 || bytes[0] != 'G' || bytes[1] != 'I' || bytes[2] != 'F') return null;
-		int lw = (bytes[6] & 0xff) | (bytes[7] & 0xff) << 8;
-		int lh = (bytes[8] & 0xff) | (bytes[9] & 0xff) << 8;
+		int lw = (bytes[6] & 0xff) | (bytes[7] & 0xff) << 8, lh = (bytes[8] & 0xff) | (bytes[9] & 0xff) << 8;
 		if (lw <= 0 || lh <= 0 || lw > w || lh > h) return null;
 		try (var in = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
 			var readers = in == null ? null : ImageIO.getImageReaders(in);

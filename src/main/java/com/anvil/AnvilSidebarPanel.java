@@ -120,7 +120,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	// several, so this is a real choice rather than a filter over data we already have: picking here
 	// re-addresses everything the plugin does — board, stat pushes, submissions, notifications.
 	final JComboBox<ClanChoice> clanPicker = new JComboBox<>();
-	final JButton refreshButton = new JButton("Refresh");
+	final JButton refreshButton = flatButton("Refresh", null, WHITE, () -> refresh(true));
 
 	// Device sign-in (home-native, DeviceSignIn): shown whenever there is no Account Token yet — the
 	// main way in, so nobody has to copy a token out of the site.
@@ -128,7 +128,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 	final ConfigManager configManager;
 	/** RuneLite's shared client-lifetime scheduler — paces the sign-in flow's approval polls. */
 	final ScheduledExecutorService executor;
-	final JButton signInButton = new JButton("Sign in with Discord");
+	final JButton signInButton = flatButton("Sign in with Discord", null, BRAND_ORANGE, this::startSignIn);
 	final JLabel signInStatus = small("", MUTED);
 	final JPanel signInRow = new JPanel(new BorderLayout(0, 2));
 	// The token isn't in RuneLite's settings (AnvilConfig.playerToken is hidden), so the panel carries
@@ -227,8 +227,6 @@ public class AnvilSidebarPanel extends PluginPanel {
 
 		var title = label("Anvil Progress", BOLD, BRAND_ORANGE);
 
-		styleFlatButton(refreshButton, WHITE);
-		refreshButton.addActionListener(e -> refresh(true));
 		// As wide as "Refreshing…" from the start, so the header doesn't shift while it works.
 		refreshing(true);
 		refreshButton.setPreferredSize(refreshButton.getPreferredSize());
@@ -241,8 +239,6 @@ public class AnvilSidebarPanel extends PluginPanel {
 		capH(titleRow);
 
 		// Sign-in affordance — visible whenever there is no token (see refreshSignInRow).
-		styleFlatButton(signInButton, BRAND_ORANGE);
-		signInButton.addActionListener(e -> startSignIn());
 		signInStatus.setVisible(false);
 		signInRow.setBackground(DARK_GRAY_COLOR);
 		signInRow.add(signInButton, NORTH);
@@ -375,6 +371,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		// Players only: clan names aren't in any list the game keeps.
 		lookupCompleter = new LookupSuggestions(lookupSearch, () -> !lookupClans,
 			() -> new ArrayList<>(recentLookups), data::myRsn, data::lookupNames);
+		lookupSearch.addKeyListener(lookupCompleter);
 		lookupClear.setVisible(false);
 		lookupClear.setToolTipText("Clear");
 		onClick(lookupClear, () -> {
@@ -1110,9 +1107,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		var own = e == null || e.d == null || ChatPalette.nameColor(e.d.c) == null ? null : e.d;
 		var source = own != null ? own.g : e == null ? null : e.g;
 		var stops = new ArrayList<Color>();
-		if (source != null) for (var g : source) {
-			if (stops.size() < 4) stops.add(nameColor(own != null, g));
-		}
+		if (source != null) for (var g : source) if (stops.size() < 4) stops.add(nameColor(own != null, g));
 		// The tenure badge (any tier) the chat shows; else the old Patron-only star.
 		var tenure = e == null || e.t == null || e.t < 1 || e.t > AnvilPlugin.TENURE_STEPS ? 0 : e.t;
 		var star = e != null && (tenure > 0 || Boolean.TRUE.equals(e.s));
@@ -1538,9 +1533,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		// Nothing this account can do here: no empty card either.
 		if (!actions.canSyncRoster && !actions.canSyncProfile && actions.rosterNote == null) return panel;
 		panel.add(cardTitle("Syncing"));
-		if (actions.canSyncProfile) {
-			addAll(panel, fullWidthButton("Sync profile", "Send your collection log and best times to Anvil", () -> data.withPlugin(AnvilPlugin::syncProfileNow)), gap(4), note("Send your collection log and best times to Anvil", 165));
-		}
+		if (actions.canSyncProfile) addAll(panel, fullWidthButton("Sync profile", "Send your collection log and best times to Anvil", () -> data.withPlugin(AnvilPlugin::syncProfileNow)), gap(4), note("Send your collection log and best times to Anvil", 165));
 		if (actions.canSyncProfile && (actions.canSyncRoster || actions.rosterNote != null)) panel.add(gap(8));
 		if (actions.canSyncRoster) {
 			addAll(panel, fullWidthButton("Sync clan roster", "Push the in-game clan member list to the site", () -> data.withPlugin(AnvilPlugin::syncClanRosterFromPanel)), gap(4), note("Clan admins: push the in-game member list to the site", 165));
@@ -1583,9 +1576,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		if (clips.isEmpty()) {
 			addAll(panel, note("None added — use Add clip, or the banner folder.", 165), gap(4));
 		} else {
-			for (var clip : clips.subList(0, Math.min(clips.size(), BANNER_CLIPS_SHOWN))) {
-				addAll(panel, buildClipRow(clip, data.bannerSoundOn(clip)), gap(2));
-			}
+			for (var clip : clips.subList(0, Math.min(clips.size(), BANNER_CLIPS_SHOWN))) addAll(panel, buildClipRow(clip, data.bannerSoundOn(clip)), gap(2));
 			if (clips.size() > BANNER_CLIPS_SHOWN) {
 				var more = small("+" + (clips.size() - BANNER_CLIPS_SHOWN) + " more in the folder", MUTED);
 				more.setBorder(createEmptyBorder(2, CLIP_TEXT_INSET, 0, 0));
@@ -1674,9 +1665,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			addAll(card, gap(4), where);
 		}
 
-		if (!empty(proof.keyword)) {
-			addAll(card, gap(2), small("Keyword: " + proof.keyword, MUTED));
-		}
+		if (!empty(proof.keyword)) addAll(card, gap(2), small("Keyword: " + proof.keyword, MUTED));
 
 		// The requirements the button checks — session age, position — shown live, so a player can
 		// see each one go green instead of finding out from a refusal in chat. Ticks every second
@@ -1693,9 +1682,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 			};
 		}
 
-		if ("rejected".equals(proof.status)) {
-			addAll(card, gap(2), small("Your last shot was rejected — take another.", PROGRESS_ERROR_COLOR));
-		}
+		if ("rejected".equals(proof.status)) addAll(card, gap(2), small("Your last shot was rejected — take another.", PROGRESS_ERROR_COLOR));
 
 		// WHY it matters, which the card never said. A player who reads "starting shot needed" and
 		// carries on has no way to know their drops are landing in a review queue meanwhile.

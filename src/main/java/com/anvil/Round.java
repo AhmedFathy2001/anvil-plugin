@@ -24,10 +24,6 @@ class Round extends JPanel {
 		super.setOpaque(false);
 	}
 
-	boolean filled() {
-		return filled;
-	}
-
 	public void setOpaque(boolean on) {
 		filled = on;
 		super.setOpaque(false);

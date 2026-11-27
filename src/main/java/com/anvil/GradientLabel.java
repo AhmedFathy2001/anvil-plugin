@@ -124,8 +124,7 @@ class GradientLabel extends JLabel {
 	}
 
 	protected void paintComponent(Graphics g) {
-		int w = getWidth();
-		int h = getHeight();
+		int w = getWidth(), h = getHeight();
 		if (stops.length < 2 || w <= 0 || h <= 0 || isOpaque() || getText() == null || getText().isEmpty()) {
 			super.paintComponent(g);
 			return;
@@ -134,8 +133,7 @@ class GradientLabel extends JLabel {
 		var at = g2d.getTransform();
 		var sx = max(1, at.getScaleX());
 		var sy = max(1, at.getScaleY());
-		int iw = (int) ceil(w * sx);
-		int ih = (int) ceil(h * sy);
+		int iw = (int) ceil(w * sx), ih = (int) ceil(h * sy);
 
 		var key = w + "x" + h + "@" + sx + "," + sy + "|" + getText() + "|" + getFont() + "|" + getForeground()
 			+ "|" + System.identityHashCode(getIcon()) + "|" + getInsets();

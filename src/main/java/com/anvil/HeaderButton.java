@@ -150,10 +150,7 @@ class HeaderButton {
 			hideParts();
 		}
 
-		int h = anchor.getOriginalHeight() > 0 ? anchor.getOriginalHeight() : 20 /* FALLBACK_HEIGHT */;
-		int y = anchor.getOriginalY();
-		int yMode = anchor.getYPositionMode();
-		int span = WIDTH - (CORNER * 2), c = CORNER, r = x + WIDTH - c, b = y + h - c;
+		int h = anchor.getOriginalHeight() > 0 ? anchor.getOriginalHeight() : 20 /* FALLBACK_HEIGHT */, y = anchor.getOriginalY(), yMode = anchor.getYPositionMode(), span = WIDTH - (CORNER * 2), c = CORNER, r = x + WIDTH - c, b = y + h - c;
 		var made = new Widget[PARTS];
 
 		// Background first so every edge draws over it, then the corners, then the edges between.
@@ -307,9 +304,7 @@ class HeaderButton {
 
 	void hideParts() {
 		if (parts != null) {
-			for (var w : parts) {
-				if (w != null) w.setHidden(true);
-			}
+			for (var w : parts) if (w != null) w.setHidden(true);
 		}
 		parts = null;
 		drawnAt = Integer.MIN_VALUE;
@@ -317,9 +312,7 @@ class HeaderButton {
 
 	/** Swap the frame between its idle and hovered sprite sets. */
 	static void paint(Widget[] made, int[] sprites, int textColour) {
-		for (int i = 0; i < TEXT; i++) {
-			if (made[i] != null) made[i].setSpriteId(sprites[i]);
-		}
+		for (int i = 0; i < TEXT; i++) if (made[i] != null) made[i].setSpriteId(sprites[i]);
 		if (made[TEXT] != null) made[TEXT].setTextColor(textColour);
 	}
 
@@ -335,9 +328,7 @@ class HeaderButton {
 		if (parts == null || parts[TEXT] == null) return false;
 		var children = parent.getDynamicChildren();
 		if (children == null) return false;
-		for (var w : children) {
-			if (w == parts[TEXT]) return true;
-		}
+		for (var w : children) if (w == parts[TEXT]) return true;
 		return false;
 	}
 }
