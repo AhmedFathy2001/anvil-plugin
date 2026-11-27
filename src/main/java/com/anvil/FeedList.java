@@ -489,12 +489,12 @@ class FeedList extends JPanel {
 			// Oldest first at the bottom; follow it down unless the reader has scrolled up.
 			var stick = following;
 			Collections.reverse(fresh);
-			model.append(fresh, cap);
+			model.insert(fresh, cap, true);
 			if (stick) invokeLater(this::toLatest);
 			else more("↓ ", fresh.size());
 		} else {
 			int y = scroll.getViewport().getViewPosition().y;
-			model.prepend(fresh, cap);
+			model.insert(fresh, cap, false);
 			if (y > 2) {
 				// Reading further down: keep the same rows under their eyes and say what's above.
 				var added = list.getCellBounds(0, fresh.size() - 1);
@@ -641,14 +641,15 @@ class FeedList extends JPanel {
 		boolean popup(MouseEvent e) {
 			if (!e.isPopupTrigger()) return false;
 			int i = rowAt(e);
-			if (i < 0 || arr(model.getElementAt(i), "menu") == null) return true;
+			var rows = i < 0 ? null : arr(model.getElementAt(i), "menu");
+			if (rows == null) return true;
 			var menu = new JPopupMenu();
-			for (var el : arr(model.getElementAt(i), "menu")) {
+			for (var el : rows) {
 				var item = el.getAsJsonObject();
 				var mi = new JMenuItem(plainText(str(item, "label")));
 				var on = obj(item, "on");
 				if (on == null) mi.setEnabled(false);
-				else mi.addActionListener(ev -> quietly(on));
+				else mi.addActionListener(ev -> quietly(on, null));
 				menu.add(mi);
 			}
 			menu.show(list, e.getX(), e.getY());
@@ -674,24 +675,23 @@ class FeedList extends JPanel {
 		var on = obj(chip, "on");
 		if (on == null) return;
 		var rowId = str(model.getElementAt(i), "id");
-		if (rowId.isEmpty() || !"post".equals(str(on, "a"))) {
-			quietly(on);
-			return;
-		}
-		held.computeIfAbsent(rowId, k -> new Held()).posts++;
-		post(on, Map.of(), v -> {
-			unhold(rowId);
-			showError(errorOf(v));
-		});
+		quietly(on, rowId.isEmpty() ? null : rowId);
 	}
 
-	/** A post that must not redraw the view: only an error line comes back. */
-	void quietly(JsonObject on) {
+	/**
+	 * A post that must not redraw the view: only an error line comes back. With {@code rowId}, the row's
+	 * pushes are held until it answers (see {@link #reaction}).
+	 */
+	void quietly(JsonObject on, String rowId) {
 		if (!"post".equals(str(on, "a"))) {
 			act.accept(on);
 			return;
 		}
-		post(on, Map.of(), v -> showError(errorOf(v)));
+		if (rowId != null) held.computeIfAbsent(rowId, k -> new Held()).posts++;
+		post(on, Map.of(), v -> {
+			if (rowId != null) unhold(rowId);
+			showError(errorOf(v));
+		});
 	}
 
 	void post(JsonObject on, Map<String, String> fields, Consumer<JsonObject> done) {
@@ -725,32 +725,21 @@ class FeedList extends JPanel {
 			if (!rows.isEmpty()) fireIntervalAdded(this, 0, rows.size() - 1);
 		}
 
-		/** A chat's new lines at the bottom; the oldest past {@code cap} go from the top. */
-		void append(List<JsonObject> fresh, int cap) {
-			int at = rows.size();
+		/**
+		 * New rows: a chat's at the bottom, the oldest past {@code cap} going from the top; else newest
+		 * first at the top, the oldest past {@code cap} going from the bottom. Two events however many rows.
+		 */
+		void insert(List<JsonObject> fresh, int cap, boolean bottom) {
+			int at = bottom ? rows.size() : 0;
 			for (var r : fresh) ids.add(str(r, "id"));
-			rows.addAll(fresh);
-			fireIntervalAdded(this, at, rows.size() - 1);
+			rows.addAll(at, fresh);
+			fireIntervalAdded(this, at, at + fresh.size() - 1);
 			if (rows.size() > cap) {
-				var gone = rows.subList(0, rows.size() - cap);
-				int n = gone.size();
+				int from = bottom ? 0 : cap, n = rows.size() - cap;
+				var gone = rows.subList(from, from + n);
 				for (var r : gone) ids.remove(str(r, "id"));
 				gone.clear();
-				fireIntervalRemoved(this, 0, n - 1);
-			}
-		}
-
-		/** Newest first; the oldest past {@code cap} go. Two events however many rows. */
-		void prepend(List<JsonObject> fresh, int cap) {
-			for (var r : fresh) ids.add(str(r, "id"));
-			rows.addAll(0, fresh);
-			fireIntervalAdded(this, 0, fresh.size() - 1);
-			if (rows.size() > cap) {
-				int to = rows.size() - 1;
-				var gone = rows.subList(cap, rows.size());
-				for (var r : gone) ids.remove(str(r, "id"));
-				gone.clear();
-				fireIntervalRemoved(this, cap, to);
+				fireIntervalRemoved(this, from, from + n - 1);
 			}
 		}
 
