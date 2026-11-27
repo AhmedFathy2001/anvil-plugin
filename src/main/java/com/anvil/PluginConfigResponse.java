@@ -39,27 +39,30 @@ public class PluginConfigResponse {
 	List<ClanRef> clans;
 
 	static class ClanRef {
-		/** gameName: the verified in-game clan-channel name; may differ from the site's display name. */
-		String slug, name, gameName;
-		/** Clan boost level in force; zero on older sites. */
-		int boostLevel;
-		/** Clan-admin chosen boosted-name palette; null on older sites or the default look. */
-		List<String> boostNameStops;
-		/** The clan's own look for dark / light surfaces (null: adapt boostNameStops). Drawn as-is. */
-		List<String> boostNameDarkStops;
-		/** 'member' or 'guest' — a dropdown says which of these is your home. Null on activeClan. */
-		String kind;
+		/**
+		 * gameName: the verified in-game clan-channel name; may differ from the site's display name.
+		 * kind: 'member' or 'guest' — a dropdown says which of these is your home. Null on activeClan.
+		 */
+		String slug, name, gameName, kind;
+		/**
+		 * boostNameStops: the clan-admin chosen boosted-name palette; null on older sites or the default
+		 * look. boostNameDarkStops: the clan's own look for dark / light surfaces (null: adapt
+		 * boostNameStops). Drawn as-is.
+		 */
+		List<String> boostNameStops, boostNameDarkStops;
 		/** The most relevant thing running here, or null. */
 		ClanBoard live;
 		/**
-		 * How many things are running here in total — boards plus the competition.
+		 * boostLevel: the clan boost level in force; zero on older sites.
+		 *
+		 * liveCount: how many things are running here in total — boards plus the competition.
 		 *
 		 * {@link #live} is one line in a dropdown, so it names ONE. Without this a clan running five
 		 * boards reads exactly like a clan running one, and the named board is an arbitrary pick
 		 * presented as the whole answer. Zero on a site too old to send it, which is indistinguishable
 		 * from "nothing running" — and on such a site there is no count to show anyway.
 		 */
-		int liveCount;
+		int boostLevel, liveCount;
 		/**
 		 * A creator space, not a clan. One person can be in several of each, so every dropdown row
 		 * says which it is. False on an older site.
@@ -192,12 +195,18 @@ public class PluginConfigResponse {
 	StartProof startProof;
 
 	static class StartProof {
-		/** Does this event ask for a starting shot at all? */
-		boolean required;
-		/** Has the location been drawn (i.e. has the event gone live)? Nothing exists before this. */
-		boolean drawn;
-		/** Where the player must be standing. Null until the draw. */
-		String location;
+		/**
+		 * {@code required}: does this event ask for a starting shot at all? {@code drawn}: has the
+		 * location been drawn (i.e. has the event gone live)? Nothing exists before this.
+		 */
+		boolean required, drawn;
+		/**
+		 * location: where the player must be standing. Null until the draw. keyword: this player's own
+		 * keyword, derived server-side from the draw stamp. Null until the draw. windowEndsAt: ISO
+		 * instant when the ask lapses; null before the draw, and on sites too old to send it. status:
+		 * "pending" | "accepted" | "rejected", or null when nothing is on file.
+		 */
+		String location, keyword, windowEndsAt, status;
 		/**
 		 * The same place as game coordinates, when the host pinned it on the site's map. Null when
 		 * they only named it (and on sites that predate the pin), in which case position isn't
@@ -210,14 +219,8 @@ public class PluginConfigResponse {
 		 * so a session older than the event start means a stale baseline for every stat tile.
 		 */
 		int maxSessionMinutes;
-		/** This player's own keyword, derived server-side from the draw stamp. Null until the draw. */
-		String keyword;
 		/** True while this player still owes a shot (never filed one, or theirs was rejected). */
 		boolean needsUpload;
-		/** ISO instant when the ask lapses. Null before the draw, and on sites too old to send it. */
-		String windowEndsAt;
-		/** "pending" | "accepted" | "rejected", or null when nothing is on file. */
-		String status;
 		/**
 		 * The host's switches: take the shot by itself once every check is green, and show the guide
 		 * (on-screen card, hint arrow, map pin). Null on sites that predate them: both on.
@@ -304,10 +307,11 @@ public class PluginConfigResponse {
 		static class Pet {
 			/** Every source that drops this pet. Empty for a skilling pet — there is no monster. */
 			List<String> sources;
-			/** "npc" (killable, so a rate and a KC exist), "event" (raid/minigame), or "skill". */
-			String kind;
-			/** For a skilling pet, the skill it comes from. Null otherwise. */
-			String skill;
+			/**
+			 * kind: "npc" (killable, so a rate and a KC exist), "event" (raid/minigame), or "skill".
+			 * skill: for a skilling pet, the skill it comes from. Null otherwise.
+			 */
+			String kind, skill;
 		}
 	}
 
@@ -316,14 +320,15 @@ public class PluginConfigResponse {
 		boolean drops, pets, deaths, pvp, clog, levels, levelsClan, diaries;
 		/** Screenshot gates: the site judges the post itself. */
 		long dropMin, keyMin;
-		/** CombatAchievementTier names that post; quest difficulties that post ("*" = all). */
-		List<String> ca = new ArrayList<>(), quests = new ArrayList<>();
+		/**
+		 * CombatAchievementTier names that post; quest difficulties that post ("*" = all). noShot: post
+		 * kinds (or channels) whose announcement goes without a screenshot. Never tile proofs.
+		 */
+		List<String> ca = new ArrayList<>(), quests = new ArrayList<>(), noShot = new ArrayList<>();
 		/** Screenshot privacy: {pm, public, clanOthers, clanSelf, channel, group} (ChatFlair.hideMask). */
 		Map<String, Boolean> hide;
 		/** Game lines that post, as the site resolved them (NotifyFacts.glob). */
 		List<Watch> watch = new ArrayList<>();
-		/** Post kinds (or channels) whose announcement goes without a screenshot. Never tile proofs. */
-		List<String> noShot = new ArrayList<>();
 		/** Hook kinds that are on, with their floor: "ge" (gp), "ext". */
 		Map<String, Long> on;
 	}
@@ -337,15 +342,14 @@ public class PluginConfigResponse {
 
 	static class EventInfo {
 		int id;
-		String name, startDate, endDate, forceEndedAt;
-		// Drives which in-game Anvil view opens for the player's own active event:
+		// format drives which in-game Anvil view opens for the player's own active event:
 		//   format="tilerace" -> race track; format="bingo" + scoringMode="points" -> accordion;
 		//   format="bingo" + scoringMode="tiles" -> square grid. May be null on older servers.
-		String format;         // "tilerace" | "bingo" | "ladder" | null
-		// Reveal-policy events (showdown / lucky draw / bounty / ladder rotation) only — null/0 on
-		// classic events and older servers. The tracked* lists already contain ONLY revealed, still-open
-		// tiles.
-		String revealPolicy;   // "scheduled" | "interval" | "bounty" | "rotating" | null
+		//   "tilerace" | "bingo" | "ladder" | null
+		// revealPolicy: reveal-policy events (showdown / lucky draw / bounty / ladder rotation) only —
+		// null/0 on classic events and older servers. The tracked* lists already contain ONLY revealed,
+		// still-open tiles. "scheduled" | "interval" | "bounty" | "rotating" | null
+		String name, startDate, endDate, forceEndedAt, format, revealPolicy;
 		// Open missions on a reveal-mode board (revealed + still-open), for the in-game "New mission!"
 		// banner. Absent on classic boards.
 		List<Mission> missions;
@@ -354,20 +358,20 @@ public class PluginConfigResponse {
 		List<Claim> recentClaims;
 	}
 
-	static class Mission {
+	/** A tile by id and label: what every tile on the wire shares. */
+	static class TileRef {
 		int tileId;
 		String label;
-		// points: face value before the decay ramp
-		int points;
-		String category;
 	}
 
-	static class Claim {
-		int tileId;
-		String label;
+	static class Mission extends TileRef {
+		// points: face value before the decay ramp
 		int points;
-		// rsn: finisher's RSN, null when unattributed; at: ISO completion time
-		String rsn, at;
+	}
+
+	static class Claim extends Mission {
+		// rsn: finisher's RSN, null when unattributed
+		String rsn;
 	}
 
 	static class TeamInfo {
@@ -380,21 +384,6 @@ public class PluginConfigResponse {
 	}
 
 
-	/** What every tile on the wire shares (tracked tiles and the board's). */
-	abstract static class TrackedTile {
-		// position: board position — the list mirrors the site's tile order (0 on old servers)
-		int tileId, position;
-		// description: tile description, for the clog task accordion
-		String label, description;
-		int points;           // Leagues-style reward value (0 = not a points event)
-		String category;      // free-text grouping (boss/skill) for the clog task filter
-		// A COMBO's part (trackedCombos): credited exactly like any tile of its kind, but not a board
-		// tile of its own — it folds under its combo, which is what pins and scores. Absent elsewhere.
-		Integer partOf;
-		/** Another board's tile (its eventId); null on the addressed board. */
-		HomeBoard board;
-	}
-
 	/**
 	 * A boss whose vestige is on a fixed rotation (the DT2 four): its unique table rolls
 	 * non-vestige, non-vestige, VESTIGE, so the count since the last vestige tells a player how
@@ -403,20 +392,18 @@ public class PluginConfigResponse {
 	 * then simply says nothing.
 	 */
 	static class RollTable {
-		String boss;                 // NPC name as the loot event reports it
-		List<Integer> rollItemIds;   // every item that counts as one roll
-		int vestigeItemId;
-		String vestigeName;
-		int rollsPerVestige;         // counting the vestige itself: 1, 2, vestige
+		// boss: NPC name as the loot event reports it; rollItemIds: every item that counts as one roll;
+		// rollsPerVestige: counting the vestige itself: 1, 2, vestige
+		String boss, vestigeName;
+		List<Integer> rollItemIds;
+		int vestigeItemId, rollsPerVestige;
 	}
 
-	static class CompletedTile {
-		int tileId;
-		String label;
-		int points;   // tile difficulty/reward value — used to pick the "hardest" to banner
+	/** points: tile difficulty/reward value — used to pick the "hardest" to banner. */
+	static class CompletedTile extends Mission {
 		String completedBy; // crediting player of the finishing submission; null for stat/manual tiles
 		Integer partOf; // a combo's part finishing: progress on the combo, not a tile complete
-		HomeBoard board; // as TrackedTile.board
+		HomeBoard board; // as TrackedCombo.board
 	}
 
 	/**
@@ -424,7 +411,12 @@ public class PluginConfigResponse {
 	 * of them — "nOf"). The parts ride the ordinary tracked lists tagged {@code partOf}; this says how
 	 * they fold together. The site counts {@code done} and decides completion.
 	 */
-	static class TrackedCombo extends TrackedTile {
+	static class TrackedCombo extends TileRef {
+		/**
+		 * Another board's tile (its eventId); null on the addressed board. Kept through PushMerge, which
+		 * leaves another board's tagged rows as they were.
+		 */
+		HomeBoard board;
 		String rule;
 		// percent: rule "mix" only, weighted progress 0–100, done at 100
 		int needed, done, percent;
@@ -432,9 +424,7 @@ public class PluginConfigResponse {
 		boolean completed;
 	}
 
-	static class ComboPart {
-		int tileId;
-		String label;
+	static class ComboPart extends TileRef {
 		boolean completed;
 	}
 

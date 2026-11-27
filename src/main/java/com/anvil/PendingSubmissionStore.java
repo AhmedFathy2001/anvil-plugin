@@ -38,17 +38,11 @@ public class PendingSubmissionStore {
 	}
 
 	static class PendingSubmission {
-		int eventId;
-		int tileId;
-		int teamId;
-		int amount;
-		String label;
-		String note;
-		String screenshotFile;
+		int eventId, tileId, teamId, amount;
+		String label, note, screenshotFile;
 		long timestamp;
 		// itemId / durationSeconds / inferred / note: read from proofs older builds saved (legacyFacts).
-		Integer itemId;
-		Integer durationSeconds;
+		Integer itemId, durationSeconds;
 		String capturedRsn; // character the drop was obtained on; only re-submitted while on it
 		String inferred; // the item was worked out, not seen (DuplicateInference); the site flags it for review
 		// Shared kills/runs: teammates seen + party size at the time (lib/coopRuns on the site). Null
@@ -61,7 +55,7 @@ public class PendingSubmissionStore {
 		boolean manual;
 		// What the site draws the proof's banner from (lib/proofStamp); null on an older capture.
 		JsonObject proof;
-		// Another board's clan slug (TrackedTile.board), null for the active board: where a retry posts.
+		// Another board's clan slug (a tile's board tag), null for the active board: where a retry posts.
 		String clan;
 		// The facts this screenshot proves still to credit (posted image-less to /api/plugin/facts; the
 		// site picks the tiles), and each credit's proof key → its tiles' labels, the screenshot still owed.
@@ -75,17 +69,11 @@ public class PendingSubmissionStore {
 	 * its note marks it as one, and the site keeps that note and the saved banner.
 	 */
 	static JsonArray legacyFacts(PendingSubmission p) {
-		var f = new JsonObject();
-		f.addProperty("k", "tile");
-		f.addProperty("t", p.tileId);
-		f.addProperty("n", Math.max(1, p.amount));
-		if (p.durationSeconds != null) f.addProperty("sec", p.durationSeconds);
-		if (p.itemId != null) f.addProperty("item", p.itemId);
+		var f = BingoApiClient.obj("k", "tile", "t", p.tileId, "n", Math.max(1, p.amount));
+		BingoApiClient.some(f, "sec", p.durationSeconds, "item", p.itemId);
 		if (p.inferred != null) f.addProperty("inf", p.inferred);
 		f.addProperty("note", p.note == null ? "" : p.note);
-		var a = new JsonArray();
-		a.add(f);
-		return a;
+		return BingoApiClient.one(f);
 	}
 
 	/** The directory, created on demand, or null when there is nowhere to write. */
@@ -150,7 +138,7 @@ public class PendingSubmissionStore {
 
 	/** The facts the site's answer says to send again (their filing failed for a passing reason), or null. */
 	static JsonArray retries(JsonObject reply) {
-		var a = reply != null && reply.has("retry") && reply.get("retry").isJsonArray() ? reply.getAsJsonArray("retry") : null;
+		var a = reply == null ? null : UiView.arr(reply, "retry");
 		return a == null || a.size() == 0 ? null : a;
 	}
 

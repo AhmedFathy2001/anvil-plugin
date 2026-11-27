@@ -1,5 +1,6 @@
 package com.anvil;
 
+import static com.anvil.AnvilPlugin.empty;
 import lombok.*;
 import com.google.gson.*;
 import java.io.*;
@@ -37,11 +38,7 @@ class PushStash {
 		String account;
 
 		boolean isEmpty() {
-			return empty(kc) && empty(xp) && empty(activity) && (moments == null || moments.isEmpty()) && facts.size() == 0;
-		}
-
-		static boolean empty(Map<?, ?> m) {
-			return m == null || m.isEmpty();
+			return empty(kc) && empty(xp) && empty(activity) && empty(moments) && facts.size() == 0;
 		}
 	}
 
@@ -51,7 +48,7 @@ class PushStash {
 
 	/** The file stem for a character: by account hash when known, else by name. Null when neither is. */
 	static String keyFor(String rsn, String accountHash) {
-		if (accountHash != null && !accountHash.isEmpty()) return DiskFiles.fingerprint("h:" + accountHash);
+		if (!empty(accountHash)) return DiskFiles.fingerprint("h:" + accountHash);
 		if (rsn != null && !rsn.trim().isEmpty()) return DiskFiles.fingerprint("r:" + rsn.trim().toLowerCase(Locale.ROOT));
 		return null;
 	}
@@ -66,13 +63,7 @@ class PushStash {
 		mergeMax(out.xp, older.xp, newer.xp);
 		mergeMax(out.activity, older.activity, newer.activity);
 		Map<String, AnvilMoments.Moment> byKey = new LinkedHashMap<>();
-		for (var list : Arrays.asList(older.moments, newer.moments)) {
-			if (list != null) {
-				for (var m : list) {
-					if (m != null && m.key != null) byKey.put(m.key, m);
-				}
-			}
-		}
+		for (var list : Arrays.asList(older.moments, newer.moments)) if (list != null) for (var m : list) if (m != null && m.key != null) byKey.put(m.key, m);
 		out.moments = new ArrayList<>(byKey.values());
 		// Facts are events, not totals: both sides' in order — only the newer sign-in's when the two
 		// differ — and the oldest dropped past 50, which is what the site reads from one request.
@@ -91,13 +82,9 @@ class PushStash {
 	}
 
 	static void mergeMax(Map<String, Integer> into, Map<String, Integer> a, Map<String, Integer> b) {
-		for (var m : Arrays.asList(a, b)) {
-			if (m != null) {
-				m.forEach((k, v) -> {
-					if (k != null && v != null) into.merge(k, v, Integer::max);
-				});
-			}
-		}
+		for (var m : Arrays.asList(a, b)) if (m != null) m.forEach((k, v) -> {
+			if (k != null && v != null) into.merge(k, v, Integer::max);
+		});
 	}
 
 	Filepath file(String key) {

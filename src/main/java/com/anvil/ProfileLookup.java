@@ -144,9 +144,8 @@ class ProfileLookup {
 	void syncPlayerItem() {
 		var want = config.profileLookupMenu() && config.lookupPlayers();
 		if (want == playerItemShown) return;
-		if (want) {
-			menuManager.addPlayerMenuItem(OPTION);
-		} else menuManager.removePlayerMenuItem(OPTION);
+		if (want) menuManager.addPlayerMenuItem(OPTION);
+		else menuManager.removePlayerMenuItem(OPTION);
 		playerItemShown = want;
 	}
 

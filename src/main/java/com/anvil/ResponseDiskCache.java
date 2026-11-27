@@ -92,7 +92,7 @@ class ResponseDiskCache {
 		try {
 			DiskFiles.writeAtomic(f, gson.toJson(e));
 			written.put(kind, marker);
-		} catch (IOException | RuntimeException ex) {
+		} catch (Exception ex) {
 		}
 	}
 
@@ -108,7 +108,7 @@ class ResponseDiskCache {
 		if (f == null) return;
 		try {
 			DiskFiles.writeAtomic(f, gson.toJson(value));
-		} catch (IOException | RuntimeException ex) {
+		} catch (Exception ex) {
 		}
 	}
 

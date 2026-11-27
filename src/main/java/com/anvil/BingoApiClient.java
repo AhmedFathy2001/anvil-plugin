@@ -466,7 +466,7 @@ public class BingoApiClient {
 	 * RSN is stamped.
 	 */
 	Request.Builder authedRequest(String url, String rsn, String hint, String hash) {
-		// X-Anvil-Boards: this client credits tiles tagged with another board (TrackedTile.board).
+		// X-Anvil-Boards: this client credits tiles tagged with another board (a tile's board tag).
 		var b = plainRequest(url).header("Authorization", "Bearer " + playerToken).header("X-Anvil-Boards", "1");
 		if (!empty(rsn)) b.header("X-RSN", rsn);
 		else if (hint != null) b.header("X-RSN-Hint", hint);

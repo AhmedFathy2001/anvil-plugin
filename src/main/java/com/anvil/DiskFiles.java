@@ -84,7 +84,7 @@ class DiskFiles {
 		if (file == null) return;
 		try {
 			file.deleteIfExists();
-		} catch (IOException | RuntimeException ignored) {
+		} catch (Exception ignored) {
 			// Best effort: a leftover file is pruned by age on the next load.
 		}
 	}
@@ -96,10 +96,8 @@ class DiskFiles {
 	static String fingerprint(String secret) {
 		if (secret == null || secret.trim().isEmpty()) return "";
 		try {
-			var digest = MessageDigest.getInstance("SHA-256").digest(secret.trim().getBytes(StandardCharsets.UTF_8));
-			var sb = new StringBuilder();
-			for (int i = 0; i < 8; i++) sb.append(String.format("%02x", digest[i]));
-			return sb.toString();
+			// The first 8 bytes as 16 hex digits.
+			return String.format("%016x", new java.math.BigInteger(1, Arrays.copyOf(MessageDigest.getInstance("SHA-256").digest(secret.trim().getBytes(StandardCharsets.UTF_8)), 8)));
 		} catch (NoSuchAlgorithmException e) {
 			throw new IllegalStateException(e);
 		}

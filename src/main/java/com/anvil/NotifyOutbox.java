@@ -48,20 +48,13 @@ class NotifyOutbox {
 
 	/** One queued notification. Serialized as-is; the PNG lives beside it. */
 	static class Item {
-		String id;
-		String url;
-		String channel;
-		/** The payload_json exactly as first sent. */
-		String payload;
-		String filename;
-		String rsn;
-		String accountHash;
-		/** Fingerprint of the token it was sent with: another account's sign-in doesn't send it. */
-		String account;
-		int pngBytes;
-		long createdAt;
-		int attempts;
-		long nextAttemptAt;
+		/**
+		 * {@code payload}: the payload_json exactly as first sent. {@code account}: fingerprint of the
+		 * token it was sent with: another account's sign-in doesn't send it.
+		 */
+		String id, url, channel, payload, filename, rsn, accountHash, account;
+		int pngBytes, attempts;
+		long createdAt, nextAttemptAt;
 		/** The screenshot, held in memory only when there is no directory to write it to. */
 		transient byte[] png;
 	}
@@ -74,11 +67,6 @@ class NotifyOutbox {
 	final List<Item> items = new ArrayList<>();
 	ScheduledFuture<?> task;
 	boolean pumping;
-
-
-	synchronized int size() {
-		return items.size();
-	}
 
 	/** A fresh entry: first retry after {@link #FIRST_RETRY_MS} (jittered). */
 	static Item newItem(long now) {
@@ -207,12 +195,8 @@ class NotifyOutbox {
 		var ex = scheduler.get();
 		if (ex == null || ex.isShutdown()) return;
 		cancel();
-		task = ex.schedule(this::handOff, max(0, waitMs), TimeUnit.MILLISECONDS);
-	}
-
-	/** On the timer: run the pass on the HTTP pool, never the plugin's one thread. */
-	void handOff() {
-		onPool(this::pump);
+		// On the timer: run the pass on the HTTP pool, never the plugin's one thread.
+		task = ex.schedule(() -> onPool(this::pump), max(0, waitMs), TimeUnit.MILLISECONDS);
 	}
 
 	void onPool(Runnable r) {
@@ -251,7 +235,13 @@ class NotifyOutbox {
 					var next = now + RetryPolicy.backoffMs(++it.attempts, FIRST_RETRY_MS, MAX_RETRY_MS, random());
 					for (var x : due.subList(i, due.size())) x.nextAttemptAt = max(x.nextAttemptAt, next);
 				}
-				rewrite(it);
+				var d = dir;
+				if (d != null) {
+					try {
+						DiskFiles.writeAtomic(d.joinSegment(it.id + ".json"), gson.toJson(it));
+					} catch (Exception e) {
+					}
+				}
 				break;
 			}
 		} finally {
@@ -274,15 +264,6 @@ class NotifyOutbox {
 			items.remove(it);
 		}
 		deleteFiles(it);
-	}
-
-	void rewrite(Item it) {
-		var d = dir;
-		if (d == null) return;
-		try {
-			DiskFiles.writeAtomic(d.joinSegment(it.id + ".json"), gson.toJson(it));
-		} catch (Exception e) {
-		}
 	}
 
 	void deleteFiles(Item it) {
