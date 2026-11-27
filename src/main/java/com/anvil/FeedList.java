@@ -82,9 +82,7 @@ class FeedList extends JPanel {
 	final JScrollPane scroll;
 	final JLabel empty;
 	final JLabel newPill = new ClipLabel("", SwingConstants.CENTER);
-	final JLabel error = new ClipLabel();
-	final JLabel lockLine = new ClipLabel();
-	final JLabel lockSub = new ClipLabel();
+	final JLabel error = new ClipLabel(), lockLine = new ClipLabel(), lockSub = new ClipLabel();
 	/** In place of the message box while locked: the reason, coral when it's the viewer's own timeout. */
 	final JPanel lockBox = clear(2);
 	JPanel boxPanel;
@@ -109,8 +107,7 @@ class FeedList extends JPanel {
 	/** Repaints only the visible rows with a sliding name, ~25 times a second, and only while there are any. */
 	final Timer slide = new Timer(40, e -> slideVisible());
 	int unseen;
-	final Map<Integer, Icon> icons = new HashMap<>();
-	final Map<Integer, Icon> spriteIcons = new HashMap<>();
+	final Map<Integer, Icon> icons = new HashMap<>(), spriteIcons = new HashMap<>();
 	final Map<String, Icon> skillIcons = new HashMap<>();
 
 	FeedList(JsonObject n, Host host, ItemManager items, SpriteManager sprites, SkillIconManager skills, Consumer<JsonObject> act) {
@@ -127,10 +124,10 @@ class FeedList extends JPanel {
 		setOpaque(false);
 		chat = (send = obj(n, "send")) != null;
 		me = host == null ? null : host.myName();
-		if (isArr(n, "mine")) for (var e : arr(n, "mine")) if (e.isJsonPrimitive()) mineNames.add(ChatFlair.normalize(e.getAsString()));
+		if (arr(n, "mine") != null) for (var e : arr(n, "mine")) if (e.isJsonPrimitive()) mineNames.add(ChatFlair.normalize(e.getAsString()));
 
 		List<JsonObject> kept = new ArrayList<>();
-		if (isArr(n, "rows")) for (var e : arr(n, "rows")) if (e.isJsonObject() && kept.size() < cap) kept.add(e.getAsJsonObject());
+		if (arr(n, "rows") != null) for (var e : arr(n, "rows")) if (e.isJsonObject() && kept.size() < cap) kept.add(e.getAsJsonObject());
 		// The site sends newest first; a chat reads top to bottom.
 		if (chat) Collections.reverse(kept);
 		model.reset(kept);
@@ -215,7 +212,7 @@ class FeedList extends JPanel {
 
 		var top = clear(4);
 		if (!chat) top.add(newPill, NORTH);
-		else if (isArr(n, "chans")) top.add(switchOf(arr(n, "chans")), NORTH);
+		else if (arr(n, "chans") != null) top.add(switchOf(arr(n, "chans")), NORTH);
 		top.add(empty, SOUTH);
 		add(top, NORTH);
 		add(scroll, CENTER);
@@ -278,7 +275,7 @@ class FeedList extends JPanel {
 	/** Lays one push over a row's chips; true when any chip changed. Kinds the row has no chip for are ignored. */
 	static boolean applyReaction(JsonObject row, JsonObject update) {
 		// The plain GZ chip carries no kind of its own.
-		if (!isArr(row, "reacts")) return isObj(row, "gz") && applyChip(obj(row, "gz"), "gz", update);
+		if (arr(row, "reacts") == null) return obj(row, "gz") != null && applyChip(obj(row, "gz"), "gz", update);
 		var changed = false;
 		for (var e : arr(row, "reacts")) if (e.isJsonObject()) changed |= applyChip(e.getAsJsonObject(), str(e.getAsJsonObject(), "kind"), update);
 		return changed;
@@ -287,33 +284,22 @@ class FeedList extends JPanel {
 	static boolean applyChip(JsonObject chip, String kind, JsonObject update) {
 		if (kind.isEmpty()) return false;
 		var changed = false;
-		if (update.has(kind) && update.get(kind).isJsonPrimitive()) {
-			int n = max(0, update.get(kind).getAsInt());
-			if (!chip.has("n") || chip.get("n").getAsInt() != n) {
-				chip.addProperty("n", n);
-				changed = true;
-			}
-		}
+		if (update.has(kind) && update.get(kind).isJsonPrimitive()) changed = setIf(chip, "n", new JsonPrimitive(max(0, update.get(kind).getAsInt())));
 		var mineKey = "mine" + Character.toUpperCase(kind.charAt(0)) + kind.substring(1);
-		if (update.has(mineKey) && update.get(mineKey).isJsonPrimitive()) {
-			var mine = update.get(mineKey).getAsBoolean();
-			if (!chip.has("mine") || chip.get("mine").getAsBoolean() != mine) {
-				chip.addProperty("mine", mine);
-				changed = true;
-			}
-		}
+		if (update.has(mineKey) && update.get(mineKey).isJsonPrimitive()) changed |= setIf(chip, "mine", new JsonPrimitive(update.get(mineKey).getAsBoolean()));
 		var who = obj(update, "who");
 		if (who != null && who.has(kind)) {
 			var line = str(who, kind);
-			if (line.isEmpty()) {
-				changed |= chip.remove("who") != null;
-			} else if (!line.equals(str(chip, "who"))) {
-				chip.addProperty("who", line);
-				changed = true;
-			}
+			changed |= line.isEmpty() ? chip.remove("who") != null : setIf(chip, "who", new JsonPrimitive(line));
 		}
-
 		return changed;
+	}
+
+	/** {@code k} set to {@code v}; true when that changed it. */
+	static boolean setIf(JsonObject o, String k, JsonPrimitive v) {
+		if (v.equals(o.get(k))) return false;
+		o.add(k, v);
+		return true;
 	}
 
 
@@ -384,7 +370,7 @@ class FeedList extends JPanel {
 			var c = e.getAsJsonObject();
 			var g = new Seg(c);
 			segs.add(g);
-			if (!g.on && isObj(c, "act")) onClick(g, () -> act.accept(obj(c, "act")));
+			if (!g.on && obj(c, "act") != null) onClick(g, () -> act.accept(obj(c, "act")));
 			bar.add(g);
 		}
 		return bar;
@@ -620,8 +606,8 @@ class FeedList extends JPanel {
 
 	/** An action's answer: null when it went through, else the line to show. */
 	static String errorOf(JsonObject v) {
-		if (v == null || !isObj(v, "ui")) return "Couldn't reach Anvil — try again in a moment.";
-		var ui = v.getAsJsonObject("ui");
+		var ui = obj(v, "ui");
+		if (ui == null) return "Couldn't reach Anvil — try again in a moment.";
 		return "text".equals(str(ui, "t")) && "error".equals(str(ui, "color")) ? str(ui, "s") : null;
 	}
 
@@ -655,7 +641,7 @@ class FeedList extends JPanel {
 		boolean popup(MouseEvent e) {
 			if (!e.isPopupTrigger()) return false;
 			int i = rowAt(e);
-			if (i < 0 || !isArr(model.getElementAt(i), "menu")) return true;
+			if (i < 0 || arr(model.getElementAt(i), "menu") == null) return true;
 			var menu = new JPopupMenu();
 			for (var el : arr(model.getElementAt(i), "menu")) {
 				var item = el.getAsJsonObject();
@@ -675,7 +661,7 @@ class FeedList extends JPanel {
 			var r = model.getElementAt(i);
 			var chip = chipAt(r, list.getFontMetrics(SMALL), fromRight(i, e));
 			if (chip != null) press(i, chip);
-			else if (isObj(r, "on")) act.accept(obj(r, "on"));
+			else if (obj(r, "on") != null) act.accept(obj(r, "on"));
 		}
 	}
 
@@ -1093,14 +1079,6 @@ class FeedList extends JPanel {
 		return p;
 	}
 
-	static boolean isObj(JsonObject o, String k) {
-		return obj(o, k) != null;
-	}
-
-	static boolean isArr(JsonObject o, String k) {
-		return arr(o, k) != null;
-	}
-
 	/** {@code k}'s boolean, false when it's absent. */
 	static boolean flag(JsonObject o, String k) {
 		return o.has(k) && o.get(k).getAsBoolean();
@@ -1279,7 +1257,7 @@ class FeedList extends JPanel {
 
 	/** A row's reaction chips in drawing order: a death's {@code reacts}, else its one {@code gz}. */
 	static JsonArray chipsOf(JsonObject r) {
-		if (isArr(r, "reacts")) return arr(r, "reacts");
+		if (arr(r, "reacts") != null) return arr(r, "reacts");
 		var g = obj(r, "gz");
 		if (g == null) return null;
 		if (!g.has("label")) g.addProperty("label", "GZ");
@@ -1341,7 +1319,7 @@ class FeedList extends JPanel {
 					int w = chipWidth(fm, c);
 					x -= w;
 					var mine = flag(c, "mine");
-					var live = isObj(c, "on");
+					var live = obj(c, "on") != null;
 					var lit = live && k == hover;
 					g2.setColor(mine ? (lit ? CHIP_MINE_HOVER : CHIP_MINE) : lit ? CHIP_FILL_HOVER : CHIP_FILL);
 
