@@ -42,15 +42,12 @@ class AccountOptOut {
 
 	/** Is this character opted out? Either key matches: the hash is rename-proof, the name works pre-login. */
 	boolean contains(long accountHash, String rsn) {
-		var h = hashKey(accountHash);
-		var n = nameKey(rsn);
-		return (h != null && digests.contains(h)) || (n != null && digests.contains(n));
+		return digests.contains(hashKey(accountHash)) || containsName(rsn);
 	}
 
 	/** The launcher's pre-login name: withhold the hint for a character that's opted out. */
 	boolean containsName(String rsn) {
-		var n = nameKey(rsn);
-		return n != null && digests.contains(n);
+		return digests.contains(nameKey(rsn));
 	}
 
 	AccountOptOut with(long accountHash, String rsn) {

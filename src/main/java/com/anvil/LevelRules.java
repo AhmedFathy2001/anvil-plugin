@@ -23,7 +23,6 @@ public class LevelRules {
 
 		Sets() {
 		}
-
 	}
 
 	static final LevelRules LEGACY_CLAN = new LevelRules(true, 0, 1, 100, 1800, true);

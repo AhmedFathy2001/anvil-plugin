@@ -27,13 +27,12 @@ class WorldInfo {
 	static final Set<WorldType> PRESET = Collections.unmodifiableSet(EnumSet.of(
 		WorldType.PVP_ARENA, WorldType.QUEST_SPEEDRUNNING, WorldType.LAST_MAN_STANDING, WorldType.NOSAVE_MODE));
 
-		/** Longest activity line sent. World-list activities are short; this only bounds a surprise. */
+	/** Longest activity line sent. World-list activities are short; this only bounds a surprise. */
 	static final int MAX_ACTIVITY = 64;
 
 	/** The world's flags as a stable, comma-separated list of names ("DEADMAN,MEMBERS"); null for none. */
 	static String types(Collection<WorldType> types) {
-		if (types == null || types.isEmpty()) return null;
-		return types.stream().map(Enum::name).sorted().collect(Collectors.joining(","));
+		return types == null || types.isEmpty() ? null : types.stream().map(Enum::name).sorted().collect(Collectors.joining(","));
 	}
 
 	/**
