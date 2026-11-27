@@ -628,7 +628,7 @@ public class AnvilSidebarPanel extends PluginPanel {
 		if (data.canTrackTiles(event, "1".equals(args.get("pre")))) {
 			out.put("track", "1");
 			var pins = new StringJoiner(",");
-			for (var id : data.pinnedTiles(event)) pins.add("" + id);
+			for (var id : data.fromPlugin(p -> p.tileTracker().pinned(event), List.<Integer>of())) pins.add("" + id);
 			out.put("pins", pins.toString());
 		}
 		return out;

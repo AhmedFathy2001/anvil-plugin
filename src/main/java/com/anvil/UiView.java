@@ -230,7 +230,8 @@ class UiView extends JPanel {
 		lives.clear();
 		// The slots are gone, so whatever they were waiting for is too.
 		for (var m : List.of(drawn, seq, lastLoads)) m.keySet().removeIf(k -> !"null".equals(k));
-		replace(this, view == null || !view.has("ui") ? message(OFFLINE) : node(view.getAsJsonObject("ui")));
+		var ui = obj(view, "ui");
+		replace(this, ui == null ? message(OFFLINE) : node(ui));
 		if (tickers.isEmpty()) ticker.stop();
 		else ticker.start();
 	}
@@ -324,23 +325,23 @@ class UiView extends JPanel {
 		}
 		// A slot only ever takes its own inner content: a whole page answered into it (one that carries
 		// this same slot) would stack the page's header again on every answer, so keep just that slot's part.
-		var own = into == null || view == null ? null : ownSlot(obj(view, "ui"), into);
+		var own = into == null ? null : ownSlot(obj(view, "ui"), into);
 		if (obj(own, "c") != null) {
 			view = view.deepCopy();
 			view.add("ui", own.get("c"));
 		}
-		var ui = view == null ? null : view.get("ui");
+		var ui = obj(view, "ui");
 		if (ui != null && ui.equals(drawn.get(key))) return; // the same answer: leave what's on screen alone
 		drawn.put(key, ui);
 		var slot = slots.get(into);
 		if (slot == null) {
 			render(view);
-		} else if (slot.first != null && view != null && view.has("ui")) {
+		} else if (slot.first != null && ui != null) {
 			// A page fetched into a nav slot is a page of its own: the pane left is kept for Back.
 			var vp = leave(slot, into, "~" + n);
-			replace(slot.holder, node(view.getAsJsonObject("ui")));
+			replace(slot.holder, node(ui));
 			if (vp != null) vp.setViewPosition(new Point(0, 0));
-		} else replace(slot.holder, view == null || !view.has("ui") ? small(OFFLINE, MUTED) : node(view.getAsJsonObject("ui")));
+		} else replace(slot.holder, ui == null ? small(OFFLINE, MUTED) : node(ui));
 	}
 
 	/** Runs {@code a} once on the EDT after {@code ms}. */

@@ -114,12 +114,6 @@ public class AnvilSidebarDataSource {
 		return cfg != null && cfg.event != null ? cfg.event.id : 0;
 	}
 
-	/** The tiles pinned over the game on {@code eventId}. */
-	List<Integer> pinnedTiles(int eventId) {
-		List<Integer> none = Collections.emptyList();
-		return eventId > 0 ? fromPlugin(p -> p.tileTracker().pinned(eventId), none) : none;
-	}
-
 	/** Take + file the starting shot. No-op where {@link #startProof()} is null. Never blocks the EDT. */
 	void captureStartProof() {
 		var capture = startProofCapture;

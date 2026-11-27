@@ -32,7 +32,7 @@ class Ui {
 	static final Font SMALL = FontManager.getRunescapeSmallFont();
 	static final Font REGULAR = FontManager.getRunescapeFont();
 	static final Font BOLD = FontManager.getRunescapeBoldFont();
-	static final java.util.Map<Font, Font> FALLBACK = new java.util.concurrent.ConcurrentHashMap<>();
+	static final Map<Font, Font> FALLBACK = new java.util.concurrent.ConcurrentHashMap<>();
 
 	/** {@code f}, or the system font at its size and style when {@code f} lacks a glyph of {@code t} (a Mac draws a box for ✓ → … in the RS fonts). */
 	static Font fit(Font f, String t) {

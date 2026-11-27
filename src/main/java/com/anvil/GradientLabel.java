@@ -84,8 +84,6 @@ class GradientLabel extends JLabel {
 	// The label as Swing draws it, plus a same-size buffer each frame is composed in.
 	BufferedImage base;
 	BufferedImage frame;
-	Rectangle textR = new Rectangle();
-	Rectangle iconR = new Rectangle();
 	/** The supporter star takes the gradient too; any other icon keeps its colours. */
 	boolean tintIcon;
 	/** What the gradient fills: the text, or the text and the star. */
@@ -181,8 +179,8 @@ class GradientLabel extends JLabel {
 		ig.dispose();
 		var in = getInsets();
 		var view = new Rectangle(in.left, in.top, w - in.left - in.right, h - in.top - in.bottom);
-		textR.setBounds(0, 0, 0, 0);
-		iconR.setBounds(0, 0, 0, 0);
+		var textR = new Rectangle();
+		var iconR = new Rectangle();
 		SwingUtilities.layoutCompoundLabel(this, getFontMetrics(getFont()), getText(), getIcon(),
 			getVerticalAlignment(), getHorizontalAlignment(), getVerticalTextPosition(), getHorizontalTextPosition(),
 			view, iconR, textR, getIconTextGap());
