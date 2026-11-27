@@ -3877,10 +3877,8 @@ public class AnvilPlugin extends Plugin {
 
 	// ---- Duplicates the game doesn't name (DuplicateInference) ----------------------------------
 	// Set only around the synthetic processLoot call below, on the client thread: it rides the loot fact to the site.
-	String inferringFlag;
-	String lastXpSkill;
-	long lastXpAt;
-	long dupScrollLineAt;
+	String inferringFlag, lastXpSkill;
+	long lastXpAt, dupScrollLineAt;
 	int dupScrollTick = -1;
 	// INFER_SKILL_WINDOW_MS = 10_000, inlined at its one use.
 	// DUP_SCROLL_WAIT_TICKS = 3, inlined at its one use.
@@ -4421,13 +4419,12 @@ public class AnvilPlugin extends Plugin {
 	// a KC/completion line, a death, logging out or ~10s out of those regions ends the trip. The site judges.
 	// Armed (the site's next-trip target, its item-push answer): any bank asks, once until the trip ends.
 	// Asked outside them: entering one (then leaving) or 10 minutes ends that trip too.
-	volatile JsonObject stateSeen, stateSent;
+	// tripFight: the last answer's warn, its `fight` regions / `instance`, kept after the warning is gone.
+	volatile JsonObject stateSeen, stateSent, tripFight;
 	volatile boolean tripArmed, tripOver;
 	boolean tripAsked, tripAgain, tripOut, tripInFight, coxBegun;
 	/** A check for this content whatever the region says (a CoX storage unit, inside the raid). */
 	String tripContent;
-	/** The last answer's warn: its `fight` regions / `instance`, kept after the warning is gone. */
-	volatile JsonObject tripFight;
 	int tripDue = -1, tripAway;
 	long tripAt;
 	static final int[][] POUCH = {{VarbitID.RUNE_POUCH_TYPE_1, VarbitID.RUNE_POUCH_QUANTITY_1}, {VarbitID.RUNE_POUCH_TYPE_2, VarbitID.RUNE_POUCH_QUANTITY_2},
@@ -5712,20 +5709,17 @@ public class AnvilPlugin extends Plugin {
 	// every live board: tile ids are unique across boards, so one memory serves them all. Fire a banner
 	// once per newly-completed tile. Each board is seeded silently the first time it is seen, so tiles
 	// completed before this session (or on a board just joined) don't re-pop and no other board's do.
-	final Set<Integer> notifiedCompletedTiles = new HashSet<>();
-	/** The boards seeded so far. */
-	final Set<Integer> seededBoards = new HashSet<>();
-	// Tiles this client already showed a banner for via the player's own drop. Their completion is
-	// skipped here so the contributor doesn't see it twice; teammates still get the team banner.
-	final Set<Integer> locallyShownTiles = new HashSet<>();
+	// seededBoards: the boards seeded so far. locallyShownTiles: tiles this client already showed a banner for via the
+	// player's own drop. Their completion is skipped here so the contributor doesn't see it twice; teammates still get
+	// the team banner.
+	final Set<Integer> notifiedCompletedTiles = new HashSet<>(), seededBoards = new HashSet<>(), locallyShownTiles = new HashSet<>();
 	// When each tile was last confirmed done. A config built before that (a push merged onto the held
 	// config, a fetch already in flight) still lists it open; only a later absence means a removal.
 	final Map<Integer, Long> confirmedDoneAt = new HashMap<>();
 
 	// Ladder missions board: mission tiles we've already alerted "new mission" for, and claim tiles
 	// we've already announced. Seeded on the first poll of an event (no backlog dump), cleared on change.
-	final Set<Integer> notifiedMissionTiles = new HashSet<>();
-	final Set<Integer> notifiedClaimTiles = new HashSet<>();
+	final Set<Integer> notifiedMissionTiles = new HashSet<>(), notifiedClaimTiles = new HashSet<>();
 	Integer ladderBaselineEventId;
 
 	/** Forget which tiles were seen done, so the next poll silently absorbs whatever already is. */
@@ -6380,11 +6374,11 @@ public class AnvilPlugin extends Plugin {
 		if (d <= 0) return;
 		// A position alone can't say "already moved": a longer name's plain layout can land exactly on the
 		// spot an earlier, shorter starred name in this slot was moved to, leaving its message overlapping.
-		if (!ChatFlair.alreadyRoomed(s.getOriginalWidth(), slots[at].room, plain, slots[at].roomFor)) {
-			s.setOriginalWidth(s.getOriginalWidth() + d);
-			slots[at].room = s.getOriginalWidth();
-			slots[at].roomFor = plain;
-			s.revalidate();
+		var c = slots[at];
+		if (!ChatFlair.alreadyRoomed(s.getOriginalWidth(), c.room, plain, c.roomFor)) {
+			s.setOriginalWidth(s.getOriginalWidth() + d).revalidate();
+			c.room = s.getOriginalWidth();
+			c.roomFor = plain;
 		}
 		for (int j = 0; j < lines.length; j++) {
 			var o = lines[j];
@@ -6431,15 +6425,8 @@ public class AnvilPlugin extends Plugin {
 
 	void growRow(Widget[] lines, Widget o, int extra, boolean grow) {
 		int y = o.getOriginalY();
-		if (grow) {
-			o.setOriginalHeight(o.getOriginalHeight() + extra);
-			o.revalidate();
-		}
-		for (var l : lines) {
-			if (l == null || l.getOriginalY() > y) continue;
-			l.setOriginalY(l.getOriginalY() - extra);
-			l.revalidate();
-		}
+		if (grow) o.setOriginalHeight(o.getOriginalHeight() + extra).revalidate();
+		for (var l : lines) if (l != null && l.getOriginalY() <= y) l.setOriginalY(l.getOriginalY() - extra).revalidate();
 	}
 
 	/**
@@ -6540,9 +6527,7 @@ public class AnvilPlugin extends Plugin {
 		for (int i = 0; i < n; i++) {
 			var w = pmLine.get(i);
 			if (pmX[i] != w.getOriginalX() || pmW[i] != w.getOriginalWidth()) {
-				w.setOriginalX(pmX[i]);
-				w.setOriginalWidth(pmW[i]);
-				w.revalidate();
+				w.setOriginalX(pmX[i]).setOriginalWidth(pmW[i]).revalidate();
 				pmRoom.put(w, new int[]{pmRecX[i], pmRecW[i], Text.removeTags(String.valueOf(w.getText())).hashCode()});
 			}
 		}
@@ -6658,24 +6643,10 @@ public class AnvilPlugin extends Plugin {
 			var bg = kids[base - 1];
 			var r = f.createChild(-1, WidgetType.RECTANGLE);
 			var t = f.createChild(-1, WidgetType.TEXT);
-			for (var w : new Widget[]{r, t}) {
-				w.setOriginalX(last.getOriginalX());
-				w.setOriginalY(y + h);
-				w.setOriginalWidth(last.getOriginalWidth());
-				w.setOriginalHeight(h);
-			}
-			r.setFilled(bg.isFilled());
-			r.setOpacity(bg.getOpacity());
-			r.setTextColor(bg.getTextColor());
-			r.revalidate();
-			t.setText(HeaderButton.NAME);
-			t.setName(HeaderButton.NAME);
-			t.setFontId(last.getFontId());
-			t.setTextColor(0xffffff);
-			t.setTextShadowed(last.getTextShadowed());
-			t.setXTextAlignment(last.getXTextAlignment());
-			t.setYTextAlignment(last.getYTextAlignment());
-			t.setHasListener(true);
+			for (var w : new Widget[]{r, t}) w.setOriginalX(last.getOriginalX()).setOriginalY(y + h).setOriginalWidth(last.getOriginalWidth()).setOriginalHeight(h);
+			r.setFilled(bg.isFilled()).setOpacity(bg.getOpacity()).setTextColor(bg.getTextColor()).revalidate();
+			t.setText(HeaderButton.NAME).setName(HeaderButton.NAME).setFontId(last.getFontId()).setTextColor(0xffffff).setTextShadowed(last.getTextShadowed())
+					.setXTextAlignment(last.getXTextAlignment()).setYTextAlignment(last.getYTextAlignment()).setHasListener(true);
 			t.setAction(0, "Sync to"); // the game adds the name: "Sync to Anvil"
 			t.setOnOpListener((JavaScriptCallback) e -> syncProfileNow());
 			t.setOnMouseOverListener((JavaScriptCallback) e -> t.setTextColor(0xff981f));
@@ -6684,8 +6655,8 @@ public class AnvilPlugin extends Plugin {
 		}
 		// As tall as its rows: the game's own, plus ours while it shows. The margin under the last row
 		// is the one the game leaves beside them.
-		f.setOriginalHeight(y + (want ? 2 * h : h) + last.getOriginalX());
-		f.revalidate();
+		f.setOriginalHeight(y + (want ? 2 * h : h) + last.getOriginalX()).revalidate();
+
 		for (var k : f.getDynamicChildren()) k.revalidate();
 	}
 	/** Client thread: each FLAIR_LISTS list's first row when we last painted it. */
@@ -6913,8 +6884,7 @@ public class AnvilPlugin extends Plugin {
 	MenuEntry menuFlairTop;
 
 	/** The chat input as the game wrote it, and as we painted it (unflairChat puts the first back). */
-	String inputPlain;
-	String inputPainted;
+	String inputPlain, inputPainted;
 	long inputNameFrame = Long.MIN_VALUE;
 
 	/**
@@ -7289,10 +7259,10 @@ public class AnvilPlugin extends Plugin {
 		int myTeam = cfg != null && cfg.team != null ? cfg.team.id : 0;
 		int me = cfg != null && cfg.player != null ? cfg.player.id : 0;
 		if ("tile".equals(kind)) {
-			tileTracker.pushed(eventId, m.get("tileId").getAsInt(),
-					gson.fromJson(m.get("progress"), TileTracker.Progress.class), myTeam);
+			tileTracker.pushed(eventId, m.get("tileId").getAsInt(), gson.fromJson(m.get("progress"), TileTracker.Progress.class), myTeam);
 			return;
 		}
+
 		var held = cfg != null && cfg.event != null && cfg.event.id == eventId;
 		var ours = held && myTeam == m.get("teamId").getAsInt();
 
