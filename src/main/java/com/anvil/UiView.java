@@ -1186,7 +1186,7 @@ class UiView extends JPanel {
 		var body = node(n.getAsJsonObject("c"));
 		var chev = bool(n, "chev");
 		Runnable paint = () -> chevron.setIcon(chev
-			? new GlyphIcon(body.isVisible() ? CHEVRON_LEFT : CHEVRON_RIGHT, 8, MUTED) : null);
+			? new GlyphIcon(body.isVisible() ? CHEVRON_DOWN : CHEVRON_RIGHT, 11, LIGHT_GRAY_COLOR) : null);
 		body.setVisible(bool(n, "open"));
 		paint.run();
 		clickable(capH(head), () -> {
