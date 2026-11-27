@@ -2113,7 +2113,14 @@ public class AnvilPlugin extends Plugin {
 		shareItems();
 		tripTick();
 		relayHeal();
-		relayPmMode();
+		var pf = client.getWidget(InterfaceID.Chatbox.CHAT_PRIVATE_FILTER);
+		if (pf != null && pushSocket != null && pushSocket.relayOk) {
+			// Client thread, each tick: our private chat setting, told to the relay when it changes. It decides
+			// who past our shared channels may see us connected and PM us: On anyone, Friends our friends, Off nobody.
+			var t = Text.removeTags(pf.getText());
+			var mode = t.contains("Off") ? "off" : t.contains("Friends") ? "friends" : t.contains("On") ? "on" : null;
+			if (mode != null && !mode.equals(pmModeSent)) relaySend("t", "pm", "m", pmModeSent = mode);
+		}
 		// Once the login burst is over, take the table as the session's starting point: existing 99s
 		// marked announced, the total baselined. From here a rise is a real level-up.
 		if (statsUnsettled && loggedIn() && ++statsSettleTicks >= 3 /* STATS_SETTLE_TICKS */ && statTableLoaded()) {
@@ -3402,7 +3409,7 @@ public class AnvilPlugin extends Plugin {
 			if (inferredPet != null) claimPetName(inferredPet);
 			if (duplicatePet && hasEvent()) {
 				if (inferredPet == null) askForManualSubmission("Duplicate pet");
-				else creditInferredByName(inferredPet, petSource(inferredPet), "inferred_duplicate_pet");
+				else if (trackingGateReason() == null) creditInferred(trackedStacks(inferredPet, 1), petSource(inferredPet), "inferred_duplicate_pet");
 			}
 		}
 		// Champion's scroll — when a challenge is already complete the game shows only "…funny feeling
@@ -3668,10 +3675,6 @@ public class AnvilPlugin extends Plugin {
 	/** A config fetch on the executor. */
 	void refreshSoon() {
 		submit(() -> safely("refreshConfig", this::refreshConfig));
-	}
-
-	boolean creditInferredByName(String itemName, String source, String flag) {
-		return itemName != null && trackingGateReason() == null && creditInferred(trackedStacks(itemName, 1), source, flag);
 	}
 
 
@@ -9502,18 +9505,6 @@ public class AnvilPlugin extends Plugin {
 
 	/** The private chat setting last told to the relay ("" after a reconnect: tell it again). */
 	String pmModeSent = "";
-
-	/**
-	 * Client thread, each tick: our private chat setting, told to the relay when it changes. It decides
-	 * who past our shared channels may see us connected and PM us: On anyone, Friends our friends, Off nobody.
-	 */
-	void relayPmMode() {
-		var f = client.getWidget(InterfaceID.Chatbox.CHAT_PRIVATE_FILTER);
-		if (f == null || pushSocket == null || !pushSocket.relayOk) return;
-		var t = Text.removeTags(f.getText());
-		var mode = t.contains("Off") ? "off" : t.contains("Friends") ? "friends" : t.contains("On") ? "on" : null;
-		if (mode != null && !mode.equals(pmModeSent)) relaySend("t", "pm", "m", pmModeSent = mode);
-	}
 
 	/** Names we asked the relay about, and when (ms): once every 10s each at most. */
 	final Map<String, Long> relayAsked = capped(200, false);
