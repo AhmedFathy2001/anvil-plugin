@@ -8353,13 +8353,16 @@ public class AnvilPlugin extends Plugin {
 		var view = client.getTopLevelWorldView();
 		if (me == null || view == null) return null;
 		var at = me.getWorldLocation();
-		var names = new LinkedHashSet<String>();
+		var seen = new ArrayList<NPC>();
 		for (var npc : view.npcs()) {
-			if (names.size() >= 12) break;
 			if (npc == null || npc.getName() == null || npc.getCombatLevel() <= 0) continue;
 			if (npc.getWorldLocation().distanceTo(at) > KILLER_REACH || !npc.getWorldArea().hasLineOfSightTo(view, at)) continue;
-			names.add(stripChatTags(npc.getName()));
+			seen.add(npc);
 		}
+		// Nearest first: a poison death names the first as its likely culprit.
+		seen.sort(Comparator.comparingInt(n -> n.getWorldLocation().distanceTo(at)));
+		var names = new LinkedHashSet<String>();
+		for (var npc : seen) if (names.size() < 12) names.add(stripChatTags(npc.getName()));
 		return names.isEmpty() ? null : new ArrayList<>(names);
 	}
 
@@ -8376,6 +8379,14 @@ public class AnvilPlugin extends Plugin {
 		// (Alchemical Hydra), and a mechanic has nobody behind it. Send what we were fighting, marked as
 		// a guess; the site keeps it only when it's a boss, so "died to Jug" can't come back.
 		var sourceKind = deathAttribution.isPlayer(killer) ? "player" : "npc";
+		// Nobody named, but poisoned or venomed (the game's poison value: 1,000,000 and up is venom):
+		// that is what killed us. Name the likely culprit, what we fought or the nearest monster in sight.
+		int poison = client.getVarpValue(VarPlayerID.POISON);
+		if (killer == null && poison > 0) {
+			var near = monstersInSight();
+			killer = fighting != null ? fighting : near != null ? near.get(0) : null;
+			sourceKind = poison >= 1_000_000 /* VENOM_FROM */ ? "venom" : "poison";
+		}
 		if (killer == null && fighting != null) {
 			killer = fighting;
 			sourceKind = "fought";
