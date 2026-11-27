@@ -4374,8 +4374,7 @@ public class AnvilPlugin extends Plugin {
 		// Banking: read worn and inventory afresh (an emptied one may send no change event).
 		if (bank) for (int id : new int[] {InventoryID.WORN, InventoryID.INV}) seeItems(id, client.getItemContainer(id));
 		int quiet = client.getTickCount() - itemsAt;
-		// Every item push's guard: signed in and not paused, on a character, sharing on, a site that takes them.
-		if (!itemsDirty || quiet < 2 || !apiClient.isConfigured() || apiClient.getCurrentRsn() == null || !config.shareItems() || !siteHas("guides-panel")) return;
+		if (!itemsDirty || quiet < 2 || shareBlock() != null) return;
 		var all = (bank || quiet >= 5) && now() >= itemsNextAt;
 		if (!all && (!wornDirty || now() < wornNextAt)) return;
 		wornDirty = false;
@@ -4494,10 +4493,18 @@ public class AnvilPlugin extends Plugin {
 	}
 
 
+	/**
+	 * Every item push's guard: signed in and not paused, on a character, sharing on, a site that takes them. Null when
+	 * all hold, else why not, for the trip card ("held" arg) and the log.
+	 */
+	String shareBlock() {
+		return !apiClient.isConfigured() ? (apiClient.isAccountPaused() ? "paused" : "signed-out") : apiClient.getCurrentRsn() == null ? "no-character" : !config.shareItems() ? "sharing-off" : !siteHas("guides-panel") ? "no-site" : null;
+	}
+
 	/** Before a trip check the player asked for (bank close, a click): what is worn and carried now. Blocking. */
 	String pushHeld() {
 		// Why not, for the card ("held" arg) and the log; "1" = pushed.
-		var no = !apiClient.isConfigured() ? (apiClient.isAccountPaused() ? "paused" : "signed-out") : apiClient.getCurrentRsn() == null ? "no-character" : !config.shareItems() ? "sharing-off" : !siteHas("guides-panel") ? "no-site" : null;
+		var no = shareBlock();
 		if (no != null) {
 			log.debug("Trip check: push skipped, {}", no);
 			return no;
@@ -5844,7 +5851,7 @@ public class AnvilPlugin extends Plugin {
 		boolean first;
 		synchronized (doneSoon) {
 			first = doneSoon.isEmpty();
-			doneSoon.computeIfAbsent(who == null ? "" : who, k -> new ArrayList<>()).addAll(lines);
+			doneSoon.computeIfAbsent(Objects.toString(who, ""), k -> new ArrayList<>()).addAll(lines);
 		}
 		var ex = executor;
 		if (ex == null || ex.isShutdown()) flushDone();
@@ -5890,7 +5897,7 @@ public class AnvilPlugin extends Plugin {
 		var ladder = "ladder".equalsIgnoreCase(cfg.event.format);
 		if (!ladder && !empty(cfg.event.revealPolicy)) return;
 		var tag = ladder ? "Anvil Ladder" : "Anvil";
-		var seeding = ladderBaselineEventId == null || ladderBaselineEventId != cfg.event.id;
+		var seeding = !Objects.equals(ladderBaselineEventId, cfg.event.id);
 		if (seeding) {
 			notifiedMissionTiles.clear();
 			notifiedClaimTiles.clear();
@@ -6125,8 +6132,7 @@ public class AnvilPlugin extends Plugin {
 		var file = chatFlairFile;
 		if (ex == null || rc == null || file == null) return;
 		synchronized (chatFlairSync) {
-			if (chatFlairSave == null || chatFlairSave.isDone()) chatFlairSave = ex.schedule(() -> apiClient.interactiveExecutor().execute(
-					() -> rc.storeShared(file, chatFlair.toWire())), 5, TimeUnit.SECONDS);
+			if (chatFlairSave == null || chatFlairSave.isDone()) chatFlairSave = ex.schedule(() -> apiClient.interactiveExecutor().execute(() -> rc.storeShared(file, chatFlair.toWire())), 5, TimeUnit.SECONDS);
 		}
 	}
 
