@@ -2189,6 +2189,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	@Subscribe
 	void onVarbitChanged(VarbitChanged event) {
+		if (event.getVarbitId() == VarbitID.TOB_CLIENT_PARTYSTATUS && event.getValue() <= 0) tobEntry = false;
 		if (!trackedActivityKeys.isEmpty() && ActivityStats.isTrigger(event.getVarbitId(), event.getVarpId())) maybeQueueActivityPush();
 		// The chatbox went transparent or opaque: event chat lines take that surface's colours.
 		if (event.getVarbitId() == VarbitID.CHATBOX_TRANSPARENCY && !eventNodes.isEmpty()) {
@@ -3399,6 +3400,7 @@ public class AnvilPlugin extends Plugin {
 		if (ct == GAMEMESSAGE && config.shareSeasonal() && WorldInfo.separateSave(client.getWorldType())) modeLines.offer(msg, now());
 		if (ct == GAMEMESSAGE || ct == SPAM || ct == TRADE) watchLine(plain);
 		// A death with no ActorDeath behind it (doomed in the Colosseum) still prints the game's own line.
+		if (ct == GAMEMESSAGE && plain.startsWith("You enter the Theatre of Blood")) tobEntry = plain.contains("Entry Mode");
 		if (ct == GAMEMESSAGE && plain.equals("Oh dear, you are dead!") && now() - ownDeathAt > 15_000) ownDeath();
 
 		// The widget tracker still uses a line naming this player to attribute its own readings.
@@ -8379,7 +8381,8 @@ public class AnvilPlugin extends Plugin {
 
 	/**
 	 * The raid we stand inside, by the game's own varbits (as the party size reads them), or null.
-	 * ToA below raid level 150 is Entry Mode, which the hiscores keep apart: "toa-entry". Client thread.
+	 * ToA below raid level 150 is Entry Mode, which the hiscores keep apart: "toa-entry"; ToB's comes
+	 * from its entry line: "tob-entry". Client thread.
 	 */
 	String raidHere() {
 		var top = client.getTopLevelWorldView();
@@ -8389,8 +8392,12 @@ public class AnvilPlugin extends Plugin {
 			return client.getVarbitValue(VarbitID.TOA_CLIENT_RAID_LEVEL) < 150 /* TOA_ENTRY_BELOW */ ? "toa-entry" : "toa";
 		}
 		if (client.getVarbitValue(VarbitID.RAIDS_CLIENT_INDUNGEON) == 1) return "cox";
-		return client.getVarbitValue(VarbitID.TOB_CLIENT_PARTYSTATUS) > 0 ? "tob" : null;
+		if (client.getVarbitValue(VarbitID.TOB_CLIENT_PARTYSTATUS) <= 0) return null;
+		return tobEntry ? "tob-entry" : "tob";
 	}
+
+	/** Set by the game's "You enter the Theatre of Blood (Entry Mode)..." line; no varbit tells the modes apart. */
+	boolean tobEntry;
 
 	/**
 	 * Note a level worth remembering: a 99, a high total, or a max.
