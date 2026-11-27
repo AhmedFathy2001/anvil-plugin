@@ -63,8 +63,7 @@ class VestigeRolls {
 	Result record(PluginConfigResponse.RollTable table, int itemId) {
 		if (table == null || table.rollItemIds == null || !table.rollItemIds.contains(itemId)) return null;
 		int cycle = Math.max(2, table.rollsPerVestige);
-		var was = get(table.boss);
-		var r = advance(was, itemId == table.vestigeItemId, cycle, table.vestigeName);
+		var r = advance(get(table.boss), itemId == table.vestigeItemId, cycle, table.vestigeName);
 		put(table.boss, r.state);
 		return r;
 	}
@@ -97,12 +96,9 @@ class VestigeRolls {
 
 	/** Serialised as "boss=rolls:exact;…" for the RuneLite config, so the cycle survives a restart. */
 	String serialise() {
-		var sb = new StringBuilder();
-		for (var e : byBoss.entrySet()) {
-			if (sb.length() > 0) sb.append(';');
-			sb.append(e.getKey()).append('=').append(e.getValue().rolls).append(':').append(e.getValue().exact ? 1 : 0);
-		}
-		return sb.toString();
+		var sj = new StringJoiner(";");
+		byBoss.forEach((k, v) -> sj.add(k + "=" + v.rolls + ":" + (v.exact ? 1 : 0)));
+		return sj.toString();
 	}
 
 	static VestigeRolls parse(String raw) {
@@ -113,9 +109,7 @@ class VestigeRolls {
 			if (kv.length != 2) continue;
 			var v = kv[1].split(":", 2);
 			try {
-				int rolls = Integer.parseInt(v[0].trim());
-				var exact = v.length > 1 && "1".equals(v[1].trim());
-				out.byBoss.put(key(kv[0]), new State(Math.max(0, rolls), exact));
+				out.byBoss.put(key(kv[0]), new State(Math.max(0, Integer.parseInt(v[0].trim())), v.length > 1 && "1".equals(v[1].trim())));
 			} catch (NumberFormatException ignored) {
 				// A corrupted entry just loses that boss's count — it re-estimates from the next drop.
 			}

@@ -813,7 +813,7 @@ public class ChatFlairTest
 	{
 		String decorate(String sender, String star)
 		{
-			return decorate(sender, star, 0, null);
+			return decorateReadable(sender, star, 0, null);
 		}
 
 		String paintSender(String raw, String star, boolean opaque)

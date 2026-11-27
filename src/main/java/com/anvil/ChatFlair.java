@@ -260,11 +260,6 @@ class ChatFlair {
 		return null;
 	}
 
-	/** A sender using the palette derived once for the chat surface behind it. */
-	String decorateReadable(String sender, String star, double shift, boolean opaque) {
-		return decorate(sender, star, shift, opaque);
-	}
-
 	/**
 	 * {@code safeName} (already markup-safe) in its owner's look for this chat surface: their own
 	 * dark/light look as-is, else the adapted main one. Null when they wear none. Clan feed lines use
@@ -286,9 +281,10 @@ class ChatFlair {
 	 * The sender with their flair: icons kept, then the star (when {@code star} is given and they are
 	 * a Patron), then the name in their gradient or colour (raw when {@code opaque} is null, at
 	 * {@code shift} in the Patron gradient's reflecting animation cycle). Null when they have none or
-	 * the sender isn't a plain name (already decorated by something else).
+	 * the sender isn't a plain name (already decorated by something else). A non-null {@code opaque}
+	 * uses the palette derived once for the chat surface behind it.
 	 */
-	String decorate(String sender, String star, double shift, Boolean opaque) {
+	String decorateReadable(String sender, String star, double shift, Boolean opaque) {
 		if (sender == null || isEmpty()) return null;
 		var m = SENDER.matcher(sender);
 		if (!m.matches()) return null;

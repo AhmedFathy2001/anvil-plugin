@@ -227,15 +227,12 @@ class RuleEngine {
 			var any = false;
 			Boolean huntOk = null;
 			for (var r : rules) {
-				if (!sourceOk(r, source, kind) || (r.simple && r.have >= r.of)) continue;
+				// The rule's sources (or not PvP, when it names none) and its npcs, when it names any.
+				if ((!empty(r.src) ? !r.src.contains(kind) : "pvp".equals(kind)) || !empty(r.npcs) && !DropSource.sourceMatches(r.npcs, source) || (r.simple && r.have >= r.of)) continue;
 				if (r.hunt != null) {
 					// A pet or a new log slot reports the same item again a moment later: one popup for it.
 					if (huntOk == null) huntOk = huntFresh(it[0], now);
-					if (huntOk && said.add(r)) {
-						out.say.add(fill(t, "hunt", r, "{hunt}", r.hunt));
-						out.banners.add(new String[]{"Item hunt", r.hunt, r.label});
-						out.hunted.add(it[0]);
-					}
+					if (huntOk && said.add(r)) hunt(out, t, r, it[0]);
 					continue;
 				}
 				any = true;
@@ -297,13 +294,15 @@ class RuleEngine {
 		var t = table;
 		var rules = t == null ? null : t.drops.get(String.valueOf(itemId));
 		if (rules == null || !huntFresh(itemId, now)) return out;
-		for (var r : rules) {
-			if (r.hunt == null) continue;
-			out.say.add(fill(t, "hunt", r, "{hunt}", r.hunt));
-			out.banners.add(new String[]{"Item hunt", r.hunt, r.label});
-			out.hunted.add(itemId);
-		}
+		for (var r : rules) if (r.hunt != null) hunt(out, t, r, itemId);
 		return out;
+	}
+
+	/** An item hunt target's line, popup and screenshot. */
+	static void hunt(Out out, Table t, DropRule r, int itemId) {
+		out.say.add(fill(t, "hunt", r, "{hunt}", r.hunt));
+		out.banners.add(new String[]{"Item hunt", r.hunt, r.label});
+		out.hunted.add(itemId);
 	}
 
 	/** Does the table carry an item hunt's targets? */
@@ -400,11 +399,7 @@ class RuleEngine {
 	/** A multi-run timed tile's {have, of}; null for anything else. */
 	synchronized long[] runs(int id) {
 		var t = table;
-		if (t != null) {
-			for (var r : t.events) {
-				if (r.t == id && "timed".equals(r.on) && r.of > 1) return new long[]{r.have, r.of};
-			}
-		}
+		if (t != null) for (var r : t.events) if (r.t == id && "timed".equals(r.on) && r.of > 1) return new long[]{r.have, r.of};
 		return null;
 	}
 
@@ -549,11 +544,6 @@ class RuleEngine {
 		return floor(current / step) > floor((current - added) / step);
 	}
 
-	static boolean sourceOk(DropRule r, String source, String kind) {
-		if (!empty(r.src) ? !r.src.contains(kind) : "pvp".equals(kind)) return false;
-		return empty(r.npcs) || DropSource.sourceMatches(r.npcs, source);
-	}
-
 	static boolean valueSourceOk(List<String> sources, String source, String kind) {
 		if (empty(sources)) return true;
 		for (var s : sources) {
@@ -601,7 +591,6 @@ class RuleEngine {
 		}
 		var out = new ArrayList<String>();
 		by.forEach((head, boards) -> {
-
 			if (boards.size() > maxBoards) {
 				var first = boards.values().iterator().next().get(0);
 				out.add(more(head + " on " + boards.size() + " boards" + first.substring(head.length()), boards.values().stream().mapToInt(List::size).sum()));
