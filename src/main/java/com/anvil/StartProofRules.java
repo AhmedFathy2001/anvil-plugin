@@ -41,12 +41,7 @@ class StartProofRules {
 	 * no coordinates, and a client that can't read its own position skips the distance test. The
 	 * rule only ever blocks on something we positively know is wrong.
 	 */
-	static String blockReason(
-		PluginConfigResponse.StartProof proof,
-		long sessionLoginAtMs,
-		long nowMs,
-		Integer x,
-		Integer y) {
+	static String blockReason(PluginConfigResponse.StartProof proof, long sessionLoginAtMs, long nowMs, Integer x, Integer y) {
 		if (proof == null) return null;
 
 		if (proof.maxSessionMinutes > 0) {
@@ -97,7 +92,6 @@ class StartProofRules {
 
 		final State state;
 		final String text;
-
 	}
 
 	/**
@@ -132,19 +126,16 @@ class StartProofRules {
 	 */
 	static String describeWindow(PluginConfigResponse.StartProof proof, long nowMs) {
 		if (proof == null || proof.windowEndsAt == null || proof.windowEndsAt.isEmpty()) return null;
-		long endsMs;
 		try {
-			endsMs = java.time.Instant.parse(proof.windowEndsAt).toEpochMilli();
+			var minutes = (java.time.Instant.parse(proof.windowEndsAt).toEpochMilli() - nowMs) / 60_000L;
+			return minutes <= 0 ? null : describeMinutes(minutes);
 		} catch (java.time.format.DateTimeParseException e) {
 			return null;
 		}
-		var minutes = (endsMs - nowMs) / 60_000L;
-		return minutes <= 0 ? null : describeMinutes(minutes);
 	}
 
 	/** "12 min" / "2h 05m" — a session age a player reads at a glance. */
 	static String describeMinutes(long minutes) {
-		if (minutes < 60) return minutes + " min";
-		return (minutes / 60) + "h " + String.format("%02dm", minutes % 60);
+		return minutes < 60 ? minutes + " min" : minutes / 60 + "h " + String.format("%02dm", minutes % 60);
 	}
 }
