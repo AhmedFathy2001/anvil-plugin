@@ -7627,12 +7627,11 @@ public class AnvilPlugin extends Plugin {
 				clientThread.invokeLater(this::refreshClanTitleWidgets);
 				rebuildItemDropIndex();
 				if (apiClient.getCurrentRsn() != null) checkTileCompletions(fresh);
-				if (!empty(fresh.unlinkedActiveEvent)) {
-					// The diagnostic "money line" for debug exports: the token is valid AND this RSN
-					// IS a player in a live bingo — but the account/token isn't linked to it, so
-					// tracking is silently OFF. Distinct from a genuine "not enrolled anywhere" below.
-					log.warn("{} plays in {} unlinked; tracking off", getLocalPlayerName(), fresh.unlinkedActiveEvent);
-				} else log.info("No active event");
+				// The diagnostic "money line" for debug exports: the token is valid AND this RSN
+				// IS a player in a live bingo — but the account/token isn't linked to it, so
+				// tracking is silently OFF. Distinct from a genuine "not enrolled anywhere" below.
+				if (!empty(fresh.unlinkedActiveEvent)) log.warn("{} plays in {} unlinked; tracking off", getLocalPlayerName(), fresh.unlinkedActiveEvent);
+				else log.info("No active event");
 				warnUnlinkedRsn(fresh.unlinkedActiveEvent);
 				return;
 			}
@@ -7647,12 +7646,8 @@ public class AnvilPlugin extends Plugin {
 			// One tracking-state summary, logged only when it CHANGES (the refresh runs every
 			// ~30s) — the first thing to read in a client.log when "nothing tracked": it says
 			// what the plugin believed it was tracking, and when that belief changed.
-			var summary = String.format(ROOT, "event='%s' team='%s' completed=%d",
-					pluginConfig.event.name, pluginConfig.team.name, sizeOf(pluginConfig.completedTiles));
-			if (!summary.equals(lastTrackingFingerprint)) {
-				lastTrackingFingerprint = summary;
-				log.info("Tracking: {}", summary);
-			}
+			var summary = String.format(ROOT, "event='%s' team='%s' completed=%d", pluginConfig.event.name, pluginConfig.team.name, sizeOf(pluginConfig.completedTiles));
+			if (!summary.equals(lastTrackingFingerprint)) log.info("Tracking: {}", lastTrackingFingerprint = summary);
 
 			// Before login stamps an RSN, the event can only have come off the launcher hint. Everything
 			// below speaks in chat or seeds the completion baseline, and each latches once per login —
@@ -7676,7 +7671,7 @@ public class AnvilPlugin extends Plugin {
 			log.warn("Config refresh failed: {}", e.getMessage());
 			// A definite refusal (no clan, bad token) is an answer too: the saved copy goes. A site
 			// that is down or slow is not — keep showing it until one does answer.
-			int code = e instanceof HttpStatusException ? ((HttpStatusException) e).code : 0;
+			var code = e instanceof HttpStatusException ? ((HttpStatusException) e).code : 0;
 			if (code >= 400 && code < 500 && code != 408 && code != 429) {
 				liveConfigAnswered = true;
 				forgetSavedResponses();
@@ -7695,20 +7690,12 @@ public class AnvilPlugin extends Plugin {
 		var sp = pluginConfig.startProof;
 		startProofNudged = true;
 		var left = StartProofRules.describeWindow(sp, now());
-		sendChatMessage(WARN, "Starting shot needed before you play"
-				+ (!empty(sp.location) ? " — go to " + sp.location : "")
-				+ (sp.spot != null && sp.auto()
-						? ". Stand there and it's taken and sent for you (or press \"Take starting shot\" in the Anvil side panel)."
-						: ". Open the Anvil side panel and press \"Take starting shot\".")
-				+ (sp.maxSessionMinutes > 0
-						? " Take it within " + sp.maxSessionMinutes + " min of logging in — hiscores only save"
-						+ " on logout, so that's what sets your starting totals."
-						: "")
-				// The consequence, which the nudge never spelled out: a player told only that
-				// something is "needed" has no reason to do it before their next drop.
-				+ " Until it's filed your drops are held for review"
-				+ (left != null ? ", and it's only asked for another " + left : "")
-				+ ".");
+		// The last sentence is the consequence, which the nudge never spelled out: a player told only
+		// that something is "needed" has no reason to do it before their next drop.
+		sendChatMessage(WARN, "Starting shot needed before you play" + (!empty(sp.location) ? " — go to " + sp.location : "")
+				+ (sp.spot != null && sp.auto() ? ". Stand there and it's taken and sent for you (or press \"Take starting shot\" in the Anvil side panel)." : ". Open the Anvil side panel and press \"Take starting shot\".")
+				+ (sp.maxSessionMinutes > 0 ? " Take it within " + sp.maxSessionMinutes + " min of logging in — hiscores only save on logout, so that's what sets your starting totals." : "")
+				+ " Until it's filed your drops are held for review" + (left != null ? ", and it's only asked for another " + left : "") + ".");
 	}
 
 	/**
@@ -7722,8 +7709,7 @@ public class AnvilPlugin extends Plugin {
 	void warnStartProofBeforeCredit() {
 		if (startProofCreditWarned || !needsStartProof()) return;
 		startProofCreditWarned = true;
-		sendChatMessage(WARN, "That's recorded, but your starting shot is still missing — it stays held for"
-				+ " review until you take it. Anvil side panel → \"Take starting shot\".");
+		sendChatMessage(WARN, "That's recorded, but your starting shot is still missing — it stays held for review until you take it. Anvil side panel → \"Take starting shot\".");
 	}
 
 	/**
@@ -7740,10 +7726,7 @@ public class AnvilPlugin extends Plugin {
 		var now = now();
 		if (now - lastAdminProbeAt < (5 * 60_000L) /* ADMIN_REPROBE_MS */) return;
 		lastAdminProbeAt = now;
-		if (apiClient.fetchIsAdmin(config.playerToken())) {
-			isAdmin = true;
-			log.info("Admin confirmed on retry");
-		}
+		if (isAdmin = apiClient.fetchIsAdmin(config.playerToken())) log.info("Admin confirmed on retry");
 	}
 
 	/**
@@ -7761,11 +7744,8 @@ public class AnvilPlugin extends Plugin {
 	}
 
 	static boolean eventIsOver(EventInfo ev) {
-		if (ev == null) return false;
-		if (!empty(ev.forceEndedAt)) return true;
-		if (empty(ev.endDate)) return false;
 		try {
-			return Instant.parse(ev.endDate).isBefore(Instant.now());
+			return ev != null && (!empty(ev.forceEndedAt) || !empty(ev.endDate) && Instant.parse(ev.endDate).isBefore(Instant.now()));
 		} catch (Exception ignored) {
 			return false;
 		}
@@ -7777,7 +7757,7 @@ public class AnvilPlugin extends Plugin {
 	void rebuildItemDropIndex() {
 		var cfg = pluginConfig;
 		var has = cfg != null;
-		Set<Integer> notable = has && cfg.alwaysNotifyItemIds != null ? new HashSet<>(cfg.alwaysNotifyItemIds) : new HashSet<>();
+		Set<Integer> notable = new HashSet<>(has && cfg.alwaysNotifyItemIds != null ? cfg.alwaysNotifyItemIds : emptyList());
 		notable.remove(null);
 		notableItemIds = notable;
 		// Lowercased NPC name → kill tiles, and itemId → gain tiles, for O(1) matching.
@@ -7795,8 +7775,7 @@ public class AnvilPlugin extends Plugin {
 	 */
 	void rebuildTrackedActivityKeys() {
 		var cfg = pluginConfig;
-		trackedActivityKeys = names(cfg != null ? cfg.trackedActivityKeys : null,
-				k -> ActivityStats.isReadable(k.trim()) ? k.trim() : null);
+		trackedActivityKeys = names(cfg != null ? cfg.trackedActivityKeys : null, k -> ActivityStats.isReadable(k.trim()) ? k.trim() : null);
 		if (trackedActivityKeys.isEmpty()) activityPush.reset();
 	}
 
@@ -7843,10 +7822,8 @@ public class AnvilPlugin extends Plugin {
 		if (cfg == notesFor) return;
 		Map<Integer, TrackedCombo> comboById = new HashMap<>();
 		Map<Integer, TileCount> rows = new HashMap<>();
-		if (cfg != null) {
-			if (cfg.trackedCombos != null) for (var c : cfg.trackedCombos) if (c != null) comboById.put(c.tileId, c);
-			if (cfg.tiles != null) for (var r : cfg.tiles) if (r != null) rows.put(r.t, r);
-		}
+		if (cfg != null && cfg.trackedCombos != null) for (var c : cfg.trackedCombos) if (c != null) comboById.put(c.tileId, c);
+		if (cfg != null && cfg.tiles != null) for (var r : cfg.tiles) if (r != null) rows.put(r.t, r);
 		combos = comboById;
 		partCombo = TileNotes.partCombos(cfg == null ? null : cfg.trackedCombos);
 		tileRows = rows;
@@ -7936,7 +7913,7 @@ public class AnvilPlugin extends Plugin {
 	 * is theirs — an unclaimed or someone else's character is simply not stored.
 	 */
 	static boolean statPushAllowed(PluginConfigResponse cfg, boolean signedInWithoutClan) {
-		return statPushAllowed(cfg) || signedInWithoutClan;
+		return cfg != null || signedInWithoutClan;
 	}
 
 	boolean statPushAllowed() {
@@ -7957,9 +7934,13 @@ public class AnvilPlugin extends Plugin {
 	 * and can never lower anything.
 	 */
 	void maybeQueueSkillXpPush(String skillName, int xp, boolean finishes) {
-		if (skillName == null || !statPushAllowed()) return;
-		skillXpPush.queue(skillName, xp);
-		if (finishes) skillXpPush.sendNow();
+		if (skillName != null) queueStat(skillXpPush, skillName, xp, finishes);
+	}
+
+	void queueStat(CoalescedPush push, String key, int value, boolean now) {
+		if (!statPushAllowed()) return;
+		push.queue(key, value);
+		if (now) push.sendNow();
 	}
 
 
@@ -7984,10 +7965,7 @@ public class AnvilPlugin extends Plugin {
 		// A KC line is one kill (one clear, one chest), so the first one after login still moves the
 		// tile by one; after that the absolute count says how many, in case a line was missed.
 		var prevKc = lastSeenKc.put(RuleEngine.key(bossName), kc);
-		var finishes = statMoved(rules.kc(bossName, prevKc == null ? 1 : kc - prevKc));
-		if (!statPushAllowed()) return;
-		kcPush.queue(bossName, kc);
-		if (finishes) kcPush.sendNow();
+		queueStat(kcPush, bossName, kc, statMoved(rules.kc(bossName, prevKc == null ? 1 : kc - prevKc)));
 	}
 
 	/**
@@ -8032,9 +8010,9 @@ public class AnvilPlugin extends Plugin {
 			eventCaTasks = (int) cfgLong(CFG_COUNTER_CATASKS);
 			countersLoaded = true;
 		}
-		if (trackingGateReason() != null) return false;
-		int active = pluginConfig != null && pluginConfig.event != null ? pluginConfig.event.id : 0;
-		if (active <= 0) return false;
+		var cfg = pluginConfig;
+		int active = cfg != null && cfg.event != null ? cfg.event.id : 0;
+		if (trackingGateReason() != null || active <= 0) return false;
 		if (active != counterEventId) {
 			counterEventId = active;
 			eventDeaths = eventPvpKills = eventBiggestHit = eventCaTasks = eventMinutes = eventTickAccumulator = 0;
@@ -8058,8 +8036,7 @@ public class AnvilPlugin extends Plugin {
 		// The tier is never absent: the completion line names it, and the parse above stands down
 		// when that word isn't a tier we recognise — so nothing reaches here without one. The site
 		// relies on that (a `ca` moment with no rankable tier is rejected at its ingest route).
-		moments.record(Moment.combatTask(
-				task, tier.getDisplayName(), now()));
+		moments.record(Moment.combatTask(task, tier.getDisplayName(), now()));
 		scheduleMomentPush();
 
 		// No live event of ours: the feed still took it, the counter has nowhere to go.
@@ -8128,11 +8105,10 @@ public class AnvilPlugin extends Plugin {
 		// near-miss during one that DOES have a bingo is worth as much as a hit.
 		recordLootMoments(source, sourceKind, items);
 		if (empty(items) || trackingGateReason() != null) return;
-		long haulGp = haulValue(items);
-		long count = items.stream().filter(it -> it != null && it.getId() > 0).count();
+		var haulGp = haulValue(items);
 		if (haulGp <= 0) return;
 		// Dedup identical hauls arriving on two loot events back-to-back (source + value + item count).
-		var fp = sourceKind + "|" + source + "|" + haulGp + "|" + count;
+		var fp = sourceKind + "|" + source + "|" + haulGp + "|" + items.stream().filter(it -> it != null && it.getId() > 0).count();
 		var now = now();
 		synchronized (lastLootValueAt) {
 			lastLootValueAt.values().removeIf(t -> now - t > DEDUP_WINDOW_MS);
@@ -8165,8 +8141,7 @@ public class AnvilPlugin extends Plugin {
 			minutes = eventMinutes;
 			caTasks = eventCaTasks;
 		}
-		var cfg = pluginConfig;
-		if (cfg == null || cfg.event == null || !AnvilOverlay.isEventActive(cfg.event)) return; // event ended between schedule and flush — drop; nothing feeds scoring off this.
+		if (!pvpCounterActive()) return; // event ended between schedule and flush — drop; nothing feeds scoring off this.
 		try {
 			apiClient.submitEventCounters(deaths, lootGp, pvpKills, biggestHit, minutes, caTasks);
 		} catch (IOException e) {
@@ -8197,9 +8172,12 @@ public class AnvilPlugin extends Plugin {
 	void recordDropMoment(String source, String sourceKind, Integer itemId, String itemName, int quantity, long valueGp) {
 		if (!momentsEnabled() || (itemId == null && empty(itemName))) return;
 		var now = now();
-		moments.record(placed(new Moment("drop", itemId, itemName, quantity, valueGp,
-				source, sourceKind, killCountFor(source), now,
-				AnvilMoments.keyFor("drop", source, itemId, now))));
+		moment(placed(new Moment("drop", itemId, itemName, quantity, valueGp, source, sourceKind, killCountFor(source), now, AnvilMoments.keyFor("drop", source, itemId, now))));
+	}
+
+	/** Queue a feed moment and push it soon. */
+	void moment(Moment m) {
+		moments.record(m);
 		scheduleMomentPush();
 	}
 
@@ -8218,36 +8196,23 @@ public class AnvilPlugin extends Plugin {
 		if (empty(items) || !momentsEnabled()) return;
 		var boardItems = rules.dropItemIds();
 		var cfg = pluginConfig;
-		Set<Integer> luckItems = cfg != null && cfg.luckItemIds != null
-				? new HashSet<>(cfg.luckItemIds) : emptySet();
+		Set<Integer> luckItems = cfg != null && cfg.luckItemIds != null ? new HashSet<>(cfg.luckItemIds) : emptySet();
 		// Merge stacks first — a kill that drops coins twice is one line, not two.
 		Map<Integer, Integer> merged = new LinkedHashMap<>();
-		for (var item : items) {
-			if (item == null || item.getId() <= 0) continue;
-			merged.merge(item.getId(), max(1, item.getQuantity()), Integer::sum);
-		}
-
-		List<int[]> candidates = new ArrayList<>(); // {itemId, quantity, value}
-		for (var entry : merged.entrySet()) {
-			int itemId = entry.getKey(), quantity = entry.getValue();
+		for (var item : items) if (item != null && item.getId() > 0) merged.merge(item.getId(), max(1, item.getQuantity()), Integer::sum);
+		var candidates = new ArrayList<int[]>(); // {itemId, quantity, value}
+		merged.forEach((itemId, quantity) -> {
 			var value = (long) max(0, itemManager.getItemPrice(itemId)) * quantity;
 			// A luck item goes up whatever it sells for: an untradeable vestige is worth 0 here.
-			var wanted = boardItems.contains(itemId) || luckItems.contains(itemId);
-			if (!wanted && value < 100_000L /* MIN_REPORTABLE_GP */) continue;
-			candidates.add(new int[]{itemId, quantity, (int) min(Integer.MAX_VALUE, value)});
-		}
+			if (boardItems.contains(itemId) || luckItems.contains(itemId) || value >= 100_000L /* MIN_REPORTABLE_GP */) candidates.add(new int[]{itemId, quantity, (int) min(Integer.MAX_VALUE, value)});
+		});
 		// Luck items first, then by value: the three-per-kill cap must never cut the vestige for a
 		// stack of runes worth more on the GE.
 		candidates.sort((a, b) -> {
 			int luck = Boolean.compare(luckItems.contains(b[0]), luckItems.contains(a[0]));
 			return luck != 0 ? luck : Integer.compare(b[2], a[2]);
 		});
-
-		int sent = 0;
-		for (int[] c : candidates) {
-			if (sent++ >= 3) break;
-			recordDropMoment(source, sourceKind, c[0], itemName(c[0]), c[1], c[2]);
-		}
+		for (var c : candidates.subList(0, min(3, candidates.size()))) recordDropMoment(source, sourceKind, c[0], itemName(c[0]), c[1], c[2]);
 	}
 
 	/**
@@ -8265,11 +8230,9 @@ public class AnvilPlugin extends Plugin {
 		if (empty(itemName) || !momentsEnabled()) return;
 		var itemId = resolveItemIdByName(itemName);
 		var now = now();
-		if (itemId != null) {
-			synchronized (recentLootItemIds) {
-				recentLootItemIds.values().removeIf(t -> now - t > CLOG_LOOT_DEDUP_MS);
-				if (recentLootItemIds.containsKey(itemId)) return;
-			}
+		if (itemId != null) synchronized (recentLootItemIds) {
+			recentLootItemIds.values().removeIf(t -> now - t > CLOG_LOOT_DEDUP_MS);
+			if (recentLootItemIds.containsKey(itemId)) return;
 		}
 		var src = lootSourceAt(now);
 		recordDropMoment(src[0], src[1], itemId, itemName, 1, itemId != null ? max(0, itemManager.getItemPrice(itemId)) : 0);
@@ -8295,8 +8258,7 @@ public class AnvilPlugin extends Plugin {
 		// Keyed WITHOUT an item id, because at this point nobody knows which pet it was — the name
 		// lands a tick or two later and nameQueued() fills it into this same entry.
 		var key = AnvilMoments.keyFor("pet", source, null, now);
-		moments.record(placed(new Moment("pet", null, null, 1, null, source, sourceKind, kc, now, key)));
-		scheduleMomentPush();
+		moment(placed(new Moment("pet", null, null, 1, null, source, sourceKind, kc, now, key)));
 		return key;
 	}
 
@@ -8331,12 +8293,8 @@ public class AnvilPlugin extends Plugin {
 		var view = client.getTopLevelWorldView();
 		if (me == null || view == null) return true;
 		var at = me.getWorldLocation();
-		for (var npc : view.npcs()) {
-			if (npc != null && Rsn.same(npc.getName(), name) && npc.getWorldLocation().distanceTo(at) <= KILLER_REACH) return true;
-		}
-		for (var p : view.players()) {
-			if (p != null && p != me && Rsn.same(p.getName(), name) && p.getWorldLocation().distanceTo(at) <= KILLER_REACH) return true;
-		}
+		for (var npc : view.npcs()) if (npc != null && Rsn.same(npc.getName(), name) && npc.getWorldLocation().distanceTo(at) <= KILLER_REACH) return true;
+		for (var p : view.players()) if (p != null && p != me && Rsn.same(p.getName(), name) && p.getWorldLocation().distanceTo(at) <= KILLER_REACH) return true;
 		return false;
 	}
 
@@ -8354,11 +8312,7 @@ public class AnvilPlugin extends Plugin {
 		if (me == null || view == null) return null;
 		var at = me.getWorldLocation();
 		var seen = new ArrayList<NPC>();
-		for (var npc : view.npcs()) {
-			if (npc == null || npc.getName() == null || npc.getCombatLevel() <= 0) continue;
-			if (npc.getWorldLocation().distanceTo(at) > KILLER_REACH || !npc.getWorldArea().hasLineOfSightTo(view, at)) continue;
-			seen.add(npc);
-		}
+		for (var npc : view.npcs()) if (npc != null && npc.getName() != null && npc.getCombatLevel() > 0 && npc.getWorldLocation().distanceTo(at) <= KILLER_REACH && npc.getWorldArea().hasLineOfSightTo(view, at)) seen.add(npc);
 		// Nearest first: a poison death names the first as its likely culprit.
 		seen.sort(Comparator.comparingInt(n -> n.getWorldLocation().distanceTo(at)));
 		var names = new LinkedHashSet<String>();
@@ -8373,8 +8327,7 @@ public class AnvilPlugin extends Plugin {
 		var killer = deathAttribution.killer(fighting, now, this::nearUs);
 		// Breadcrumb so client.log can explain an attribution that looks odd: how many things had us
 		// and which one we picked, next to what we were hitting.
-		log.info("Death: {} ({} attackers, fighting {})",
-				killer, deathAttribution.attackerCount(), fighting);
+		log.info("Death: {} ({} attackers, fighting {})", killer, deathAttribution.attackerCount(), fighting);
 		// Nothing had us targeted, yet we were mid-fight: some bosses never show as targeting you
 		// (Alchemical Hydra), and a mechanic has nobody behind it. Send what we were fighting, marked as
 		// a guess; the site keeps it only when it's a boss, so "died to Jug" can't come back.
@@ -8391,19 +8344,18 @@ public class AnvilPlugin extends Plugin {
 			killer = fighting;
 			sourceKind = "fought";
 		}
-		int pile = deathAttribution.players(now);
+		var death = new AttributedDeath(killer, sourceKind, deathAttribution.players(now));
 		// The fight is over: whatever had us targeted has no claim on the next one. Cleared here
 		// rather than waiting for each attacker to drop us, which an instance tear-down never
 		// reports — a stale attacker would otherwise be the prime suspect for the next death.
 		deathAttribution.clear();
-		return new AttributedDeath(killer, sourceKind, pile);
+		return death;
 	}
 
 	void recordDeathMoment(AttributedDeath death) {
 		if (!momentsEnabled()) return;
 		var now = now();
-		var moment = new Moment("death", null, null, 1, null, death.source, death.sourceKind,
-				killCountFor(death.source), now, AnvilMoments.keyFor("death", death.source, null, now));
+		var moment = new Moment("death", null, null, 1, null, death.source, death.sourceKind, killCountFor(death.source), now, AnvilMoments.keyFor("death", death.source, null, now));
 		// A raid death often has no killer to name (Warden skulls, Zebak's waves, Olm's crystals):
 		// say which raid it was, so a competition over that raid can count it.
 		moment.near = monstersInSight();
@@ -8461,9 +8413,7 @@ public class AnvilPlugin extends Plugin {
 	 * competition week wants it, and drops it when nothing does.</p>
 	 */
 	void recordLevelMoment(String skill, int level, String scope) {
-		if (!momentsEnabled() || statsAreArtificial()) return;
-		moments.record(Moment.level(skill, level, scope, now()));
-		scheduleMomentPush();
+		recordFeedMoment(Moment.level(skill, level, scope, now()));
 	}
 
 	/**
@@ -8471,9 +8421,7 @@ public class AnvilPlugin extends Plugin {
 	 * push as the rest.
 	 */
 	void recordFeedMoment(Moment m) {
-		if (!momentsEnabled() || statsAreArtificial()) return;
-		moments.record(m);
-		scheduleMomentPush();
+		if (momentsEnabled() && !statsAreArtificial()) moment(m);
 	}
 
 	/** Debounce a moment push — a kill's two loot events and a pet's chat lines collapse into one request. */
@@ -8503,9 +8451,8 @@ public class AnvilPlugin extends Plugin {
 	 * stores nothing the second time.
 	 */
 	void flushMomentPush() {
-		if (!momentsEnabled() || moments.isEmpty()) return;
-		var batch = moments.nextBatch();
-		if (batch.isEmpty()) return;
+		var batch = !momentsEnabled() || moments.isEmpty() ? null : moments.nextBatch();
+		if (batch == null || batch.isEmpty()) return;
 		String reply;
 		try {
 			reply = apiClient.submitMoments(batch);
@@ -8542,16 +8489,23 @@ public class AnvilPlugin extends Plugin {
 	 * the clan's Discord post: nothing waits for it, and a drop never needs it to count.
 	 */
 	void huntShot(int itemId) {
+		shotThen(img -> later(() -> onCleanFrame(clean -> huntJpeg(itemId, composeDualProof(img, clean))), 1_200));
+	}
+
+	/** Client thread: the next frame with this person's hidden chat left out, to {@code then} (on the draw thread). */
+	void shotThen(Consumer<BufferedImage> then) {
 		var show = hideChatForShot();
 		drawManager.requestNextFrameListener(img -> {
 			if (show != null) clientThread.invokeLater(show);
-			later(() -> onCleanFrame(clean -> {
-				try {
-					huntReady(itemId, null, jpeg(composeDualProof((BufferedImage) img, clean)));
-				} catch (IOException ignored) {
-				}
-			}), 1_200);
+			then.accept((BufferedImage) img);
 		});
+	}
+
+	void huntJpeg(int itemId, BufferedImage img) {
+		try {
+			huntReady(itemId, null, jpeg(img));
+		} catch (IOException ignored) {
+		}
 	}
 
 	/** huntShots' slot for a death's picture: no item has this id. */
@@ -8562,27 +8516,15 @@ public class AnvilPlugin extends Plugin {
 	 * Rush took points for the death (the moments reply's {@code deathProofs}); otherwise it is dropped.
 	 */
 	void deathShot() {
-		var show = hideChatForShot();
-		drawManager.requestNextFrameListener(img -> {
-			if (show != null) clientThread.invokeLater(show);
-			later(() -> {
-				try {
-					huntReady(DEATH_SHOT, null, jpeg((BufferedImage) img));
-				} catch (IOException ignored) {
-				}
-			}, 0);
-		});
+		shotThen(img -> later(() -> huntJpeg(DEATH_SHOT, img), 0));
 	}
 
 	/** The moments reply's {@code huntProofs}: each new hunt drop's screenshot key, by item; and a counted death's. */
 	void huntKeys(String reply) {
 		try {
-			var o = reply == null ? null : gson.fromJson(reply, JsonObject.class);
-			if (o != null && o.has("huntProofs")) for (var el : o.getAsJsonArray("huntProofs")) {
-				var p = el.getAsJsonObject();
-				huntReady(p.get("itemId").getAsInt(), p.get("key").getAsString(), null);
-			}
-			if (o != null && o.has("deathProofs")) for (var el : o.getAsJsonArray("deathProofs")) huntReady(DEATH_SHOT, el.getAsString(), null);
+			var o = reply == null ? new JsonObject() : gson.fromJson(reply, JsonObject.class);
+			if (o.has("huntProofs")) for (var el : o.getAsJsonArray("huntProofs")) huntReady(el.getAsJsonObject().get("itemId").getAsInt(), el.getAsJsonObject().get("key").getAsString(), null);
+			if (o.has("deathProofs")) for (var el : o.getAsJsonArray("deathProofs")) huntReady(DEATH_SHOT, el.getAsString(), null);
 		} catch (RuntimeException ignored) {
 		}
 	}
@@ -8628,8 +8570,9 @@ public class AnvilPlugin extends Plugin {
 		if (table == null) return;
 		var rsn = getLocalPlayerName();
 		var rsnKey = rsn == null ? "" : rsn.trim().toLowerCase(ROOT);
+		var key = accountKey(CFG_VESTIGE_ROLLS, rsnKey);
 		if (vestigeRolls == null || !rsnKey.equals(vestigeRollsRsn)) {
-			vestigeRolls = VestigeRolls.parse(cfgGet(accountKey(CFG_VESTIGE_ROLLS, rsnKey)));
+			vestigeRolls = VestigeRolls.parse(cfgGet(key));
 			vestigeRollsRsn = rsnKey;
 		}
 		for (var item : items) {
@@ -8637,7 +8580,7 @@ public class AnvilPlugin extends Plugin {
 			// the cycle twice, which is what the table did.
 			var r = vestigeRolls.record(table, item.getId());
 			if (r == null) continue;
-			cfgSet(accountKey(CFG_VESTIGE_ROLLS, rsnKey), vestigeRolls.serialise());
+			cfgSet(key, vestigeRolls.serialise());
 			sendChatMessage(table.boss + ": " + r.line);
 			// Remembered for the drop post, which is built moments later off the same loot event.
 			lastVestigeLine = r.line;
@@ -8655,14 +8598,12 @@ public class AnvilPlugin extends Plugin {
 	CoopFingerprint coopFingerprint() {
 		List<String> teammates = new ArrayList<>();
 		var mine = myTeamRoster();
-		if (!mine.isEmpty()) {
-			var me = Rsn.normalize(getLocalPlayerName());
-			// Copy before iterating: the set is written from the game tick, and this runs off a
-			// kill credit on the same thread today — but a snapshot costs nothing and can't throw.
-			for (var seen : new ArrayList<>(instancePlayersSeen)) {
-				var n = Rsn.normalize(seen);
-				if (!n.isEmpty() && !n.equals(me) && mine.contains(n)) teammates.add(n);
-			}
+		var me = Rsn.normalize(getLocalPlayerName());
+		// Copy before iterating: the set is written from the game tick, and this runs off a
+		// kill credit on the same thread today — but a snapshot costs nothing and can't throw.
+		if (!mine.isEmpty()) for (var seen : new ArrayList<>(instancePlayersSeen)) {
+			var n = Rsn.normalize(seen);
+			if (!n.isEmpty() && !n.equals(me) && mine.contains(n)) teammates.add(n);
 		}
 		var fp = new CoopFingerprint(teammates, partySize());
 		return fp.isEmpty() ? null : fp;
