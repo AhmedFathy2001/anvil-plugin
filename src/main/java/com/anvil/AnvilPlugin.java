@@ -10148,7 +10148,7 @@ public class AnvilPlugin extends Plugin {
 	net.runelite.client.game.chatbox.ChatboxTextInput eventChatInput;
 	int relayIcon = -1;
 
-	final HotkeyListener eventChatKey = new HotkeyListener(config::eventChatKey) {
+	final HotkeyListener eventChatKey = new HotkeyListener(() -> config.eventChatKey()) {
 		public void hotkeyPressed() {
 			clientThread.invoke(() -> {
 				// Pressed again with our input open: the next channel, keeping what was typed.
