@@ -7763,19 +7763,10 @@ public class AnvilPlugin extends Plugin {
 		// Lowercased NPC name → kill tiles, and itemId → gain tiles, for O(1) matching.
 		// Keyed by the in-game name: wiki variants ("Armoured zombie (Zemouregal's Fort)") report bare.
 		alwaysNotifyLower = names(has ? cfg.alwaysNotifyItems : null, n -> n.isEmpty() ? null : n.toLowerCase());
-		rebuildTrackedActivityKeys();
-	}
-
-	/**
-	 * Rebuild the set of activity keys to push counts for; refreshed with the drop index.
-	 *
-	 * <p>Filtered down to what {@link ActivityStats} can actually read, so a tile tracking an LMS or
-	 * Bounty Hunter RANK — which the client has no counter for — never enters the push path and
-	 * quietly keeps its hiscores-sweep behaviour.
-	 */
-	void rebuildTrackedActivityKeys() {
-		var cfg = pluginConfig;
-		trackedActivityKeys = names(cfg != null ? cfg.trackedActivityKeys : null, k -> ActivityStats.isReadable(k.trim()) ? k.trim() : null);
+		// The activity keys to push counts for, filtered down to what {@link ActivityStats} can actually
+		// read, so a tile tracking an LMS or Bounty Hunter RANK — which the client has no counter for —
+		// never enters the push path and quietly keeps its hiscores-sweep behaviour.
+		trackedActivityKeys = names(has ? cfg.trackedActivityKeys : null, k -> ActivityStats.isReadable(k.trim()) ? k.trim() : null);
 		if (trackedActivityKeys.isEmpty()) activityPush.reset();
 	}
 
@@ -8022,26 +8013,6 @@ public class AnvilPlugin extends Plugin {
 		return true;
 	}
 
-	/**
-	 * A combat task the player just completed for the FIRST time (the caller has already checked the
-	 * points varbit rose, so a "Repeat completion" echo never reaches here).
-	 *
-	 * Two jobs, neither of them a notification: queue it for the highlight feed, and count it for
-	 * the event's Task Master award. The site decides which tiers are worth showing on which board —
-	 * a floor that lives here would need a release to change, and it can't know that the clan is
-	 * running a Zulrah week.
-	 */
-	void noteCombatTaskMoment(CombatAchievementTier tier, String task) {
-		if (empty(task)) return;
-		// The tier is never absent: the completion line names it, and the parse above stands down
-		// when that word isn't a tier we recognise — so nothing reaches here without one. The site
-		// relies on that (a `ca` moment with no rankable tier is rejected at its ingest route).
-		moments.record(Moment.combatTask(task, tier.getDisplayName(), now()));
-		scheduleMomentPush();
-
-		// No live event of ours: the feed still took it, the counter has nowhere to go.
-		bumpEventCounter(() -> eventCaTasks++);
-	}
 
 	/** Bump a per-event counter (only during an event of ours), save it and push it soon. */
 	void bumpEventCounter(Runnable bump) {
@@ -8245,28 +8216,6 @@ public class AnvilPlugin extends Plugin {
 		}
 	}
 
-	/**
-	 * Note a pet. Called from the chat line itself, NOT from the notifier — a member with the drops
-	 * channel switched off still got the pet, and the clan's feed is a different thing from their
-	 * Discord settings.
-	 *
-	 * @return the queue key, so the collection-log line that names the pet can fill it in
-	 */
-	String recordPetMoment(String source, String sourceKind, Integer kc) {
-		if (!momentsEnabled()) return null;
-		var now = now();
-		// Keyed WITHOUT an item id, because at this point nobody knows which pet it was — the name
-		// lands a tick or two later and nameQueued() fills it into this same entry.
-		var key = AnvilMoments.keyFor("pet", source, null, now);
-		moment(placed(new Moment("pet", null, null, 1, null, source, sourceKind, kc, now, key)));
-		return key;
-	}
-
-	/** Name a pet already queued, once the collection-log line says which one it was. */
-	void namePetMoment(String key, String itemName, String source, Integer kc) {
-		if (key == null || !momentsEnabled()) return;
-		moments.nameQueued(key, itemName, resolveItemIdByName(itemName), source, kc);
-	}
 
 	/**
 	 * Note a death, and what killed us.
@@ -8352,17 +8301,6 @@ public class AnvilPlugin extends Plugin {
 		return death;
 	}
 
-	void recordDeathMoment(AttributedDeath death) {
-		if (!momentsEnabled()) return;
-		var now = now();
-		var moment = new Moment("death", null, null, 1, null, death.source, death.sourceKind, killCountFor(death.source), now, AnvilMoments.keyFor("death", death.source, null, now));
-		// A raid death often has no killer to name (Warden skulls, Zebak's waves, Olm's crystals):
-		// say which raid it was, so a competition over that raid can count it.
-		moment.near = monstersInSight();
-		moments.record(placed(moment));
-		deathShot();
-		scheduleMomentPush(1_000 /* DEATH_PUSH_DELAY_MS */);
-	}
 
 	/**
 	 * The raid we stand inside, by the game's own varbits (as the party size reads them), or null.
@@ -8690,7 +8628,16 @@ public class AnvilPlugin extends Plugin {
 		// Recorded here rather than beside the post below, so the drops channel being off can't
 		// erase it.
 		var death = resolveDeathSource();
-		recordDeathMoment(death);
+		if (momentsEnabled()) {
+			var now = now();
+			var moment = new Moment("death", null, null, 1, null, death.source, death.sourceKind, killCountFor(death.source), now, AnvilMoments.keyFor("death", death.source, null, now));
+			// A raid death often has no killer to name (Warden skulls, Zebak's waves, Olm's crystals):
+			// say which raid it was, so a competition over that raid can count it.
+			moment.near = monstersInSight();
+			moments.record(placed(moment));
+			deathShot();
+			scheduleMomentPush(1_000 /* DEATH_PUSH_DELAY_MS */);
+		}
 		var me = me();
 		if (me == null || !me.deaths) return;
 		// The site words the post (the person's death message, or now and then a fun one).
@@ -8744,7 +8691,10 @@ public class AnvilPlugin extends Plugin {
 		if (inDangerousPvp()) bumpEventCounter(() -> eventPvpKills++);
 		creditPvpKillTiles(name);
 		var me = me();
-		if (me != null && me.pvp) notifyPvpKill(name);
+		// The kills channel. The kill is already attributed to us (damage within the window); the
+		// screenshot + network send are deferred.
+		var killer = getLocalPlayerName();
+		if (me != null && me.pvp) captureFrameAsync(png -> apiClient.postNotification("pvpKills", "**" + (empty(killer) ? "Someone" : killer) + "** just killed **" + name + "**!", null, png, "anvil-pvp-kill.png"));
 	}
 
 	/** True when the current event config carries any PvP-kill tiles. */
@@ -8784,7 +8734,12 @@ public class AnvilPlugin extends Plugin {
 		var name = p == null ? null : p.getName();
 		if (name == null || inDangerousPvp() || client.getWorldType().contains(WorldType.DEADMAN)) return;
 		var target = entry.getTarget();
-		var m = menuNamePattern(name).matcher(target == null ? "" : target);
+		// "<col=ffffff>Name" in a menu target (spaces may be the game's nbsp); cached for the last name.
+		if (!name.equals(menuFlairName)) {
+			menuFlairPattern = Pattern.compile("(?:<col=([0-9a-fA-F]{6})>)?" + Pattern.quote(name.replace('\u00a0', ' ')).replace(" ", "\\E[ \u00a0]\\Q"));
+			menuFlairName = name;
+		}
+		var m = menuFlairPattern.matcher(target == null ? "" : target);
 		if (!m.find()) return;
 		var painted = chatFlair.decorateReadable(name, null, 0, false);
 		if (painted != null) entry.setTarget(target.substring(0, m.start()) + painted + target.substring(m.end()));
@@ -8793,15 +8748,6 @@ public class AnvilPlugin extends Plugin {
 	String menuFlairName;
 	Pattern menuFlairPattern;
 
-	/** "<col=ffffff>Name" in a menu target (spaces may be the game's nbsp); cached for the last name. */
-	Pattern menuNamePattern(String name) {
-		if (!name.equals(menuFlairName)) {
-			var body = Pattern.quote(name.replace('\u00a0', ' ')).replace(" ", "\\E[ \u00a0]\\Q");
-			menuFlairPattern = Pattern.compile("(?:<col=([0-9a-fA-F]{6})>)?" + body);
-			menuFlairName = name;
-		}
-		return menuFlairPattern;
-	}
 
 	boolean inDangerousPvp() {
 		// Varbits aren't loaded before login; reading one there throws.
@@ -8809,16 +8755,6 @@ public class AnvilPlugin extends Plugin {
 				|| client.getWorldType().contains(WorldType.PVP);
 	}
 
-	/**
-	 * Posts a PvP kill to the kills channel. Called from onActorDeath once the kill is already
-	 * attributed to us (damage within the window), so this just applies the channel toggle and
-	 * posts. Runs on the client thread; screenshot + network send are deferred.
-	 */
-	void notifyPvpKill(String name) {
-		var killer = getLocalPlayerName();
-		var message = "**" + (empty(killer) ? "Someone" : killer) + "** just killed **" + name + "**!";
-		captureFrameAsync(png -> apiClient.postNotification("pvpKills", message, null, png, "anvil-pvp-kill.png"));
-	}
 
 	/**
 	 * Credits PvP-kill bingo tiles for a kill attributed to us — called from onActorDeath when a
@@ -9296,7 +9232,8 @@ public class AnvilPlugin extends Plugin {
 			// rather than two seconds later on our executor.
 			pet.itemId = resolveItemIdByName(itemName);
 		}
-		namePetMoment(pet.momentKey, itemName, resolved, pet.resolvedKc);
+		// The queued feed entry, named now that the collection-log line says which one it was.
+		if (pet.momentKey != null && momentsEnabled()) moments.nameQueued(pet.momentKey, itemName, resolveItemIdByName(itemName), resolved, pet.resolvedKc);
 		return pet;
 	}
 
@@ -9312,7 +9249,15 @@ public class AnvilPlugin extends Plugin {
 		var src = lootSourceAt(now());
 		var source = src[0];
 		var kc = killCountFor(source);
-		var momentKey = recordPetMoment(source, src[1], kc);
+		// The feed entry, recorded here off the chat line, NOT from the notifier — a member with the
+		// drops channel switched off still got the pet. Keyed WITHOUT an item id, because at this point
+		// nobody knows which pet it was — the name lands a tick or two later and nameQueued() fills it
+		// into this same entry.
+		String momentKey = null;
+		if (momentsEnabled()) {
+			var now = now();
+			moment(placed(new Moment("pet", null, null, 1, null, source, src[1], kc, now, momentKey = AnvilMoments.keyFor("pet", source, null, now))));
+		}
 		// The server is the authority on whether a clan or personal destination exists. The cached
 		// notify flag can be stale (or only describe clan hooks while the player has a personal
 		// hook), and a pet is far too rare to discard because that snapshot said "none". Keep the
@@ -9405,28 +9350,26 @@ public class AnvilPlugin extends Plugin {
 			// The feed and the counter take every genuinely new task and let the SITE decide which
 			// are worth showing — a tier floor belongs where the clan can change it without a
 			// plugin release. The chat announcement keeps its own local floor.
-			noteCombatTaskMoment(pending.tier, pending.task);
-			if (tiers.contains(pending.tier.name())) postCombatTask(pending.tier, pending.task, total);
+			// Two jobs, neither of them a notification: the highlight feed, and the event's Task Master
+			// counter (no live event of ours: the counter has nowhere to go). The tier is never absent:
+			// the completion line names it, and the parse stands down when that word isn't a tier we
+			// recognise. The site relies on that (a `ca` moment with no rankable tier is rejected).
+			moment(Moment.combatTask(pending.task, pending.tier.getDisplayName(), now()));
+			bumpEventCounter(() -> eventCaTasks++);
+			if (!tiers.contains(pending.tier.name())) continue;
+			// One task with what it was worth, the running total, and the next tier unlock: the
+			// lowest cumulative threshold still above the total; 0 once all are.
+			int next = 0;
+			for (var t : CombatAchievementTier.values()) {
+				int threshold = client.getVarbitValue(t.getThresholdVarbitId());
+				if (threshold > total && (next == 0 || threshold < next)) next = threshold;
+			}
+			postWithScreenshot("combatAchievements", facts("caTask").put("task", pending.task).put("tier", pending.tier.getDisplayName()).put("totalPoints", total).put("nextThreshold", next), "anvil-ca.png");
 		}
 
 		lastCaPoints = total;
 	}
 
-	/**
-	 * Posts one completed combat task with what it was worth, the running total, and the next tier
-	 * unlock threshold — read from the same varbits the tier-clear check uses.
-	 *
-	 * Client thread (varbit reads happen here); the screenshot + send are deferred.
-	 */
-	void postCombatTask(CombatAchievementTier tier, String task, int totalPoints) {
-		// The next unlock is the lowest cumulative threshold still above the total; 0 once all are.
-		int next = 0;
-		for (var t : CombatAchievementTier.values()) {
-			int threshold = client.getVarbitValue(t.getThresholdVarbitId());
-			if (threshold > totalPoints && (next == 0 || threshold < next)) next = threshold;
-		}
-		postWithScreenshot("combatAchievements", facts("caTask").put("task", task).put("tier", tier.getDisplayName()).put("totalPoints", totalPoints).put("nextThreshold", next), "anvil-ca.png");
-	}
 
 
 	/**
@@ -10573,15 +10516,12 @@ public class AnvilPlugin extends Plugin {
 		var c = list.get(eventChatAt).getAsJsonObject();
 		// The game's own chat limit, which the site enforces too (a longer line was dropped there whole).
 		eventChatInput = chatboxPanelManager.openTextInput("[" + c.get("l").getAsString() + "] " + getLocalPlayerName() + ":").value(value.substring(0, min(80, value.length())))
-				.addCharValidator(ch -> eventChatInput == null || eventChatInput.getValue().length() < 80).onDone((Consumer<String>) t -> sendEventChat(c, t)).build();
-	}
-
-	void sendEventChat(JsonObject c, String text) {
-		if (text == null || text.trim().isEmpty()) return;
-		apiClient.interactiveExecutor().execute(() -> {
-			var err = FeedList.errorOf(apiClient.postUi("chat-send", Map.of("e", c.get("e").getAsString(), "to", c.get("to").getAsString()), Map.of("msg", text.trim())));
-			if (err != null) sendChatMessage(WARN, err);
-		});
+				.addCharValidator(ch -> eventChatInput == null || eventChatInput.getValue().length() < 80).onDone((Consumer<String>) t -> {
+					if (t != null && !t.trim().isEmpty()) apiClient.interactiveExecutor().execute(() -> {
+						var err = FeedList.errorOf(apiClient.postUi("chat-send", Map.of("e", c.get("e").getAsString(), "to", c.get("to").getAsString()), Map.of("msg", t.trim())));
+						if (err != null) sendChatMessage(WARN, err);
+					});
+				}).build();
 	}
 
 	/** Menu options about the player a chat line names (not a task or item it mentions). */
