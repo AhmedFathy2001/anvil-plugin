@@ -364,13 +364,7 @@ public class AnvilPlugin extends Plugin {
 	lastCaPoints = -1,
 	// Last-known total level, baselined at login so we only announce genuine crossings (not the
 	// total we logged in with). Total only ever rises on a skill level-up, so we check it there.
-	lastTotalLevel = -1, statsSettleTicks, counterEventId, eventDeaths, eventPvpKills,
-	/** Hardest single hitsplat we've landed this event — "Heavy Hitter". */
-	eventBiggestHit,
-	/** Minutes logged in during the event. Turns every other counter into a rate. */
-	eventMinutes,
-	/** Combat tasks FIRST completed during the event — "Task Master". Recompletions never count. */
-	eventCaTasks,
+	lastTotalLevel = -1, statsSettleTicks,
 	/** Ticks counted since the last whole minute was banked; 100 ticks ≈ 60s. */
 	eventTickAccumulator,
 	/** Failed moment pushes in a row; the retry wait doubles from MOMENT_PUSH_COALESCE_MS to 5 minutes. Guarded by `moments`. */
@@ -506,10 +500,11 @@ public class AnvilPlugin extends Plugin {
 	lastAllowlistNotifyAt = new HashMap<>();
 
 	/**
-	 * Fixed text the plugin ships with — the prestige allowlist and the quest tiers — loaded from anvil_text.json at startUp, which says what each list is for.
+	 * Fixed text the plugin ships with — the prestige allowlist, the quest tiers and the moved notify keys — loaded from anvil_text.json at startUp, which says what each list is for.
 	 */
 	static class ShippedText {
 		List<String> alwaysNotify = emptyList();
+	List<String> notifyPrefKeys = emptyList();
 		Map<String, String> questTiers = emptyMap();
 	}
 
@@ -565,7 +560,15 @@ public class AnvilPlugin extends Plugin {
 	// Warn once per session (per event) when the logged-in RSN is a player in a live bingo that isn't
 	// linked to this account — otherwise tracking is silently off. The server flags it; reset on logout.
 	unlinkedWarnedFor, clueTier;
-	long lastKcAtMs, eventLootGp, lastLootSourceAt,
+	/**
+	 * Per-event recap counters, persisted under the matching {@link #CTR_KEYS}: [0] event id,
+	 * [1] deaths, [2] loot gp, [3] PvP kills, [4] hardest single hitsplat we've landed ("Heavy
+	 * Hitter"), [5] minutes logged in during the event (turns every other counter into a rate),
+	 * [6] combat tasks FIRST completed during the event ("Task Master"; recompletions never count).
+	 * Guarded by counterLock.
+	 */
+	final long[] ctr = new long[7];
+	long lastKcAtMs, lastLootSourceAt,
 	/** Last automatic roster push, so a channel reload storm can't fire a request per event. */
 	lastAutoRosterSyncAt, pendingTimedAt;
 	static final List<String> RAIDS = List.of("chambers of xeric", "theatre of blood", "tombs of amascut"),
@@ -641,13 +644,6 @@ public class AnvilPlugin extends Plugin {
 	CFG_OPTED_OUT_ACCOUNTS = "optedOutAccounts",
 	/** Characters this install has already said "tracking X for your Anvil account" about, once. */
 	CFG_ANNOUNCED_ACCOUNTS = "announcedAccounts",
-	CFG_COUNTER_EVENT = "recapCounterEventId",
-	CFG_COUNTER_DEATHS = "recapCounterDeaths",
-	CFG_COUNTER_LOOTGP = "recapCounterLootGp",
-	CFG_COUNTER_PVP = "recapCounterPvpKills",
-	CFG_COUNTER_BIGHIT = "recapCounterBiggestHit",
-	CFG_COUNTER_MINUTES = "recapCounterMinutes",
-	CFG_COUNTER_CATASKS = "recapCounterCaTasks",
 	// ── Profile sync (collection log + personal bests) ──────────────────────────────────────
 	// Both are per-ACCOUNT facts, so their state keys carry the RSN the same way vestige rolls do —
 	// an alt's log must never be filed as the main's. What's stored is only what the server has
@@ -1661,12 +1657,13 @@ public class AnvilPlugin extends Plugin {
 		return delegate;
 	}
 
-	static final Set<String> INTERNAL_STATE_KEYS = Set.of(CFG_DEFAULTS_VERSION, CFG_FIRST_RUN_NUDGES, CFG_ANNOUNCED_ACCOUNTS, CFG_COUNTER_EVENT, CFG_COUNTER_DEATHS, CFG_COUNTER_LOOTGP, CFG_COUNTER_PVP, CFG_COUNTER_BIGHIT, CFG_COUNTER_MINUTES, CFG_COUNTER_CATASKS, "settingsMovedNoted", "itemsWiped");
+	static final Set<String> INTERNAL_STATE_KEYS = Set.of(CFG_DEFAULTS_VERSION, CFG_FIRST_RUN_NUDGES, CFG_ANNOUNCED_ACCOUNTS, "settingsMovedNoted", "itemsWiped");
+	static final List<String> CTR_KEYS = List.of("recapCounterEventId", "recapCounterDeaths", "recapCounterLootGp", "recapCounterPvpKills", "recapCounterBiggestHit", "recapCounterMinutes", "recapCounterCaTasks");
 	// Per-RSN state keys are stored as "<prefix>:<rsn>".
 	static final List<String> INTERNAL_STATE_PREFIXES = List.of(CFG_VESTIGE_ROLLS + ":", CFG_CLOG_STATE + ":", CFG_PB_STATE + ":", CFG_CLOG_FINGERPRINT + ":", CFG_PB_IMPORTED + ":");
 
 	static boolean isInternalStateKey(String key) {
-		return key != null && (INTERNAL_STATE_KEYS.contains(key) || INTERNAL_STATE_PREFIXES.stream().anyMatch(key::startsWith));
+		return key != null && (INTERNAL_STATE_KEYS.contains(key) || CTR_KEYS.contains(key) || INTERNAL_STATE_PREFIXES.stream().anyMatch(key::startsWith));
 	}
 
 	@Subscribe void onConfigChanged(ConfigChanged event) {
@@ -1850,8 +1847,7 @@ public class AnvilPlugin extends Plugin {
 		if (id == ScriptID.FRIENDS_UPDATE || id == ScriptID.FRIENDS_CHAT_CHANNEL_REBUILD || id == ScriptID.CLAN_SIDEPANEL_DRAW) {
 			flairNameLists();
 			if (id == ScriptID.CLAN_SIDEPANEL_DRAW) {
-				flairClanTitleGroup(InterfaceID.CLANS_SIDEPANEL);
-				flairClanTitleGroup(InterfaceID.CLANS_GUEST_SIDEPANEL);
+				flairClanTitles();
 			}
 			return;
 		}
@@ -2743,7 +2739,7 @@ public class AnvilPlugin extends Plugin {
 		// same-tick deaths is counted in full (NpcLootReceived under-fires those). See serverNpcLootSeen.
 		if (firstServerLoot && name != null && name.equalsIgnoreCase(fallbackKillName) && client.getTickCount() - fallbackKillTick <= 2 /* FALLBACK_KILL_TICKS */) return; // the client-side fallback already counted this very kill (see fallbackKillName)
 		processValueTiles(name, event.getItems(), "npc");
-		processNpcKill(name);
+		processNpcKill(name, null);
 	}
 
 	/** A kill's loot: its vestige rolls, then the drop tiles for whatever no chat line already credited. */
@@ -2765,7 +2761,7 @@ public class AnvilPlugin extends Plugin {
 			fallbackKillName = name;
 			fallbackKillTick = client.getTickCount();
 			processValueTiles(name, event.getItems(), "npc");
-			processNpcKill(name);
+			processNpcKill(name, null);
 		}
 	}
 
@@ -2810,7 +2806,7 @@ public class AnvilPlugin extends Plugin {
 		// source that also prints a "count is:" chat line, so a CoX chest can't credit the same
 		// raid twice. Restricted to EVENT loot — NPC kills come through onNpcLootReceived, and
 		// loot keys were re-typed to "pvp" above.
-		if ("event".equals(kind)) processNpcKill(source);
+		if ("event".equals(kind)) processNpcKill(source, null);
 		processLoot(source, chatCredits.unclaimed(items, now()), kind);
 		processValueTiles(source, items, kind);
 		recordEventLoot(source, items, kind);
@@ -3175,7 +3171,7 @@ public class AnvilPlugin extends Plugin {
 				kcLine(kcName, kc);
 				var view = client.getTopLevelWorldView();
 				raidLineOpen = isRaidLine(kcName) && view != null && view.isInstance();
-				creditBossKillFromChat(kcName, firstSeen);
+				processNpcKill(kcName, firstSeen);
 				// Real-time boss-KC tiles: push the absolute count so the tile updates now instead
 				// of waiting ~1h for the hiscores cron (debounced).
 				maybeQueueKcPush(kcName, kc);
@@ -3852,35 +3848,28 @@ public class AnvilPlugin extends Plugin {
 	 * clue caskets), where one loot event is exactly one open. Bosses that DO
 	 * print a KC line are handled by the chat handler instead — once a KC message
 	 * has been seen for this name we defer to it, so a source firing both a KC
-	 * line and a loot event is counted exactly once.
-	 */
-	void processNpcKill(String npcName) {
-		if (empty(npcName) || trackingOff()) return;
-		var key = npcName.toLowerCase();
-		if (!rules.tracksKill(key)) return;
-		lastLootKillAt.put(key, now());
-		// KC-driven boss (a "Your <X> kill count is:" line has fired for it) → the chat handler owns
-		// the count. Skip here to avoid double-crediting the same kill.
-		if (killCounts.containsKey(key)) return;
-		creditKill(npcName, 1); // one NpcLootReceived == one kill
-	}
-
-	/**
-	 * Kill crediting driven by the Jagex "Your <X> kill count is: N" chat line
+	 * line and a loot event is counted exactly once. {@code chatFirstSeen} is null on that loot path.
+	 *
+	 * Non-null: kill crediting driven by the Jagex "Your <X> kill count is: N" chat line
 	 * — the reliable signal for bosses whose loot comes from corpse interaction
 	 * (Maggot King, Araxxor, …) and so may never fire NpcLootReceived.
 	 */
-	void creditBossKillFromChat(String npcName, boolean firstSeen) {
+	void processNpcKill(String npcName, Boolean chatFirstSeen) {
 		if (empty(npcName) || trackingOff()) return;
 		var key = npcName.toLowerCase();
 		if (!rules.tracksKill(key)) return;
-		// First KC line of the session for this boss: the loot path may have already credited this
-		// very kill moments ago (event ordering isn't guaranteed). If so, don't count it twice.
-		if (firstSeen) {
+		if (chatFirstSeen == null) {
+			lastLootKillAt.put(key, now());
+			// KC-driven boss (a "Your <X> kill count is:" line has fired for it) → the chat handler owns
+			// the count. Skip here to avoid double-crediting the same kill.
+			if (killCounts.containsKey(key)) return;
+		} else if (chatFirstSeen) {
+			// First KC line of the session for this boss: the loot path may have already credited this
+			// very kill moments ago (event ordering isn't guaranteed). If so, don't count it twice.
 			var lootAt = lastLootKillAt.get(key);
 			if (lootAt != null && now() - lootAt < 6000 /* KILL_DEDUP_MS */) return;
 		}
-		creditKill(npcName, 1); // one KC line == one kill
+		creditKill(npcName, 1); // one NpcLootReceived / KC line == one kill
 	}
 
 	/**
@@ -6253,8 +6242,7 @@ public class AnvilPlugin extends Plugin {
 		if (flairDue || !menusOff() && nameListsRebuilt()) flairNameLists();
 		if (flairDue) {
 			flairDue = false;
-			flairClanTitleGroup(InterfaceID.CLANS_SIDEPANEL);
-			flairClanTitleGroup(InterfaceID.CLANS_GUEST_SIDEPANEL);
+			flairClanTitles();
 			for (int r : FLAIR_ROOTS) flairInterface(r);
 		}
 		flairChatInput();
@@ -6354,24 +6342,26 @@ public class AnvilPlugin extends Plugin {
 	final Map<Widget, Painted> clanTitleFlair = new WeakHashMap<>();
 	long clanTitleFrame = Long.MIN_VALUE;
 
-	/** Paint only the verified clan name in the channel header; its member count stays game-coloured. */
-	void flairClanTitleGroup(int group) {
+	/** Paint only the verified clan name in the channel headers (own and guest); the member count stays game-coloured. */
+	void flairClanTitles() {
 		var clan = pluginConfig == null ? null : pluginConfig.activeClan;
 		// A boosted clan's look outside chat follows "Supporter & clan looks in game" (Off: the game's own).
 		if (clan == null || clan.boostLevel < 1 || !menusFlair()) return;
 		var n = clan.gameName == null || clan.gameName.trim().isEmpty() ? clan.name : clan.gameName;
-		var root = client.getWidget(group, 0);
-		if (n == null || n.trim().isEmpty() || root == null) return;
+		if (n == null || n.trim().isEmpty()) return;
 		var name = n.trim();
 		int level = clan.boostLevel;
-		walk(root, w -> {
-			var t = w.getText();
-			var suffix = ChatFlair.clanTitleSuffix(t, name);
-			if (suffix == null) return;
-			var painted = paintClanTitle(name, suffix, level, interfaceNameShift(currentChatNameFrame()));
-			w.setText(painted);
-			clanTitleFlair.put(w, new Painted(untagged(t), painted, false, false, name, suffix, level));
-		});
+		for (int group : new int[]{InterfaceID.CLANS_SIDEPANEL, InterfaceID.CLANS_GUEST_SIDEPANEL}) {
+			var root = client.getWidget(group, 0);
+			if (root != null) walk(root, w -> {
+				var t = w.getText();
+				var suffix = ChatFlair.clanTitleSuffix(t, name);
+				if (suffix == null) return;
+				var painted = paintClanTitle(name, suffix, level, interfaceNameShift(currentChatNameFrame()));
+				w.setText(painted);
+				clanTitleFlair.put(w, new Painted(untagged(t), painted, false, false, name, suffix, level));
+			});
+		}
 	}
 
 	static String untagged(String t) {
@@ -6423,8 +6413,7 @@ public class AnvilPlugin extends Plugin {
 
 	void refreshClanTitleWidgets() {
 		unflairClanTitleWidgets();
-		flairClanTitleGroup(InterfaceID.CLANS_SIDEPANEL);
-		flairClanTitleGroup(InterfaceID.CLANS_GUEST_SIDEPANEL);
+		flairClanTitles();
 	}
 
 	void unflairClanTitleWidgets() {
@@ -6722,7 +6711,7 @@ public class AnvilPlugin extends Plugin {
 	void relayHeal() {
 		var p = pushSocket;
 		var cfg = pluginConfig;
-		if (p == null || !loggedIn() || config.anvilChat() == AnvilConfig.Relay.Off || cfg == null || !cfg.serverSupports("chat-relay")) return;
+		if (p == null || !loggedIn() || !relayOn() || cfg == null || !cfg.serverSupports("chat-relay")) return;
 		var world = client.getWorld();
 		if (p.relayOk) relayRenewMs = 10_000;
 		var rsn = apiClient.getCurrentRsn();
@@ -6827,7 +6816,7 @@ public class AnvilPlugin extends Plugin {
 		// socket just for the Feed, and only while it's on screen.
 		// The chat relay (either half on) listens too, on the world it is on: a hop or another character
 		// re-tickets, since the ticket names both (docs/PLUGIN_WIRE.md chat-relay).
-		int world = config.anvilChat() != AnvilConfig.Relay.Off && loggedIn()
+		int world = relayOn() && loggedIn()
 				&& (cfg != null ? cfg.serverSupports("chat-relay") : apiClient.siteAdvertises("chat-relay")) ? client.getWorld() : 0;
 		var rows = eventId > 0 || feed || feedWatching || world > 0;
 		if (p != null) p.scope(rows && apiClient.isConfigured() && siteHas("push-ws")
@@ -6844,7 +6833,7 @@ public class AnvilPlugin extends Plugin {
 		// A relayed line goes straight to the client thread: queued behind the executor's other work (a
 		// flush, a config merge), it could wait seconds.
 		if ("relay".equals(m.get("t").getAsString())) {
-			if (config.anvilChat() != AnvilConfig.Relay.Off) clientThread.invoke(() -> showRelay(m));
+			if (relayOn()) clientThread.invoke(() -> showRelay(m));
 		} else if (execLive()) executor.execute(() -> safely("push", () -> applyPush(m)));
 	}
 
@@ -6884,7 +6873,7 @@ public class AnvilPlugin extends Plugin {
 				clientThread.invoke(() -> {
 					// Only where the game shows us to them anyway: on their screen (we're on each other's), in our group, or our
 					// friend while we're on Friends. Otherwise we stay offline to them, as the game keeps us.
-					if (inScene(asker) || inGroup(asker) || ("friends".equals(pmModeSent) && client.isFriended(asker, false))) relaySend("t", "ok", "n", asker);
+					if (inScene(asker) != null || inGroup(asker) || ("friends".equals(pmModeSent) && client.isFriended(asker, false))) relaySend("t", "ok", "n", asker);
 				});
 				return;
 			case "hello":
@@ -7003,10 +6992,14 @@ public class AnvilPlugin extends Plugin {
 		var a = pluginConfig;
 		if (a == null || fresh == null || a.event == null || fresh.event == null || a.event.id != fresh.event.id
 				|| (a.team == null ? 0 : a.team.id) != (fresh.team == null ? 0 : fresh.team.id)) optimistic.reset();
+		install(fresh);
+		liveCountsMoved();
+	}
+
+	void install(PluginConfigResponse fresh) {
 		pluginConfig = fresh;
 		clientThread.invokeLater(this::refreshClanTitleWidgets);
 		rebuildItemDropIndex();
-		liveCountsMoved();
 	}
 
 	/** The fetch, by a caller already holding {@link #configFetchLock}, which this releases. */
@@ -7047,9 +7040,7 @@ public class AnvilPlugin extends Plugin {
 			// No board in the addressed clan (event: null). Boards elsewhere still ride the tracked lists
 			// and `boards`, and are tracked like any other; with none, tracking reflects that.
 			if (fresh != null && fresh.event == null) {
-				pluginConfig = fresh;
-				clientThread.invokeLater(this::refreshClanTitleWidgets);
-				rebuildItemDropIndex();
+				install(fresh);
 				if (apiClient.getCurrentRsn() != null) checkTileCompletions(fresh);
 				// The diagnostic "money line" for debug exports: the token is valid AND this RSN
 				// IS a player in a live bingo — but the account/token isn't linked to it, so
@@ -7409,22 +7400,16 @@ public class AnvilPlugin extends Plugin {
 	 */
 	boolean ensureCounterEvent() {
 		if (!countersLoaded) {
-			counterEventId = (int) cfgLong(CFG_COUNTER_EVENT);
-			eventDeaths = (int) cfgLong(CFG_COUNTER_DEATHS);
-			eventLootGp = cfgLong(CFG_COUNTER_LOOTGP);
-			eventPvpKills = (int) cfgLong(CFG_COUNTER_PVP);
-			eventBiggestHit = (int) cfgLong(CFG_COUNTER_BIGHIT);
-			eventMinutes = (int) cfgLong(CFG_COUNTER_MINUTES);
-			eventCaTasks = (int) cfgLong(CFG_COUNTER_CATASKS);
+			for (int i = 0; i < 7; i++) ctr[i] = i == 2 ? cfgLong(CTR_KEYS.get(i)) : (int) cfgLong(CTR_KEYS.get(i));
 			countersLoaded = true;
 		}
 		var cfg = pluginConfig;
 		int active = cfg != null && cfg.event != null ? cfg.event.id : 0;
 		if (trackingGateReason() != null || active <= 0) return false;
-		if (active != counterEventId) {
-			counterEventId = active;
-			eventDeaths = eventPvpKills = eventBiggestHit = eventCaTasks = eventMinutes = eventTickAccumulator = 0;
-			eventLootGp = 0;
+		if (active != ctr[0]) {
+			Arrays.fill(ctr, 0);
+			ctr[0] = active;
+			eventTickAccumulator = 0;
 			persistCounters();
 		}
 		return true;
@@ -7449,9 +7434,9 @@ public class AnvilPlugin extends Plugin {
 	 */
 	void recordEventHit(int damage) {
 		synchronized (counterLock) {
-			if (damage <= eventBiggestHit) return;
+			if (damage <= ctr[4]) return;
 		}
-		bumpEventCounter(() -> eventBiggestHit = max(eventBiggestHit, damage));
+		bumpEventCounter(() -> ctr[4] = max(ctr[4], damage));
 	}
 
 	/**
@@ -7469,10 +7454,10 @@ public class AnvilPlugin extends Plugin {
 			}
 			if (++eventTickAccumulator < 100 /* TICKS_PER_MINUTE */) return;
 			eventTickAccumulator = 0;
-			eventMinutes++;
+			ctr[5]++;
 			persistCounters();
 			// Push on a slow cadence: a minute ticking over isn't worth a request every time.
-			bankedMinute = eventMinutes % 10 /* MINUTES_PER_PLAYTIME_PUSH */ == 0;
+			bankedMinute = ctr[5] % 10 /* MINUTES_PER_PLAYTIME_PUSH */ == 0;
 		}
 		if (bankedMinute) scheduleCounterPush();
 	}
@@ -7504,7 +7489,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		synchronized (counterLock) {
 			if (!ensureCounterEvent()) return;
-			eventLootGp += haulGp;
+			ctr[2] += haulGp;
 		}
 		scheduleCounterPush();
 	}
@@ -7518,16 +7503,14 @@ public class AnvilPlugin extends Plugin {
 
 	/** Push the current absolute per-event counters. Absolute + server max-merge → a failure just retries. */
 	void flushCounterPush() {
-		int[] v;
-		long lootGp;
+		long[] v;
 		synchronized (counterLock) {
 			persistCounters();
-			v = new int[]{eventDeaths, eventPvpKills, eventBiggestHit, eventMinutes, eventCaTasks};
-			lootGp = eventLootGp;
+			v = ctr.clone();
 		}
 		if (!pvpCounterActive()) return; // event ended between schedule and flush — drop; nothing feeds scoring off this.
 		try {
-			apiClient.submitEventCounters(v[0], lootGp, v[1], v[2], v[3], v[4]);
+			apiClient.submitEventCounters((int) v[1], v[2], (int) v[3], (int) v[4], (int) v[5], (int) v[6]);
 		} catch (IOException e) {
 			log.warn("Counter push failed, retrying: {}", e.getMessage());
 			scheduleCounterPush();
@@ -7848,13 +7831,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** Persist the per-event counters to the config store so a restart resumes them. Call under counterLock. */
 	void persistCounters() {
-		cfgSet(CFG_COUNTER_EVENT, "" + counterEventId);
-		cfgSet(CFG_COUNTER_DEATHS, "" + eventDeaths);
-		cfgSet(CFG_COUNTER_LOOTGP, "" + eventLootGp);
-		cfgSet(CFG_COUNTER_PVP, "" + eventPvpKills);
-		cfgSet(CFG_COUNTER_BIGHIT, "" + eventBiggestHit);
-		cfgSet(CFG_COUNTER_MINUTES, "" + eventMinutes);
-		cfgSet(CFG_COUNTER_CATASKS, "" + eventCaTasks);
+		for (int i = 0; i < 7; i++) cfgSet(CTR_KEYS.get(i), "" + ctr[i]);
 	}
 
 	/**
@@ -7982,7 +7959,7 @@ public class AnvilPlugin extends Plugin {
 		if (lmsInGame && !lmsPlacementRecorded && lmsSurvivors > 0) recordLmsPlacement(max(lmsSurvivors, 2));
 		// Recap counter — count the death for the "Wipe Magnet" superlative even if death
 		// notifications are off (still gated on an active event inside).
-		bumpEventCounter(() -> eventDeaths++);
+		bumpEventCounter(() -> ctr[1]++);
 		// Clan feed — WHAT killed us, which is the half the recap counter throws away. Dying to
 		// the boss everyone is racing that week is the story; dying in general is a number.
 		// Recorded here rather than beside the post below, so the drops channel being off can't
@@ -8082,7 +8059,7 @@ public class AnvilPlugin extends Plugin {
 		if (last == null || now - last > PVP_KILL_ATTRIBUTION_MS) return;
 		// Recap counter first: ANY dangerous-PvP kill feeds the PKer superlative,
 		// pvp tiles on the board or not. Tile credit + notify keep their own gates.
-		if (inDangerousPvp()) bumpEventCounter(() -> eventPvpKills++);
+		if (inDangerousPvp()) bumpEventCounter(() -> ctr[3]++);
 		creditPvpKillTiles(name);
 		var me = me();
 		// The kills channel. The kill is already attributed to us (damage within the window); the
@@ -8736,7 +8713,7 @@ public class AnvilPlugin extends Plugin {
 			// the completion line names it, and the parse stands down when that word isn't a tier we
 			// recognise. The site relies on that (a `ca` moment with no rankable tier is rejected).
 			moment(Moment.combatTask(pending.task, pending.tier.getDisplayName(), now()));
-			bumpEventCounter(() -> eventCaTasks++);
+			bumpEventCounter(() -> ctr[6]++);
 			if (!tiers.contains(pending.tier.name())) continue;
 			// One task with what it was worth, the running total, and the next tier unlock: the
 			// lowest cumulative threshold still above the total; 0 once all are.
@@ -9158,7 +9135,7 @@ public class AnvilPlugin extends Plugin {
 		}
 		if (String.valueOf(CURRENT_DEFAULTS_VERSION).equals(cfgGet(CFG_DEFAULTS_VERSION))) return;
 		var o = new JsonObject();
-		for (var k : new String[]{"notifyRareDrops", "rareDropMinValue", "rareDropMinRarity", "lootKeyMinValue", "notifyPets", "notifyDeaths", "deathMessage", "notifyPvpKills", "notifyClogSlots", "notifyLevelUps", "notifyDiaries", "caMinTaskTier", "questAnnounce", CFG_DEFAULTS_VERSION}) {
+		for (var k : text.notifyPrefKeys) {
 			var val = cfgGet(k);
 			if (val != null) o.addProperty(k, val);
 		}
@@ -9601,10 +9578,15 @@ public class AnvilPlugin extends Plugin {
 		return ("pm".equals(c) ? on == AnvilConfig.Relay.See_send_PMs : on.compareTo(AnvilConfig.Relay.See_send) >= 0) && p != null && !text.startsWith("::") && p.say(gson.toJson(obj("t", "say", "c", c, "x", text, "to", to)));
 	}
 
+	/** Either half of the chat relay is on. */
+	boolean relayOn() {
+		return config.anvilChat() != AnvilConfig.Relay.Off;
+	}
+
 	/** A relay control message (not a chat line): our private chat setting, a who, a friend's yes. */
 	void relaySend(Object... kv) {
 		var p = pushSocket;
-		if (p != null && config.anvilChat() != AnvilConfig.Relay.Off) p.say(gson.toJson(obj(kv)));
+		if (p != null && relayOn()) p.say(gson.toJson(obj(kv)));
 	}
 
 	/** The private chat setting last told to the relay ("" after a reconnect: tell it again). */
@@ -9631,10 +9613,10 @@ public class AnvilPlugin extends Plugin {
 		return g != null && g.findMember(name) != null;
 	}
 
-	/** Whether a player of that name is in our scene (the game shows them to us). */
-	boolean inScene(String name) {
+	/** The player of that name in our scene (the game shows them to us), or null. */
+	Player inScene(String name) {
 		var k = relayKey(name, "");
-		return client.getPlayers().stream().anyMatch(q -> q != null && q.getName() != null && k.equals(relayKey(q.getName(), "")));
+		return client.getPlayers().stream().filter(q -> q != null && q.getName() != null && k.equals(relayKey(q.getName(), ""))).findFirst().orElse(null);
 	}
 
 	/** Players the game shows us (on screen, or online friends) not known as connected: ask; their own client decides. */
@@ -9644,7 +9626,7 @@ public class AnvilPlugin extends Plugin {
 		for (var n : names) {
 			var k = Text.standardize(n);
 			var was = relayAsked.get(k);
-			if (relayConnected(n) || !(friendOnline(n) || inScene(n) || inGroup(n)) || was != null && t - was < 10_000) continue;
+			if (relayConnected(n) || !(friendOnline(n) || inScene(n) != null || inGroup(n)) || was != null && t - was < 10_000) continue;
 			relayAsked.put(k, t);
 			ask.add(n);
 		}
@@ -9759,7 +9741,7 @@ public class AnvilPlugin extends Plugin {
 
 	/** Client thread: a relayed line. If the game already showed it, add the icon to that copy; otherwise print the line at once. */
 	void showRelay(JsonObject m) {
-		if (config.anvilChat() == AnvilConfig.Relay.Off || !loggedIn() || client.getLocalPlayer() == null) return;
+		if (!relayOn() || !loggedIn() || client.getLocalPlayer() == null) return;
 		var n = m.get("n").getAsString();
 		var c = m.get("c").getAsString();
 		var said = m.get("x").getAsString();
@@ -9774,7 +9756,7 @@ public class AnvilPlugin extends Plugin {
 		String from = null, shown = null;
 		var type = PUBLICCHAT;
 		if ("public".equals(c)) {
-			for (var q : client.getPlayers()) if (q != null && q.getName() != null && relayKey(n, "").equals(relayKey(q.getName(), ""))) shown = (near = q).getName();
+			if ((near = inScene(n)) != null) shown = near.getName();
 		} else if ("clan".equals(c) || "guest".equals(c)) {
 			var g = "guest".equals(c);
 			var ch = g ? client.getGuestClanChannel() : client.getClanChannel();
@@ -9961,7 +9943,7 @@ public class AnvilPlugin extends Plugin {
 			// Visible: the game shows them to us right now. A chat line's name or a friend the game shows
 			// offline still gets a line, but always "disconnected": whoever hides as offline stays so, and
 			// it reads the same as someone without Anvil.
-			var visible = en.getPlayer() != null || inScene(name) || inGroup(name) || friendOnline(name) || cc != null && cc.findMember(name) != null || gc != null && gc.findMember(name) != null || fc != null && fc.findByName(name) != null;
+			var visible = en.getPlayer() != null || inScene(name) != null || inGroup(name) || friendOnline(name) || cc != null && cc.findMember(name) != null || gc != null && gc.findMember(name) != null || fc != null && fc.findByName(name) != null;
 			// A hidden name gets a line only off a chat line, and only on an option about a player (not a
 			// task or an item a broadcast names); an offline friend none at all.
 			if (!visible && !(overChatLine && PLAYER_OPTIONS.contains(Text.removeTags(String.valueOf(en.getOption()))))) continue;
