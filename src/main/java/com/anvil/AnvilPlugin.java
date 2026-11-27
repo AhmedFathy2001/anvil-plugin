@@ -8257,12 +8257,9 @@ public class AnvilPlugin extends Plugin {
 		var top = client.getTopLevelWorldView();
 		if (top == null || !top.isInstance()) return null;
 		// In a ToA party (a level 0 run reads no raid level at all): the level only says which mode.
-		if (client.getVarbitValue(VarbitID.TOA_CLIENT_PARTYSTATUS) > 0 || client.getVarbitValue(VarbitID.TOA_CLIENT_RAID_LEVEL) > 0) {
-			return client.getVarbitValue(VarbitID.TOA_CLIENT_RAID_LEVEL) < 150 /* TOA_ENTRY_BELOW */ ? "toa-entry" : "toa";
-		}
-		if (client.getVarbitValue(VarbitID.RAIDS_CLIENT_INDUNGEON) == 1) return "cox";
-		if (client.getVarbitValue(VarbitID.TOB_CLIENT_PARTYSTATUS) <= 0) return null;
-		return "entry".equals(tobMode) ? "tob-entry" : "tob";
+		int toa = client.getVarbitValue(VarbitID.TOA_CLIENT_RAID_LEVEL);
+		if (client.getVarbitValue(VarbitID.TOA_CLIENT_PARTYSTATUS) > 0 || toa > 0) return toa < 150 /* TOA_ENTRY_BELOW */ ? "toa-entry" : "toa";
+		return client.getVarbitValue(VarbitID.RAIDS_CLIENT_INDUNGEON) == 1 ? "cox" : client.getVarbitValue(VarbitID.TOB_CLIENT_PARTYSTATUS) <= 0 ? null : "entry".equals(tobMode) ? "tob-entry" : "tob";
 	}
 
 	/** "entry" | "hard" | "normal", from the game's "You enter the Theatre of Blood (Entry Mode)..." line; no varbit tells them apart. */
@@ -10138,7 +10135,8 @@ public class AnvilPlugin extends Plugin {
 	final Map<String, int[]> relaySeen = new HashMap<>();
 	/** Client thread: ids of lines the relay added, by relayKey: dropped if the game's own copy arrives later. */
 	final Map<String, Integer> relayNodes = capped(50, false);
-	static final Set<ChatMessageType> RELAYED = EnumSet.of(PUBLICCHAT, MODCHAT, CLAN_CHAT, CLAN_GUEST_CHAT, FRIENDSCHAT, PRIVATECHAT, PRIVATECHATOUT);
+	/** The chat types the relay reads, and its channel name for each. */
+	static final Map<ChatMessageType, String> RELAYED = Map.of(PUBLICCHAT, "public", MODCHAT, "public", CLAN_CHAT, "clan", CLAN_GUEST_CHAT, "guest", FRIENDSCHAT, "fc", PRIVATECHAT, "pm", PRIVATECHATOUT, "pm");
 
 	/** Client thread: we are adding a relayed line (its own ChatMessage must not count as the game's). */
 	boolean injecting;
@@ -10155,7 +10153,7 @@ public class AnvilPlugin extends Plugin {
 	net.runelite.client.game.chatbox.ChatboxTextInput eventChatInput;
 	int relayIcon = -1;
 
-	final HotkeyListener eventChatKey = new HotkeyListener(() -> config.eventChatKey()) {
+	final HotkeyListener eventChatKey = new HotkeyListener(config::eventChatKey) {
 		public void hotkeyPressed() {
 			clientThread.invoke(() -> {
 				// Pressed again with our input open: the next channel, keeping what was typed.
@@ -10222,8 +10220,7 @@ public class AnvilPlugin extends Plugin {
 	/** Whether a player of that name is in our scene (the game shows them to us). */
 	boolean inScene(String name) {
 		var k = relayKey(name, "");
-		for (var q : client.getPlayers()) if (q != null && q.getName() != null && k.equals(relayKey(q.getName(), ""))) return true;
-		return false;
+		return client.getPlayers().stream().anyMatch(q -> q != null && q.getName() != null && k.equals(relayKey(q.getName(), "")));
 	}
 
 	/** Players the game shows us (on screen, or online friends) not known as connected: ask; their own client decides. */
@@ -10233,7 +10230,7 @@ public class AnvilPlugin extends Plugin {
 		for (var n : names) {
 			var k = Text.standardize(n);
 			var was = relayAsked.get(k);
-			if (relayConnected(n) || !(friendOnline(n) || inScene(n) || inGroup(n)) || (was != null && t - was < 10_000)) continue;
+			if (relayConnected(n) || !(friendOnline(n) || inScene(n) || inGroup(n)) || was != null && t - was < 10_000) continue;
 			relayAsked.put(k, t);
 			ask.add(n);
 		}
@@ -10244,11 +10241,11 @@ public class AnvilPlugin extends Plugin {
 	void relayHeard(ChatMessage e) {
 		var ct = e.getType();
 		// A line we added ourselves is never "the game's copy" of anything.
-		if (!RELAYED.contains(ct) || e.getName() == null || injecting) return;
+		var c = RELAYED.get(ct);
+		if (c == null || e.getName() == null || injecting) return;
 		var name = Text.removeTags(e.getName());
 		var text = Text.removeTags(e.getMessage());
 		var out = ct == PRIVATECHATOUT;
-		var c = ct == CLAN_CHAT ? "clan" : ct == CLAN_GUEST_CHAT ? "guest" : ct == FRIENDSCHAT ? "fc" : ct == PRIVATECHAT || out ? "pm" : "public";
 		// Our own line (a PM we sent names its recipient instead).
 		if (out || Text.standardize(name).equals(Text.standardize(String.valueOf(getLocalPlayerName())))) {
 			// A PM only to someone the relay says is connected: otherwise nothing leaves the client.
@@ -10351,7 +10348,8 @@ public class AnvilPlugin extends Plugin {
 		if (config.anvilChat() == AnvilConfig.Relay.Off || !loggedIn() || client.getLocalPlayer() == null) return;
 		var n = m.get("n").getAsString();
 		var c = m.get("c").getAsString();
-		var key = c + relayKey(n, m.get("x").getAsString());
+		var said = m.get("x").getAsString();
+		var key = c + relayKey(n, said);
 		var seen = relaySeen.remove(key);
 		var game = seen == null ? null : client.getMessages().get(seen[0]);
 		relayMark(game, "");
@@ -10396,7 +10394,7 @@ public class AnvilPlugin extends Plugin {
 		if (shown == null) return;
 		// Untrusted all the same: the words escaped; the name our client's own, after the rank and the
 		// account-type icon (only those six indices, by explicit match) and before the Anvil icon.
-		var x = Text.escapeJagex(m.get("x").getAsString());
+		var x = Text.escapeJagex(said);
 		var im = m.has("nm") ? ICON_LEAD.matcher(m.get("nm").getAsString()) : null;
 		var icon = im != null && im.lookingAt() ? "<img=" + im.group(1) + ">" : "";
 		injecting = true;
@@ -10807,9 +10805,8 @@ public class AnvilPlugin extends Plugin {
 	 * a seeded time only ever replaces a slower one.
 	 */
 	void importRuneLitePersonalBests(String rsnKey) {
-		if (!config.importRuneLitePbs() || !config.syncPersonalBests()) return;
-		var profile = configManager.getRSProfileKey();
-		if (empty(profile)) return; // No RS profile yet -- try again next login rather than marking it done.
+		// No RS profile yet: try again next login rather than marking it done.
+		if (!config.importRuneLitePbs() || !config.syncPersonalBests() || empty(configManager.getRSProfileKey())) return;
 		// The names to ask for. Without them there is nothing to probe, so we leave the flag unset
 		// and try again once the site's config has landed.
 		var cfg = pluginConfig;
