@@ -5725,7 +5725,6 @@ public class AnvilPlugin extends Plugin {
 		try {
 			if (!configFetchLock.tryLock(25, TimeUnit.SECONDS)) return;
 		} catch (InterruptedException e) {
-			Thread.currentThread().interrupt();
 			return;
 		}
 		if (lastConfigAttemptAt < asked) fetchConfigAndUnlock();
